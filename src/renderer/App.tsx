@@ -923,7 +923,7 @@ const App: React.FC = () => {
         </div>
         
         {/* Main Content Area */}
-        <div className="flex-1 flex flex-col min-h-0">
+        <div className="flex-1 flex flex-col min-h-0 min-w-0">
           {/* Messages Area */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
         {activeTab?.messages.length === 0 && status === 'connected' && (
@@ -944,15 +944,15 @@ const App: React.FC = () => {
             className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
             <div 
-              className={`max-w-[80%] rounded-lg px-4 py-2.5 ${
+              className={`max-w-[80%] rounded-lg px-4 py-2.5 overflow-hidden ${
                 message.role === 'user' 
                   ? 'bg-[#238636] text-white' 
                   : 'bg-[#21262d] text-[#e6edf3]'
               }`}
             >
-              <div className="text-sm break-words">
+              <div className="text-sm break-words overflow-hidden">
                 {message.role === 'user' ? (
-                  <span className="whitespace-pre-wrap">{message.content}</span>
+                  <span className="whitespace-pre-wrap break-words">{message.content}</span>
                 ) : message.content ? (
                   <ReactMarkdown
                     components={{
@@ -965,14 +965,14 @@ const App: React.FC = () => {
                       code: ({ children, className }) => {
                         const isBlock = className?.includes('language-')
                         return isBlock ? (
-                          <pre className="bg-[#161b22] rounded p-2 my-2 overflow-x-auto text-xs">
+                          <pre className="bg-[#161b22] rounded p-2 my-2 overflow-x-auto text-xs max-w-full">
                             <code className="text-[#e6edf3]">{children}</code>
                           </pre>
                         ) : (
-                          <code className="bg-[#161b22] px-1 py-0.5 rounded text-[#f0883e] text-xs">{children}</code>
+                          <code className="bg-[#161b22] px-1 py-0.5 rounded text-[#f0883e] text-xs break-all">{children}</code>
                         )
                       },
-                      pre: ({ children }) => <>{children}</>,
+                      pre: ({ children }) => <div className="overflow-x-auto max-w-full">{children}</div>,
                       a: ({ href, children }) => (
                         <a href={href} className="text-[#58a6ff] hover:underline" target="_blank" rel="noopener noreferrer">
                           {children}

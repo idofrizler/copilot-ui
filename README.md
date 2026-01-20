@@ -6,12 +6,35 @@ A beautiful native desktop GUI for GitHub Copilot, built with Electron and the [
 
 ## Features
 
+### Chat & Sessions
 - 🎨 **Clean chat interface** - Modern dark theme matching GitHub's design
-- 🤖 **Multiple models** - Switch between GPT-5, Claude Sonnet 4.5, Claude Sonnet 4, and GPT-4.1
-- 🔧 **Tool execution** - Visual indicators for running tools
-- 📝 **Markdown rendering** - Rich formatting for responses (lists, code blocks, bold, etc.)
-- 💾 **Persistent settings** - Your model preference is saved across sessions
+- 📑 **Multi-session tabs** - Work on multiple conversations simultaneously
+- 💬 **Session persistence** - Sessions are saved and restored across app restarts
+- 🏷️ **AI-generated titles** - Sessions automatically get descriptive names
 - ⚡ **Streaming responses** - See answers as they're generated
+- 📝 **Markdown rendering** - Rich formatting for responses (lists, code blocks, bold, etc.)
+
+### Models
+- 🤖 **Multiple models** - Switch between GPT-5.2, GPT-5 mini, Claude Sonnet 4.5, Claude Opus 4.5, and Gemini 3 Flash
+- 💰 **Cost indicators** - See relative pricing for each model
+- 💾 **Persistent settings** - Your model preference is saved per session
+
+### Working Directory & Trust
+- 📁 **Per-session working directory** - Each session can operate in a different folder
+- 🔒 **Directory trust flow** - Prompted to trust folders before granting access (once/always/deny)
+- 🔄 **Directory picker** - Change working directory via the session info panel
+
+### Permissions & Security
+- ✅ **Command approval** - Review and approve shell commands before execution
+- 📋 **Per-executable tracking** - "Always allow" works per command (mkdir, ls, etc.)
+- 📄 **File change approval** - Approve file writes with path visibility
+- 🚫 **Out-of-scope protection** - Extra confirmation for reading files outside workspace
+- 🔧 **Tool execution indicators** - See when tools are running
+
+### UI
+- 📊 **Session info panel** - Right sidebar shows working directory and always-allowed commands
+- 📜 **Previous sessions** - Access and restore past conversations
+- 🎯 **Auto-focus input** - Chat input is focused when switching sessions
 
 ## Prerequisites
 
@@ -45,6 +68,12 @@ This app uses the official [GitHub Copilot SDK](https://www.npmjs.com/package/@g
 
 The SDK uses your existing GitHub authentication (via `gh` CLI) to authenticate requests.
 
+### Architecture
+
+- **Multiple CopilotClients** - One client per unique working directory for proper cwd isolation
+- **Session state** - Tracks model, cwd, and always-allowed executables per session
+- **IPC bridge** - Secure communication between main process and renderer
+
 ## Tech Stack
 
 - **Electron** - Native desktop app
@@ -52,7 +81,7 @@ The SDK uses your existing GitHub authentication (via `gh` CLI) to authenticate 
 - **TypeScript** - Type safety
 - **Tailwind CSS** - Styling
 - **Copilot SDK** - GitHub Copilot integration
-- **electron-store** - Settings persistence
+- **electron-store** - Settings and session persistence
 - **react-markdown** - Response formatting
 
 ## License
