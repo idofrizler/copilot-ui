@@ -82,10 +82,19 @@ interface ModelInfo {
 
 // Static list of available models with pricing multipliers (sorted by cost low to high)
 const AVAILABLE_MODELS: ModelInfo[] = [
+  { id: 'gpt-4.1', name: 'GPT-4.1', multiplier: 0 },
   { id: 'gpt-5-mini', name: 'GPT-5 mini', multiplier: 0 },
-  { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash (Preview)', multiplier: 0.33 },
-  { id: 'gpt-5.2', name: 'GPT-5.2', multiplier: 1 },
+  { id: 'claude-haiku-4.5', name: 'Claude Haiku 4.5', multiplier: 0.33 },
+  { id: 'gpt-5.1-codex-mini', name: 'GPT-5.1-Codex-Mini', multiplier: 0.33 },
   { id: 'claude-sonnet-4.5', name: 'Claude Sonnet 4.5', multiplier: 1 },
+  { id: 'claude-sonnet-4', name: 'Claude Sonnet 4', multiplier: 1 },
+  { id: 'gpt-5.2-codex', name: 'GPT-5.2-Codex', multiplier: 1 },
+  { id: 'gpt-5.1-codex-max', name: 'GPT-5.1-Codex-Max', multiplier: 1 },
+  { id: 'gpt-5.1-codex', name: 'GPT-5.1-Codex', multiplier: 1 },
+  { id: 'gpt-5.2', name: 'GPT-5.2', multiplier: 1 },
+  { id: 'gpt-5.1', name: 'GPT-5.1', multiplier: 1 },
+  { id: 'gpt-5', name: 'GPT-5', multiplier: 1 },
+  { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro (Preview)', multiplier: 1 },
   { id: 'claude-opus-4.5', name: 'Claude Opus 4.5', multiplier: 3 },
 ]
 
