@@ -1,7 +1,25 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import { join } from 'path'
-import { CopilotClient, CopilotSession } from '@github/copilot-sdk'
+import { CopilotClient, CopilotSession, PermissionRequest, PermissionRequestResult } from '@github/copilot-sdk'
 import Store from 'electron-store'
+import log from 'electron-log/main'
+
+// Set up file logging only - no IPC to renderer (causes errors)
+log.transports.file.level = 'info'
+log.transports.console.level = 'info'
+
+// Handle EIO errors from terminal disconnection - expected for GUI apps
+process.on('uncaughtException', (err) => {
+  if (err.message === 'write EIO') {
+    log.transports.console.level = false
+    return
+  }
+  log.error('Uncaught exception:', err)
+  throw err
+})
+
+// Replace console with electron-log
+Object.assign(console, log.functions)
 
 const store = new Store({
   defaults: {
@@ -14,6 +32,16 @@ let copilotClient: CopilotClient | null = null
 let session: CopilotSession | null = null
 let currentModel: string = store.get('model') as string
 
+// Pending permission requests waiting for user response
+const pendingPermissions = new Map<string, {
+  resolve: (result: PermissionRequestResult) => void
+  request: PermissionRequest
+  executable: string
+}>()
+
+// Track "always allow" permissions by executable (e.g., "ls", "find", "curl")
+const alwaysAllowedExecutables = new Set<string>()
+
 const AVAILABLE_MODELS = [
   'gpt-5',
   'claude-sonnet-4.5',
@@ -21,41 +49,110 @@ const AVAILABLE_MODELS = [
   'gpt-4.1',
 ]
 
+// Extract the executable name from a shell command
+function extractExecutable(command: string): string {
+  // Trim and get the first word (the executable)
+  const trimmed = command.trim()
+  // Handle common prefixes like sudo, env, etc.
+  const prefixes = ['sudo', 'env', 'nohup', 'nice', 'time']
+  const parts = trimmed.split(/\s+/)
+  
+  for (const part of parts) {
+    // Skip environment variable assignments (VAR=value)
+    if (part.includes('=') && !part.startsWith('-')) continue
+    // Skip common prefixes
+    if (prefixes.includes(part)) continue
+    // This is the executable
+    return part
+  }
+  return parts[0] || 'unknown'
+}
+
+// Extract executable from permission request
+function getExecutableIdentifier(request: PermissionRequest): string {
+  const req = request as Record<string, unknown>
+  
+  // For shell commands, extract executable from fullCommandText
+  if (request.kind === 'shell' && req.fullCommandText) {
+    return extractExecutable(req.fullCommandText as string)
+  }
+  
+  // For read/write, use kind + filename
+  if ((request.kind === 'read' || request.kind === 'write') && req.path) {
+    const path = req.path as string
+    const filename = path.split('/').pop() || path
+    return `${request.kind}:${filename}`
+  }
+  
+  // Fallback to kind
+  return request.kind
+}
+
+// Permission handler that prompts the user
+async function handlePermissionRequest(
+  request: PermissionRequest,
+  _invocation: { sessionId: string }
+): Promise<PermissionRequestResult> {
+  const requestId = request.toolCallId || `perm-${Date.now()}`
+  const executable = getExecutableIdentifier(request)
+  
+  console.log('Permission request:', request.kind, executable)
+  
+  // Check if this executable is always allowed
+  if (alwaysAllowedExecutables.has(executable)) {
+    console.log('Auto-approved (always allow):', executable)
+    return { kind: 'approved' }
+  }
+  
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return { kind: 'denied-no-approval-rule-and-could-not-request-from-user' }
+  }
+  
+  // Send to renderer and wait for response
+  return new Promise((resolve) => {
+    pendingPermissions.set(requestId, { resolve, request, executable })
+    mainWindow!.webContents.send('copilot:permission', {
+      requestId,
+      executable,
+      ...request
+    })
+  })
+}
+
 async function initCopilot(): Promise<void> {
   try {
-    console.log('Initializing Copilot SDK...')
     copilotClient = new CopilotClient()
     await copilotClient.start()
-    console.log('Copilot client started')
 
     session = await copilotClient.createSession({
       model: currentModel,
+      onPermissionRequest: handlePermissionRequest,
     })
-    console.log('Copilot session created with model:', currentModel)
 
     // Set up event handler for streaming responses
     session.on((event) => {
       if (!mainWindow || mainWindow.isDestroyed()) return
 
-      console.log('Session event:', event.type, JSON.stringify(event.data || {}).substring(0, 200))
+      console.log('Event:', event.type)
 
       if (event.type === 'assistant.message_delta') {
         mainWindow.webContents.send('copilot:delta', event.data.deltaContent)
       } else if (event.type === 'assistant.message') {
-        console.log('Final message received, length:', event.data.content?.length)
         mainWindow.webContents.send('copilot:message', event.data.content)
       } else if (event.type === 'session.idle') {
-        console.log('Session idle - processing complete')
         mainWindow.webContents.send('copilot:idle')
       } else if (event.type === 'tool.execution_start') {
-        console.log('Tool start:', event.data)
+        console.log('Tool start:', event.data.toolName)
         mainWindow.webContents.send('copilot:tool-start', event.data)
-      } else if (event.type === 'tool.execution_end') {
-        console.log('Tool end:', event.data)
+      } else if (event.type === 'tool.execution_complete') {
+        console.log('Tool end:', event.data.toolCallId)
         mainWindow.webContents.send('copilot:tool-end', event.data)
+      } else if (event.type === 'tool.confirmation_requested') {
+        console.log('Confirmation requested:', event.data)
+        mainWindow.webContents.send('copilot:confirm', event.data)
       } else if (event.type === 'session.error') {
         console.log('Session error:', event.data)
-        // Don't treat retryable errors as fatal
+        mainWindow.webContents.send('copilot:error', event.data?.message || JSON.stringify(event.data))
       }
     })
 
@@ -63,7 +160,6 @@ async function initCopilot(): Promise<void> {
       mainWindow.webContents.send('copilot:ready', { model: currentModel, models: AVAILABLE_MODELS })
     }
   } catch (err) {
-    console.error('Failed to initialize Copilot:', err)
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('copilot:error', String(err))
     }
@@ -90,8 +186,14 @@ function createWindow(): void {
     }
   })
 
+  // Check for TEST_MESSAGE env var
+  const testMessage = process.env.TEST_MESSAGE
+  
   if (process.env.ELECTRON_RENDERER_URL) {
-    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
+    const url = testMessage 
+      ? `${process.env.ELECTRON_RENDERER_URL}?test=${encodeURIComponent(testMessage)}`
+      : process.env.ELECTRON_RENDERER_URL
+    mainWindow.loadURL(url)
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
@@ -119,7 +221,7 @@ ipcMain.handle('copilot:send', async (_event, prompt: string) => {
   if (!session) {
     throw new Error('Copilot session not initialized')
   }
-  console.log('Sending message:', prompt)
+  
   const messageId = await session.send({ prompt })
   return messageId
 })
@@ -128,7 +230,7 @@ ipcMain.handle('copilot:sendAndWait', async (_event, prompt: string) => {
   if (!session) {
     throw new Error('Copilot session not initialized')
   }
-  console.log('Sending message and waiting:', prompt)
+  
   const response = await session.sendAndWait({ prompt })
   return response?.data?.content || ''
 })
@@ -139,12 +241,40 @@ ipcMain.on('copilot:abort', async () => {
   }
 })
 
+// Handle permission response from renderer
+ipcMain.handle('copilot:permissionResponse', async (_event, data: { 
+  requestId: string
+  decision: 'approved' | 'always' | 'denied' 
+}) => {
+  const pending = pendingPermissions.get(data.requestId)
+  if (!pending) {
+    console.log('No pending permission for:', data.requestId)
+    return { success: false }
+  }
+  
+  pendingPermissions.delete(data.requestId)
+  
+  // Track "always allow" for this specific executable
+  if (data.decision === 'always') {
+    alwaysAllowedExecutables.add(pending.executable)
+    console.log('Added to always allow:', pending.executable)
+  }
+  
+  const result: PermissionRequestResult = {
+    kind: data.decision === 'denied' ? 'denied-interactively-by-user' : 'approved'
+  }
+  
+  console.log('Permission resolved:', data.requestId, result.kind)
+  pending.resolve(result)
+  return { success: true }
+})
+
 ipcMain.handle('copilot:setModel', async (_event, model: string) => {
   if (!AVAILABLE_MODELS.includes(model)) {
     throw new Error(`Invalid model: ${model}`)
   }
   
-  console.log('Switching model to:', model)
+  
   currentModel = model
   store.set('model', model) // Persist selection
   
@@ -156,29 +286,30 @@ ipcMain.handle('copilot:setModel', async (_event, model: string) => {
   if (copilotClient) {
     session = await copilotClient.createSession({
       model: currentModel,
+      onPermissionRequest: handlePermissionRequest,
     })
     
     session.on((event) => {
       if (!mainWindow || mainWindow.isDestroyed()) return
 
-      console.log('Session event:', event.type, JSON.stringify(event.data || {}).substring(0, 200))
+      
 
       if (event.type === 'assistant.message_delta') {
         mainWindow.webContents.send('copilot:delta', event.data.deltaContent)
       } else if (event.type === 'assistant.message') {
-        console.log('Final message received, length:', event.data.content?.length)
+        
         mainWindow.webContents.send('copilot:message', event.data.content)
       } else if (event.type === 'session.idle') {
-        console.log('Session idle - processing complete')
+        
         mainWindow.webContents.send('copilot:idle')
       } else if (event.type === 'tool.execution_start') {
-        console.log('Tool start:', event.data)
+        
         mainWindow.webContents.send('copilot:tool-start', event.data)
       } else if (event.type === 'tool.execution_end') {
-        console.log('Tool end:', event.data)
+        
         mainWindow.webContents.send('copilot:tool-end', event.data)
       } else if (event.type === 'session.error') {
-        console.log('Session error:', event.data)
+        
       }
     })
   }
@@ -230,16 +361,30 @@ ipcMain.on('window:close', () => {
   mainWindow?.close()
 })
 
-// App lifecycle
-app.whenReady().then(() => {
-  createWindow()
+// App lifecycle - enforce single instance
+const gotTheLock = app.requestSingleInstanceLock()
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow()
+if (!gotTheLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    // Focus existing window if someone tries to open a second instance
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
     }
   })
-})
+
+  app.whenReady().then(() => {
+    createWindow()
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow()
+      }
+    })
+  })
+}
 
 app.on('window-all-closed', async () => {
   if (session) {

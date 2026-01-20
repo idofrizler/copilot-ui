@@ -51,6 +51,19 @@ const electronAPI = {
       ipcRenderer.on('copilot:tool-end', handler)
       return () => ipcRenderer.removeListener('copilot:tool-end', handler)
     },
+    onConfirm: (callback: (data: unknown) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: unknown): void => callback(data)
+      ipcRenderer.on('copilot:confirm', handler)
+      return () => ipcRenderer.removeListener('copilot:confirm', handler)
+    },
+    onPermission: (callback: (data: { requestId: string; kind: string; [key: string]: unknown }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { requestId: string; kind: string }): void => callback(data)
+      ipcRenderer.on('copilot:permission', handler)
+      return () => ipcRenderer.removeListener('copilot:permission', handler)
+    },
+    respondPermission: (data: { requestId: string; decision: 'approved' | 'always' | 'denied' }): Promise<{ success: boolean }> => {
+      return ipcRenderer.invoke('copilot:permissionResponse', data)
+    },
     onError: (callback: (error: string) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, error: string): void => callback(error)
       ipcRenderer.on('copilot:error', handler)

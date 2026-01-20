@@ -18,6 +18,17 @@ interface ActiveTool {
   status: 'running' | 'done'
 }
 
+interface PendingConfirmation {
+  requestId: string
+  kind: string
+  executable?: string
+  toolCallId?: string
+  fullCommandText?: string
+  intention?: string
+  path?: string
+  [key: string]: unknown
+}
+
 let messageIdCounter = 0
 const generateId = () => `msg-${++messageIdCounter}-${Date.now()}`
 
@@ -30,6 +41,7 @@ const App: React.FC = () => {
   const [availableModels, setAvailableModels] = useState<string[]>([])
   const [showModelDropdown, setShowModelDropdown] = useState(false)
   const [activeTools, setActiveTools] = useState<ActiveTool[]>([])
+  const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null)
   
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -50,6 +62,23 @@ const App: React.FC = () => {
       return () => document.removeEventListener('click', handleClickOutside)
     }
   }, [showModelDropdown])
+
+  // Test mode: auto-send message from URL param ?test=message
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const testMessage = params.get('test')
+    if (testMessage && status === 'connected' && messages.length === 0) {
+      console.log('Test mode: sending message:', testMessage)
+      setInputValue(testMessage)
+      // Delay to ensure state is ready
+      setTimeout(() => {
+        setMessages([{ id: generateId(), role: 'user', content: testMessage }])
+        setIsProcessing(true)
+        setMessages(prev => [...prev, { id: generateId(), role: 'assistant', content: '', isStreaming: true }])
+        window.electronAPI.copilot.send(testMessage)
+      }, 500)
+    }
+  }, [status])
 
   // Set up IPC listeners
   useEffect(() => {
@@ -130,14 +159,32 @@ const App: React.FC = () => {
       }, 2000)
     })
 
+    // Listen for permission requests (shell, write, read, etc.)
+    const unsubscribePermission = window.electronAPI.copilot.onPermission((data) => {
+      console.log('Permission requested:', data)
+      setPendingConfirmation({
+        requestId: data.requestId,
+        kind: data.kind,
+        executable: data.executable as string | undefined,
+        toolCallId: data.toolCallId as string | undefined,
+        fullCommandText: data.fullCommandText as string | undefined,
+        intention: data.intention as string | undefined,
+        path: data.path as string | undefined,
+      })
+    })
+
     const unsubscribeError = window.electronAPI.copilot.onError((error: string) => {
       console.error('Copilot error:', error)
-      setStatus('disconnected')
-      setMessages(prev => [...prev, { 
-        id: generateId(), 
-        role: 'assistant', 
-        content: `Error: ${error}` 
-      }])
+      // Don't disconnect on transient errors - just show the error and allow retry
+      setIsProcessing(false)
+      // Only add error message if it's meaningful (not the common invalid_request_body)
+      if (!error.includes('invalid_request_body')) {
+        setMessages(prev => [...prev, { 
+          id: generateId(), 
+          role: 'assistant', 
+          content: `⚠️ ${error}` 
+        }])
+      }
     })
 
     return () => {
@@ -147,6 +194,7 @@ const App: React.FC = () => {
       unsubscribeIdle()
       unsubscribeToolStart()
       unsubscribeToolEnd()
+      unsubscribePermission()
       unsubscribeError()
     }
   }, [])
@@ -191,6 +239,20 @@ const App: React.FC = () => {
   const handleStop = () => {
     window.electronAPI.copilot.abort()
     setIsProcessing(false)
+  }
+
+  const handleConfirmation = async (decision: 'approved' | 'always' | 'denied') => {
+    if (!pendingConfirmation) return
+    
+    try {
+      await window.electronAPI.copilot.respondPermission({
+        requestId: pendingConfirmation.requestId,
+        decision
+      })
+    } catch (error) {
+      console.error('Permission response failed:', error)
+    }
+    setPendingConfirmation(null)
   }
 
   const handleReset = async () => {
@@ -416,6 +478,52 @@ const App: React.FC = () => {
                   {tool.toolName}
                 </span>
               ))}
+            </div>
+          </div>
+        )}
+        
+        {/* Permission Confirmation Dialog */}
+        {pendingConfirmation && (
+          <div className="flex justify-start">
+            <div className="max-w-[90%] bg-[#1c2128] rounded-lg border border-[#d29922] p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-[#d29922]">⚠️</span>
+                <span className="text-[#e6edf3] text-sm">
+                  Allow <strong className="font-bold">{pendingConfirmation.executable || pendingConfirmation.kind}</strong>?
+                </span>
+              </div>
+              {pendingConfirmation.intention && (
+                <div className="text-sm text-[#e6edf3] mb-2">{pendingConfirmation.intention}</div>
+              )}
+              {pendingConfirmation.fullCommandText && (
+                <pre className="bg-[#0d1117] rounded p-2 my-2 overflow-x-auto text-xs text-[#e6edf3] border border-[#30363d]">
+                  <code>{pendingConfirmation.fullCommandText}</code>
+                </pre>
+              )}
+              {pendingConfirmation.path && !pendingConfirmation.intention && (
+                <div className="text-xs text-[#8b949e] mb-2">Path: {pendingConfirmation.path}</div>
+              )}
+              <div className="flex gap-2 mt-3">
+                <button
+                  onClick={() => handleConfirmation('approved')}
+                  className="px-3 py-1.5 rounded bg-[#238636] hover:bg-[#2ea043] text-white text-xs font-medium transition-colors"
+                >
+                  Allow Once
+                </button>
+                <button
+                  onClick={() => handleConfirmation('always')}
+                  className="px-3 py-1.5 rounded bg-[#21262d] hover:bg-[#30363d] text-[#e6edf3] text-xs font-medium border border-[#30363d] transition-colors"
+                  title={`Always allow ${pendingConfirmation.executable || pendingConfirmation.kind} for this session`}
+                >
+                  Always Allow
+                </button>
+                <button
+                  onClick={() => handleConfirmation('denied')}
+                  className="px-3 py-1.5 rounded bg-[#21262d] hover:bg-[#30363d] text-[#f85149] text-xs font-medium border border-[#30363d] transition-colors"
+                >
+                  Deny
+                </button>
+              </div>
             </div>
           </div>
         )}
