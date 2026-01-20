@@ -87,6 +87,13 @@ const App: React.FC = () => {
     activeTabIdRef.current = activeTabId
   }, [activeTabId])
 
+  // Focus input when active tab changes
+  useEffect(() => {
+    if (activeTabId) {
+      inputRef.current?.focus()
+    }
+  }, [activeTabId])
+
   // Save open sessions with models and cwd whenever tabs change
   useEffect(() => {
     if (tabs.length > 0) {
