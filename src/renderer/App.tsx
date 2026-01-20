@@ -46,13 +46,21 @@ interface TabState {
   activeTools: ActiveTool[]
   hasUnreadCompletion: boolean
   pendingConfirmation: PendingConfirmation | null
+  needsTitle: boolean  // True if we should generate AI title on next idle
 }
 
 let messageIdCounter = 0
 const generateId = () => `msg-${++messageIdCounter}-${Date.now()}`
 
 let tabCounter = 0
-const generateTabName = () => `Chat ${++tabCounter}`
+const generateTabName = () => `Session ${++tabCounter}`
+
+// Previous session type (from history, not yet opened)
+interface PreviousSession {
+  sessionId: string
+  name?: string
+  modifiedTime: string
+}
 
 const App: React.FC = () => {
   const [status, setStatus] = useState<Status>('connecting')
@@ -61,6 +69,8 @@ const App: React.FC = () => {
   const [activeTabId, setActiveTabId] = useState<string | null>(null)
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([])
   const [showModelDropdown, setShowModelDropdown] = useState(false)
+  const [previousSessions, setPreviousSessions] = useState<PreviousSession[]>([])
+  const [showPreviousSessions, setShowPreviousSessions] = useState(false)
   
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -70,6 +80,14 @@ const App: React.FC = () => {
   useEffect(() => {
     activeTabIdRef.current = activeTabId
   }, [activeTabId])
+
+  // Save open session IDs whenever tabs change
+  useEffect(() => {
+    if (tabs.length > 0) {
+      const sessionIds = tabs.map(t => t.id)
+      window.electronAPI.copilot.saveOpenSessions(sessionIds)
+    }
+  }, [tabs])
 
   // Get the active tab
   const activeTab = tabs.find(t => t.id === activeTabId)
@@ -101,23 +119,44 @@ const App: React.FC = () => {
   // Set up IPC listeners
   useEffect(() => {
     const unsubscribeReady = window.electronAPI.copilot.onReady((data) => {
-      console.log('Copilot ready with sessionId:', data.sessionId, 'model:', data.model)
+      console.log('Copilot ready with sessions:', data.sessions.length, 'previous:', data.previousSessions.length)
       setStatus('connected')
       setAvailableModels(data.models)
       
-      // Create initial tab with this session
-      const initialTab: TabState = {
-        id: data.sessionId,
-        name: generateTabName(),
-        messages: [],
-        model: data.model,
+      // Create tabs for all resumed/created sessions
+      const initialTabs: TabState[] = data.sessions.map((s, idx) => ({
+        id: s.sessionId,
+        name: s.name || `Session ${idx + 1}`,
+        messages: [],  // Will be loaded below
+        model: s.model,
         isProcessing: false,
         activeTools: [],
         hasUnreadCompletion: false,
-        pendingConfirmation: null
+        pendingConfirmation: null,
+        needsTitle: !s.name  // Only need title if no name provided
+      }))
+      
+      // Update tab counter to avoid duplicate names
+      tabCounter = data.sessions.length
+      
+      setTabs(initialTabs)
+      setActiveTabId(data.sessions[0]?.sessionId || null)
+      setPreviousSessions(data.previousSessions)
+      
+      // Load message history for each session
+      for (const s of data.sessions) {
+        window.electronAPI.copilot.getMessages(s.sessionId)
+          .then(messages => {
+            if (messages.length > 0) {
+              setTabs(prev => prev.map(tab => 
+                tab.id === s.sessionId 
+                  ? { ...tab, messages: messages.map((m, i) => ({ id: `hist-${i}`, ...m, isStreaming: false })), needsTitle: false }
+                  : tab
+              ))
+            }
+          })
+          .catch(err => console.error(`Failed to load history for ${s.sessionId}:`, err))
       }
-      setTabs([initialTab])
-      setActiveTabId(data.sessionId)
     })
     
     // Also fetch models in case ready event was missed
@@ -164,19 +203,50 @@ const App: React.FC = () => {
 
     const unsubscribeIdle = window.electronAPI.copilot.onIdle((data) => {
       const { sessionId } = data
-      setTabs(prev => prev.map(tab => {
-        if (tab.id !== sessionId) return tab
-        return {
-          ...tab,
-          isProcessing: false,
-          activeTools: [],
-          // Mark as unread if this tab is not currently active
-          hasUnreadCompletion: tab.id !== activeTabIdRef.current,
-          messages: tab.messages
-            .filter(msg => msg.content.trim() || msg.role === 'user')
-            .map(msg => msg.isStreaming ? { ...msg, isStreaming: false } : msg)
+      
+      // First update tab state
+      setTabs(prev => {
+        const tab = prev.find(t => t.id === sessionId)
+        
+        // If tab needs a title and has messages, trigger title generation
+        if (tab?.needsTitle && tab.messages.length > 0) {
+          // Build conversation summary for title generation
+          const conversation = tab.messages
+            .filter(m => m.content.trim())
+            .slice(0, 4) // First few messages only
+            .map(m => `${m.role}: ${m.content.slice(0, 200)}`)
+            .join('\n')
+          
+          // Generate title async (don't await here)
+          window.electronAPI.copilot.generateTitle(conversation)
+            .then(title => {
+              setTabs(p => p.map(t => t.id === sessionId ? { ...t, name: title, needsTitle: false } : t))
+            })
+            .catch(err => {
+              console.error('Failed to generate title:', err)
+              // Fall back to truncated first message
+              const firstUserMsg = tab.messages.find(m => m.role === 'user')?.content
+              if (firstUserMsg) {
+                const fallback = firstUserMsg.slice(0, 30) + (firstUserMsg.length > 30 ? '...' : '')
+                setTabs(p => p.map(t => t.id === sessionId ? { ...t, name: fallback, needsTitle: false } : t))
+              }
+            })
         }
-      }))
+        
+        return prev.map(tab => {
+          if (tab.id !== sessionId) return tab
+          return {
+            ...tab,
+            isProcessing: false,
+            activeTools: [],
+            // Mark as unread if this tab is not currently active
+            hasUnreadCompletion: tab.id !== activeTabIdRef.current,
+            messages: tab.messages
+              .filter(msg => msg.content.trim() || msg.role === 'user')
+              .map(msg => msg.isStreaming ? { ...msg, isStreaming: false } : msg)
+          }
+        })
+      })
     })
 
     const unsubscribeToolStart = window.electronAPI.copilot.onToolStart((data) => {
@@ -279,6 +349,7 @@ const App: React.FC = () => {
     }
     
     const tabId = activeTab.id
+    
     updateTab(tabId, {
       messages: [...activeTab.messages, userMessage, {
         id: generateId(),
@@ -339,7 +410,8 @@ const App: React.FC = () => {
         isProcessing: false,
         activeTools: [],
         hasUnreadCompletion: false,
-        pendingConfirmation: null
+        pendingConfirmation: null,
+        needsTitle: true
       }
       setTabs(prev => [...prev, newTab])
       setActiveTabId(result.sessionId)
@@ -353,9 +425,30 @@ const App: React.FC = () => {
   const handleCloseTab = async (tabId: string, e?: React.MouseEvent) => {
     e?.stopPropagation()
     
-    // Don't close the last tab - just clear it
+    // If closing the last tab, delete it and create a new one
     if (tabs.length === 1) {
-      updateTab(tabId, { messages: [], activeTools: [], hasUnreadCompletion: false, pendingConfirmation: null })
+      try {
+        setStatus('connecting')
+        await window.electronAPI.copilot.closeSession(tabId)
+        const result = await window.electronAPI.copilot.createSession()
+        const newTab: TabState = {
+          id: result.sessionId,
+          name: generateTabName(),
+          messages: [],
+          model: result.model,
+          isProcessing: false,
+          activeTools: [],
+          hasUnreadCompletion: false,
+          pendingConfirmation: null,
+          needsTitle: true
+        }
+        setTabs([newTab])
+        setActiveTabId(result.sessionId)
+        setStatus('connected')
+      } catch (error) {
+        console.error('Failed to replace tab:', error)
+        setStatus('connected')
+      }
       return
     }
     
@@ -387,6 +480,50 @@ const App: React.FC = () => {
     }
   }
 
+  const handleResumePreviousSession = async (prevSession: PreviousSession) => {
+    try {
+      setStatus('connecting')
+      const result = await window.electronAPI.copilot.resumePreviousSession(prevSession.sessionId)
+      
+      // Create new tab for this session
+      const newTab: TabState = {
+        id: result.sessionId,
+        name: prevSession.name || generateTabName(),
+        messages: [],
+        model: result.model,
+        isProcessing: false,
+        activeTools: [],
+        hasUnreadCompletion: false,
+        pendingConfirmation: null,
+        needsTitle: !prevSession.name
+      }
+      
+      setTabs(prev => [...prev, newTab])
+      setActiveTabId(result.sessionId)
+      
+      // Remove from previous sessions list
+      setPreviousSessions(prev => prev.filter(s => s.sessionId !== prevSession.sessionId))
+      
+      // Load message history
+      window.electronAPI.copilot.getMessages(result.sessionId)
+        .then(messages => {
+          if (messages.length > 0) {
+            setTabs(prev => prev.map(tab => 
+              tab.id === result.sessionId 
+                ? { ...tab, messages: messages.map((m, i) => ({ id: `hist-${i}`, ...m, isStreaming: false })), needsTitle: false }
+                : tab
+            ))
+          }
+        })
+        .catch(err => console.error(`Failed to load history for ${result.sessionId}:`, err))
+      
+      setStatus('connected')
+    } catch (error) {
+      console.error('Failed to resume previous session:', error)
+      setStatus('connected')
+    }
+  }
+
   const handleModelChange = async (model: string) => {
     if (!activeTab || model === activeTab.model) {
       setShowModelDropdown(false)
@@ -397,6 +534,30 @@ const App: React.FC = () => {
     setStatus('connecting')
     
     try {
+      // If current tab has messages, create a new tab with the new model instead of replacing
+      if (activeTab.messages.length > 0) {
+        const result = await window.electronAPI.copilot.createSession()
+        // Now change the model on the new session
+        const modelResult = await window.electronAPI.copilot.setModel(result.sessionId, model)
+        
+        const newTab: TabState = {
+          id: modelResult.sessionId,
+          name: generateTabName(),
+          messages: [],
+          model: modelResult.model,
+          isProcessing: false,
+          activeTools: [],
+          hasUnreadCompletion: false,
+          pendingConfirmation: null,
+          needsTitle: true
+        }
+        setTabs(prev => [...prev, newTab])
+        setActiveTabId(modelResult.sessionId)
+        setStatus('connected')
+        return
+      }
+      
+      // Empty tab - replace the session with the new model
       const result = await window.electronAPI.copilot.setModel(activeTab.id, model)
       // Update the tab with new session ID and model, clear messages
       setTabs(prev => {
@@ -409,7 +570,8 @@ const App: React.FC = () => {
           isProcessing: false,
           activeTools: [],
           hasUnreadCompletion: false,
-          pendingConfirmation: null
+          pendingConfirmation: null,
+          needsTitle: true
         }]
       })
       setActiveTabId(result.sessionId)
@@ -516,49 +678,101 @@ const App: React.FC = () => {
       </div>
 
       {/* Tab Bar */}
-      <div className="flex items-center gap-1 px-2 py-1 bg-[#0d1117] border-b border-[#30363d] shrink-0 overflow-x-auto">
-        {tabs.map((tab) => (
+      <div className="flex flex-1 overflow-hidden">
+        {/* Left Sidebar - Vertical Tabs */}
+        <div className="w-48 bg-[#0d1117] border-r border-[#30363d] flex flex-col shrink-0">
+          {/* New Tab Button */}
           <button
-            key={tab.id}
-            onClick={() => handleSwitchTab(tab.id)}
-            className={`group flex items-center gap-1.5 px-3 py-1.5 rounded-t text-xs transition-colors ${
-              tab.id === activeTabId 
-                ? 'bg-[#161b22] text-[#e6edf3] border-t border-x border-[#30363d]' 
-                : 'text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d]'
-            }`}
+            onClick={handleNewTab}
+            className="flex items-center gap-2 px-3 py-2 text-xs text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors border-b border-[#30363d]"
           >
-            <span className="max-w-[120px] truncate">{tab.name}</span>
-            {tab.pendingConfirmation ? (
-              <span className="inline-block w-2 h-2 rounded-full bg-[#58a6ff] animate-pulse" />
-            ) : tab.isProcessing ? (
-              <span className="inline-block w-2 h-2 rounded-full bg-[#d29922] animate-pulse" />
-            ) : tab.hasUnreadCompletion ? (
-              <span className="inline-block w-2 h-2 rounded-full bg-[#3fb950]" />
-            ) : null}
-            <button
-              onClick={(e) => handleCloseTab(tab.id, e)}
-              className="ml-1 p-0.5 rounded hover:bg-[#30363d] opacity-0 group-hover:opacity-100 transition-opacity"
-              title="Close tab"
-            >
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M18 6L6 18M6 6l12 12"/>
-              </svg>
-            </button>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+            New Session
           </button>
-        ))}
-        <button
-          onClick={handleNewTab}
-          className="p-1.5 rounded hover:bg-[#21262d] text-[#8b949e] hover:text-[#e6edf3] transition-colors"
-          title="New Tab"
-        >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M12 5v14M5 12h14"/>
-          </svg>
-        </button>
-      </div>
-
-      {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          
+          {/* Open Tabs */}
+          <div className="flex-1 overflow-y-auto">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => handleSwitchTab(tab.id)}
+                className={`group w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors text-left ${
+                  tab.id === activeTabId 
+                    ? 'bg-[#161b22] text-[#e6edf3] border-l-2 border-l-[#58a6ff]' 
+                    : 'text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] border-l-2 border-l-transparent'
+                }`}
+              >
+                {/* Status indicator */}
+                {tab.pendingConfirmation ? (
+                  <span className="shrink-0 w-2 h-2 rounded-full bg-[#58a6ff] animate-pulse" />
+                ) : tab.isProcessing ? (
+                  <span className="shrink-0 w-2 h-2 rounded-full bg-[#d29922] animate-pulse" />
+                ) : tab.hasUnreadCompletion ? (
+                  <span className="shrink-0 w-2 h-2 rounded-full bg-[#3fb950]" />
+                ) : (
+                  <span className="shrink-0 w-2 h-2 rounded-full bg-transparent" />
+                )}
+                <span className="flex-1 truncate">{tab.name}</span>
+                <button
+                  onClick={(e) => handleCloseTab(tab.id, e)}
+                  className="shrink-0 p-0.5 rounded hover:bg-[#30363d] opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="Close tab"
+                >
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M18 6L6 18M6 6l12 12"/>
+                  </svg>
+                </button>
+              </button>
+            ))}
+          </div>
+          
+          {/* Previous Sessions Expander */}
+          {previousSessions.length > 0 && (
+            <div className="border-t border-[#30363d]">
+              <button
+                onClick={() => setShowPreviousSessions(!showPreviousSessions)}
+                className="w-full flex items-center gap-2 px-3 py-2 text-xs text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors"
+              >
+                <svg 
+                  width="10" height="10" 
+                  viewBox="0 0 24 24" 
+                  fill="none" 
+                  stroke="currentColor" 
+                  strokeWidth="2"
+                  className={`transition-transform ${showPreviousSessions ? 'rotate-90' : ''}`}
+                >
+                  <path d="M9 18l6-6-6-6"/>
+                </svg>
+                <span>Previous ({previousSessions.length})</span>
+              </button>
+              
+              {showPreviousSessions && (
+                <div className="max-h-48 overflow-y-auto">
+                  {previousSessions.slice(0, 50).map((prevSession) => (
+                    <button
+                      key={prevSession.sessionId}
+                      onClick={() => handleResumePreviousSession(prevSession)}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors text-left border-l-2 border-l-transparent"
+                    >
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="shrink-0 opacity-50">
+                        <circle cx="12" cy="12" r="10"/>
+                        <path d="M12 6v6l4 2"/>
+                      </svg>
+                      <span className="flex-1 truncate">{prevSession.name || prevSession.sessionId.slice(0, 12) + '...'}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        
+        {/* Main Content Area */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Messages Area */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {activeTab?.messages.length === 0 && status === 'connected' && (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" className="text-[#30363d] mb-4">
@@ -735,6 +949,8 @@ const App: React.FC = () => {
           >
             {activeTab?.isProcessing ? 'Sending...' : 'Send'}
           </button>
+        </div>
+      </div>
         </div>
       </div>
     </div>

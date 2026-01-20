@@ -9,6 +9,12 @@ const electronAPI = {
     sendAndWait: (sessionId: string, prompt: string): Promise<string> => {
       return ipcRenderer.invoke('copilot:sendAndWait', { sessionId, prompt })
     },
+    generateTitle: (conversation: string): Promise<string> => {
+      return ipcRenderer.invoke('copilot:generateTitle', { conversation })
+    },
+    getMessages: (sessionId: string): Promise<{ role: 'user' | 'assistant'; content: string }[]> => {
+      return ipcRenderer.invoke('copilot:getMessages', sessionId)
+    },
     abort: (sessionId: string): void => {
       ipcRenderer.send('copilot:abort', sessionId)
     },
@@ -23,9 +29,15 @@ const electronAPI = {
     switchSession: (sessionId: string): Promise<{ sessionId: string; model: string }> => {
       return ipcRenderer.invoke('copilot:switchSession', sessionId)
     },
+    saveOpenSessions: (sessionIds: string[]): Promise<{ success: boolean }> => {
+      return ipcRenderer.invoke('copilot:saveOpenSessions', sessionIds)
+    },
+    resumePreviousSession: (sessionId: string): Promise<{ sessionId: string; model: string; alreadyOpen: boolean }> => {
+      return ipcRenderer.invoke('copilot:resumePreviousSession', sessionId)
+    },
     
-    onReady: (callback: (data: { sessionId: string; model: string; models: { id: string; name: string; multiplier: number }[] }) => void): (() => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; model: string; models: { id: string; name: string; multiplier: number }[] }): void => callback(data)
+    onReady: (callback: (data: { sessions: { sessionId: string; model: string; name?: string }[]; previousSessions: { sessionId: string; name?: string; modifiedTime: string }[]; models: { id: string; name: string; multiplier: number }[] }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { sessions: { sessionId: string; model: string; name?: string }[]; previousSessions: { sessionId: string; name?: string; modifiedTime: string }[]; models: { id: string; name: string; multiplier: number }[] }): void => callback(data)
       ipcRenderer.on('copilot:ready', handler)
       return () => ipcRenderer.removeListener('copilot:ready', handler)
     },

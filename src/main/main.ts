@@ -23,7 +23,8 @@ Object.assign(console, log.functions)
 
 const store = new Store({
   defaults: {
-    model: 'gpt-5.2'
+    model: 'gpt-5.2',
+    openSessionIds: [] as string[]  // Session IDs that were open in our app
   }
 })
 
@@ -63,7 +64,7 @@ const AVAILABLE_MODELS: ModelInfo[] = [
   { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash (Preview)', multiplier: 0.33 },
   { id: 'gpt-5.2', name: 'GPT-5.2', multiplier: 1 },
   { id: 'claude-sonnet-4.5', name: 'Claude Sonnet 4.5', multiplier: 1 },
-  { id: 'claude-opus-4.5', name: 'Opus 4.5', multiplier: 3 },
+  { id: 'claude-opus-4.5', name: 'Claude Opus 4.5', multiplier: 3 },
 ]
 
 // Extract the executable name from a shell command
@@ -192,14 +193,93 @@ async function initCopilot(): Promise<void> {
     copilotClient = new CopilotClient()
     await copilotClient.start()
     
-    // Create first session
-    const sessionId = await createNewSession()
+    // Get all available sessions and our stored open session IDs
+    const allSessions = await copilotClient.listSessions()
+    const openSessionIds = store.get('openSessionIds') as string[] || []
+    
+    console.log(`Found ${allSessions.length} total sessions, ${openSessionIds.length} were open in our app`)
+    console.log('Open session IDs:', openSessionIds)
+    console.log('Available session IDs:', allSessions.map(s => s.sessionId))
+    
+    // Build map for quick lookup
+    const sessionMetaMap = new Map(allSessions.map(s => [s.sessionId, s]))
+    
+    // Filter to only sessions that exist and were open in our app
+    const sessionsToResume = openSessionIds.filter(id => sessionMetaMap.has(id))
+    console.log('Sessions to resume:', sessionsToResume)
+    
+    // Build list of previous sessions (all sessions not in our open list)
+    const previousSessions = allSessions
+      .filter(s => !openSessionIds.includes(s.sessionId))
+      .map(s => ({ sessionId: s.sessionId, name: s.summary || undefined, modifiedTime: s.modifiedTime.toISOString() }))
+    
+    let resumedSessions: { sessionId: string; model: string; name?: string }[] = []
+    
+    // Resume only our open sessions
+    for (const sessionId of sessionsToResume) {
+      const meta = sessionMetaMap.get(sessionId)!
+      try {
+        const sessionModel = store.get('model') as string || 'gpt-5.2'
+        const session = await copilotClient.resumeSession(sessionId, {
+          permissionHandler: (request, invocation) => handlePermissionRequest(request, invocation, sessionId)
+        })
+        
+        // Set up event handler for resumed session
+        session.on((event) => {
+          if (!mainWindow || mainWindow.isDestroyed()) return
+          
+          console.log(`[${sessionId}] Event:`, event.type)
+          
+          if (event.type === 'assistant.delta') {
+            mainWindow.webContents.send('copilot:delta', { sessionId, content: event.data.deltaContent })
+          } else if (event.type === 'assistant.message') {
+            mainWindow.webContents.send('copilot:message', { sessionId, content: event.data.content })
+          } else if (event.type === 'session.idle') {
+            mainWindow.webContents.send('copilot:idle', { sessionId })
+          } else if (event.type === 'tool.execution_start') {
+            console.log(`[${sessionId}] Tool start:`, event.data.toolName)
+            mainWindow.webContents.send('copilot:tool-start', { 
+              sessionId, 
+              toolCallId: event.data.toolCallId, 
+              toolName: event.data.toolName 
+            })
+          } else if (event.type === 'tool.execution_end') {
+            console.log(`[${sessionId}] Tool end:`, event.data.toolName)
+            mainWindow.webContents.send('copilot:tool-end', { 
+              sessionId, 
+              toolCallId: event.data.toolCallId, 
+              toolName: event.data.toolName 
+            })
+          }
+        })
+        
+        sessions.set(sessionId, { session, model: sessionModel })
+        resumedSessions.push({ 
+          sessionId, 
+          model: sessionModel,
+          name: meta.summary || undefined
+        })
+        console.log(`Resumed session ${sessionId}${meta.summary ? ` (${meta.summary})` : ''}`)
+      } catch (err) {
+        console.error(`Failed to resume session ${sessionId}:`, err)
+      }
+    }
+    
+    // If no sessions were resumed, create a new one
+    if (resumedSessions.length === 0) {
+      const sessionId = await createNewSession()
+      const sessionState = sessions.get(sessionId)!
+      resumedSessions.push({ sessionId, model: sessionState.model })
+      // Save this new session as open
+      store.set('openSessionIds', [sessionId])
+    }
+    
+    activeSessionId = resumedSessions[0].sessionId
 
     if (mainWindow && !mainWindow.isDestroyed()) {
-      const sessionState = sessions.get(sessionId)!
       mainWindow.webContents.send('copilot:ready', { 
-        sessionId,
-        model: sessionState.model, 
+        sessions: resumedSessions,
+        previousSessions,
         models: AVAILABLE_MODELS 
       })
     }
@@ -285,6 +365,62 @@ ipcMain.on('copilot:abort', async (_event, sessionId: string) => {
   const sessionState = sessions.get(sessionId)
   if (sessionState) {
     await sessionState.session.abort()
+  }
+})
+
+// Get message history for a session
+ipcMain.handle('copilot:getMessages', async (_event, sessionId: string) => {
+  const sessionState = sessions.get(sessionId)
+  if (!sessionState) {
+    throw new Error(`Session not found: ${sessionId}`)
+  }
+  
+  const events = await sessionState.session.getMessages()
+  
+  // Convert events to simplified message format
+  const messages: { role: 'user' | 'assistant'; content: string }[] = []
+  
+  for (const event of events) {
+    if (event.type === 'user.message') {
+      messages.push({ role: 'user', content: event.data.content })
+    } else if (event.type === 'assistant.message') {
+      messages.push({ role: 'assistant', content: event.data.content })
+    }
+  }
+  
+  return messages
+})
+
+// Generate a short title for a conversation using AI
+ipcMain.handle('copilot:generateTitle', async (_event, data: { conversation: string }) => {
+  if (!copilotClient) {
+    throw new Error('Copilot client not initialized')
+  }
+  
+  try {
+    // Create a temporary session with the cheapest model for title generation
+    const tempSession = await copilotClient.createSession({
+      model: 'gpt-5-mini',
+      config: {
+        intent: 'conversation',
+        instructions: 'You are a title generator. Respond with ONLY a short title (3-6 words, no quotes, no punctuation at end).'
+      }
+    })
+    
+    const sessionId = tempSession.sessionId
+    const prompt = `Generate a short descriptive title for this conversation, that makes it easy to identify what this is about:\n\n${data.conversation}\n\nRespond with ONLY the title, nothing else.`
+    const response = await tempSession.sendAndWait({ prompt })
+    
+    // Clean up temp session - destroy and delete to avoid polluting session list
+    await tempSession.destroy()
+    await copilotClient.deleteSession(sessionId)
+    
+    // Extract and clean the title
+    const title = (response?.data?.content || 'Untitled').trim().replace(/^["']|["']$/g, '').slice(0, 50)
+    return title
+  } catch (error) {
+    console.error('Failed to generate title:', error)
+    return 'Untitled'
   }
 })
 
@@ -377,6 +513,64 @@ ipcMain.handle('copilot:switchSession', async (_event, sessionId: string) => {
   activeSessionId = sessionId
   const sessionState = sessions.get(sessionId)!
   return { sessionId, model: sessionState.model }
+})
+
+// Save open session IDs to persist across restarts
+ipcMain.handle('copilot:saveOpenSessions', async (_event, sessionIds: string[]) => {
+  store.set('openSessionIds', sessionIds)
+  console.log(`Saved ${sessionIds.length} open session IDs`)
+  return { success: true }
+})
+
+// Resume a previous session (from the history list)
+ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string) => {
+  if (!copilotClient) {
+    throw new Error('Copilot client not initialized')
+  }
+  
+  // Check if already resumed
+  if (sessions.has(sessionId)) {
+    const sessionState = sessions.get(sessionId)!
+    return { sessionId, model: sessionState.model, alreadyOpen: true }
+  }
+  
+  const sessionModel = store.get('model') as string || 'gpt-5.2'
+  const session = await copilotClient.resumeSession(sessionId, {
+    permissionHandler: (request, invocation) => handlePermissionRequest(request, invocation, sessionId)
+  })
+  
+  // Set up event handler
+  session.on((event) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    
+    console.log(`[${sessionId}] Event:`, event.type)
+    
+    if (event.type === 'assistant.delta') {
+      mainWindow.webContents.send('copilot:delta', { sessionId, content: event.data.deltaContent })
+    } else if (event.type === 'assistant.message') {
+      mainWindow.webContents.send('copilot:message', { sessionId, content: event.data.content })
+    } else if (event.type === 'session.idle') {
+      mainWindow.webContents.send('copilot:idle', { sessionId })
+    } else if (event.type === 'tool.execution_start') {
+      mainWindow.webContents.send('copilot:tool-start', { 
+        sessionId, 
+        toolCallId: event.data.toolCallId, 
+        toolName: event.data.toolName 
+      })
+    } else if (event.type === 'tool.execution_end') {
+      mainWindow.webContents.send('copilot:tool-end', { 
+        sessionId, 
+        toolCallId: event.data.toolCallId, 
+        toolName: event.data.toolName 
+      })
+    }
+  })
+  
+  sessions.set(sessionId, { session, model: sessionModel })
+  activeSessionId = sessionId
+  
+  console.log(`Resumed previous session ${sessionId}`)
+  return { sessionId, model: sessionModel, alreadyOpen: false }
 })
 
 // Window control handlers
