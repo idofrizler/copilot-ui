@@ -3,60 +3,69 @@ import { contextBridge, ipcRenderer } from 'electron'
 const electronAPI = {
   // Copilot communication
   copilot: {
-    send: (prompt: string): Promise<string> => {
-      return ipcRenderer.invoke('copilot:send', prompt)
+    send: (sessionId: string, prompt: string): Promise<string> => {
+      return ipcRenderer.invoke('copilot:send', { sessionId, prompt })
     },
-    sendAndWait: (prompt: string): Promise<string> => {
-      return ipcRenderer.invoke('copilot:sendAndWait', prompt)
+    sendAndWait: (sessionId: string, prompt: string): Promise<string> => {
+      return ipcRenderer.invoke('copilot:sendAndWait', { sessionId, prompt })
     },
-    abort: (): void => {
-      ipcRenderer.send('copilot:abort')
+    abort: (sessionId: string): void => {
+      ipcRenderer.send('copilot:abort', sessionId)
     },
-    reset: (): Promise<void> => {
-      return ipcRenderer.invoke('copilot:reset')
+    
+    // Session management
+    createSession: (): Promise<{ sessionId: string; model: string }> => {
+      return ipcRenderer.invoke('copilot:createSession')
     },
-    onReady: (callback: (data: { model: string; models: string[] }) => void): (() => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: { model: string; models: string[] }): void => callback(data)
+    closeSession: (sessionId: string): Promise<{ success: boolean; remainingSessions: number }> => {
+      return ipcRenderer.invoke('copilot:closeSession', sessionId)
+    },
+    switchSession: (sessionId: string): Promise<{ sessionId: string; model: string }> => {
+      return ipcRenderer.invoke('copilot:switchSession', sessionId)
+    },
+    
+    onReady: (callback: (data: { sessionId: string; model: string; models: { id: string; name: string; multiplier: number }[] }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; model: string; models: { id: string; name: string; multiplier: number }[] }): void => callback(data)
       ipcRenderer.on('copilot:ready', handler)
       return () => ipcRenderer.removeListener('copilot:ready', handler)
     },
-    setModel: (model: string): Promise<{ model: string }> => {
-      return ipcRenderer.invoke('copilot:setModel', model)
+    setModel: (sessionId: string, model: string): Promise<{ sessionId: string; model: string }> => {
+      return ipcRenderer.invoke('copilot:setModel', { sessionId, model })
     },
-    getModels: (): Promise<{ models: string[]; current: string }> => {
+    getModels: (): Promise<{ models: { id: string; name: string; multiplier: number }[]; current: string }> => {
       return ipcRenderer.invoke('copilot:getModels')
     },
-    onDelta: (callback: (delta: string) => void): (() => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, delta: string): void => callback(delta)
+    onDelta: (callback: (data: { sessionId: string; content: string }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; content: string }): void => callback(data)
       ipcRenderer.on('copilot:delta', handler)
       return () => ipcRenderer.removeListener('copilot:delta', handler)
     },
-    onMessage: (callback: (content: string) => void): (() => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, content: string): void => callback(content)
+    onMessage: (callback: (data: { sessionId: string; content: string }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; content: string }): void => callback(data)
       ipcRenderer.on('copilot:message', handler)
       return () => ipcRenderer.removeListener('copilot:message', handler)
     },
-    onIdle: (callback: () => void): (() => void) => {
-      const handler = (): void => callback()
+    onIdle: (callback: (data: { sessionId: string }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string }): void => callback(data)
       ipcRenderer.on('copilot:idle', handler)
       return () => ipcRenderer.removeListener('copilot:idle', handler)
     },
-    onToolStart: (callback: (data: unknown) => void): (() => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: unknown): void => callback(data)
+    onToolStart: (callback: (data: { sessionId: string; toolCallId: string; toolName: string }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; toolCallId: string; toolName: string }): void => callback(data)
       ipcRenderer.on('copilot:tool-start', handler)
       return () => ipcRenderer.removeListener('copilot:tool-start', handler)
     },
-    onToolEnd: (callback: (data: unknown) => void): (() => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: unknown): void => callback(data)
+    onToolEnd: (callback: (data: { sessionId: string; toolCallId: string; toolName: string }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; toolCallId: string; toolName: string }): void => callback(data)
       ipcRenderer.on('copilot:tool-end', handler)
       return () => ipcRenderer.removeListener('copilot:tool-end', handler)
     },
-    onConfirm: (callback: (data: unknown) => void): (() => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: unknown): void => callback(data)
+    onConfirm: (callback: (data: { sessionId: string }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string }): void => callback(data)
       ipcRenderer.on('copilot:confirm', handler)
       return () => ipcRenderer.removeListener('copilot:confirm', handler)
     },
-    onPermission: (callback: (data: { requestId: string; kind: string; [key: string]: unknown }) => void): (() => void) => {
+    onPermission: (callback: (data: { requestId: string; kind: string; executable?: string; fullCommand?: string; [key: string]: unknown }) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: { requestId: string; kind: string }): void => callback(data)
       ipcRenderer.on('copilot:permission', handler)
       return () => ipcRenderer.removeListener('copilot:permission', handler)
@@ -64,8 +73,8 @@ const electronAPI = {
     respondPermission: (data: { requestId: string; decision: 'approved' | 'always' | 'denied' }): Promise<{ success: boolean }> => {
       return ipcRenderer.invoke('copilot:permissionResponse', data)
     },
-    onError: (callback: (error: string) => void): (() => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, error: string): void => callback(error)
+    onError: (callback: (data: { sessionId: string; message: string }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; message: string }): void => callback(data)
       ipcRenderer.on('copilot:error', handler)
       return () => ipcRenderer.removeListener('copilot:error', handler)
     }

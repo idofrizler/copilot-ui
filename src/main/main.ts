@@ -29,14 +29,22 @@ const store = new Store({
 
 let mainWindow: BrowserWindow | null = null
 let copilotClient: CopilotClient | null = null
-let session: CopilotSession | null = null
-let currentModel: string = store.get('model') as string
+
+// Multi-session support
+interface SessionState {
+  session: CopilotSession
+  model: string
+}
+const sessions = new Map<string, SessionState>()
+let activeSessionId: string | null = null
+let sessionCounter = 0
 
 // Pending permission requests waiting for user response
 const pendingPermissions = new Map<string, {
   resolve: (result: PermissionRequestResult) => void
   request: PermissionRequest
   executable: string
+  sessionId: string
 }>()
 
 // Track "always allow" permissions by executable (e.g., "ls", "find", "curl")
@@ -100,16 +108,17 @@ function getExecutableIdentifier(request: PermissionRequest): string {
 // Permission handler that prompts the user
 async function handlePermissionRequest(
   request: PermissionRequest,
-  _invocation: { sessionId: string }
+  _invocation: { sessionId: string },
+  ourSessionId: string
 ): Promise<PermissionRequestResult> {
   const requestId = request.toolCallId || `perm-${Date.now()}`
   const executable = getExecutableIdentifier(request)
   
-  console.log('Permission request:', request.kind, executable)
+  console.log(`[${ourSessionId}] Permission request:`, request.kind, executable)
   
   // Check if this executable is always allowed
   if (alwaysAllowedExecutables.has(executable)) {
-    console.log('Auto-approved (always allow):', executable)
+    console.log(`[${ourSessionId}] Auto-approved (always allow):`, executable)
     return { kind: 'approved' }
   }
   
@@ -119,54 +128,80 @@ async function handlePermissionRequest(
   
   // Send to renderer and wait for response
   return new Promise((resolve) => {
-    pendingPermissions.set(requestId, { resolve, request, executable })
+    pendingPermissions.set(requestId, { resolve, request, executable, sessionId: ourSessionId })
     mainWindow!.webContents.send('copilot:permission', {
       requestId,
+      sessionId: ourSessionId,
       executable,
       ...request
     })
   })
 }
 
+// Create a new session and return its ID
+async function createNewSession(model?: string): Promise<string> {
+  if (!copilotClient) {
+    throw new Error('Copilot client not initialized')
+  }
+  
+  const sessionId = `session-${++sessionCounter}`
+  const sessionModel = model || store.get('model') as string
+  
+  const newSession = await copilotClient.createSession({
+    model: sessionModel,
+    onPermissionRequest: (request, invocation) => handlePermissionRequest(request, invocation, sessionId),
+  })
+  
+  // Set up event handler for this session
+  newSession.on((event) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    
+    // Always forward events - frontend routes by sessionId
+    console.log(`[${sessionId}] Event:`, event.type)
+    
+    if (event.type === 'assistant.message_delta') {
+      mainWindow.webContents.send('copilot:delta', { sessionId, content: event.data.deltaContent })
+    } else if (event.type === 'assistant.message') {
+      mainWindow.webContents.send('copilot:message', { sessionId, content: event.data.content })
+    } else if (event.type === 'session.idle') {
+      mainWindow.webContents.send('copilot:idle', { sessionId })
+    } else if (event.type === 'tool.execution_start') {
+      console.log(`[${sessionId}] Tool start:`, event.data.toolName)
+      mainWindow.webContents.send('copilot:tool-start', { sessionId, ...event.data })
+    } else if (event.type === 'tool.execution_complete') {
+      console.log(`[${sessionId}] Tool end:`, event.data.toolCallId)
+      mainWindow.webContents.send('copilot:tool-end', { sessionId, ...event.data })
+    } else if (event.type === 'tool.confirmation_requested') {
+      console.log(`[${sessionId}] Confirmation requested:`, event.data)
+      mainWindow.webContents.send('copilot:confirm', { sessionId, ...event.data })
+    } else if (event.type === 'session.error') {
+      console.log(`[${sessionId}] Session error:`, event.data)
+      mainWindow.webContents.send('copilot:error', { sessionId, message: event.data?.message || JSON.stringify(event.data) })
+    }
+  })
+  
+  sessions.set(sessionId, { session: newSession, model: sessionModel })
+  activeSessionId = sessionId
+  
+  console.log(`Created session ${sessionId} with model ${sessionModel}`)
+  return sessionId
+}
+
 async function initCopilot(): Promise<void> {
   try {
     copilotClient = new CopilotClient()
     await copilotClient.start()
-
-    session = await copilotClient.createSession({
-      model: currentModel,
-      onPermissionRequest: handlePermissionRequest,
-    })
-
-    // Set up event handler for streaming responses
-    session.on((event) => {
-      if (!mainWindow || mainWindow.isDestroyed()) return
-
-      console.log('Event:', event.type)
-
-      if (event.type === 'assistant.message_delta') {
-        mainWindow.webContents.send('copilot:delta', event.data.deltaContent)
-      } else if (event.type === 'assistant.message') {
-        mainWindow.webContents.send('copilot:message', event.data.content)
-      } else if (event.type === 'session.idle') {
-        mainWindow.webContents.send('copilot:idle')
-      } else if (event.type === 'tool.execution_start') {
-        console.log('Tool start:', event.data.toolName)
-        mainWindow.webContents.send('copilot:tool-start', event.data)
-      } else if (event.type === 'tool.execution_complete') {
-        console.log('Tool end:', event.data.toolCallId)
-        mainWindow.webContents.send('copilot:tool-end', event.data)
-      } else if (event.type === 'tool.confirmation_requested') {
-        console.log('Confirmation requested:', event.data)
-        mainWindow.webContents.send('copilot:confirm', event.data)
-      } else if (event.type === 'session.error') {
-        console.log('Session error:', event.data)
-        mainWindow.webContents.send('copilot:error', event.data?.message || JSON.stringify(event.data))
-      }
-    })
+    
+    // Create first session
+    const sessionId = await createNewSession()
 
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('copilot:ready', { model: currentModel, models: AVAILABLE_MODELS })
+      const sessionState = sessions.get(sessionId)!
+      mainWindow.webContents.send('copilot:ready', { 
+        sessionId,
+        model: sessionState.model, 
+        models: AVAILABLE_MODELS 
+      })
     }
   } catch (err) {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -226,27 +261,30 @@ function createWindow(): void {
 }
 
 // IPC Handlers
-ipcMain.handle('copilot:send', async (_event, prompt: string) => {
-  if (!session) {
-    throw new Error('Copilot session not initialized')
+ipcMain.handle('copilot:send', async (_event, data: { sessionId: string, prompt: string }) => {
+  const sessionState = sessions.get(data.sessionId)
+  if (!sessionState) {
+    throw new Error(`Session not found: ${data.sessionId}`)
   }
   
-  const messageId = await session.send({ prompt })
+  const messageId = await sessionState.session.send({ prompt: data.prompt })
   return messageId
 })
 
-ipcMain.handle('copilot:sendAndWait', async (_event, prompt: string) => {
-  if (!session) {
-    throw new Error('Copilot session not initialized')
+ipcMain.handle('copilot:sendAndWait', async (_event, data: { sessionId: string, prompt: string }) => {
+  const sessionState = sessions.get(data.sessionId)
+  if (!sessionState) {
+    throw new Error(`Session not found: ${data.sessionId}`)
   }
   
-  const response = await session.sendAndWait({ prompt })
+  const response = await sessionState.session.sendAndWait({ prompt: data.prompt })
   return response?.data?.content || ''
 })
 
-ipcMain.on('copilot:abort', async () => {
-  if (session) {
-    await session.abort()
+ipcMain.on('copilot:abort', async (_event, sessionId: string) => {
+  const sessionState = sessions.get(sessionId)
+  if (sessionState) {
+    await sessionState.session.abort()
   }
 })
 
@@ -278,80 +316,67 @@ ipcMain.handle('copilot:permissionResponse', async (_event, data: {
   return { success: true }
 })
 
-ipcMain.handle('copilot:setModel', async (_event, model: string) => {
+ipcMain.handle('copilot:setModel', async (_event, data: { sessionId: string, model: string }) => {
   const validModels = AVAILABLE_MODELS.map(m => m.id)
-  if (!validModels.includes(model)) {
-    throw new Error(`Invalid model: ${model}`)
+  if (!validModels.includes(data.model)) {
+    throw new Error(`Invalid model: ${data.model}`)
   }
   
+  store.set('model', data.model) // Persist as default for new sessions
   
-  currentModel = model
-  store.set('model', model) // Persist selection
-  
-  // Recreate session with new model
-  if (session) {
-    await session.destroy()
-  }
-  
-  if (copilotClient) {
-    session = await copilotClient.createSession({
-      model: currentModel,
-      onPermissionRequest: handlePermissionRequest,
-    })
+  const sessionState = sessions.get(data.sessionId)
+  if (sessionState) {
+    // Destroy old session before creating new one
+    console.log(`Destroying session ${data.sessionId} before model change to ${data.model}`)
+    await sessionState.session.destroy()
+    sessions.delete(data.sessionId)
     
-    session.on((event) => {
-      if (!mainWindow || mainWindow.isDestroyed()) return
-
-      
-
-      if (event.type === 'assistant.message_delta') {
-        mainWindow.webContents.send('copilot:delta', event.data.deltaContent)
-      } else if (event.type === 'assistant.message') {
-        
-        mainWindow.webContents.send('copilot:message', event.data.content)
-      } else if (event.type === 'session.idle') {
-        
-        mainWindow.webContents.send('copilot:idle')
-      } else if (event.type === 'tool.execution_start') {
-        
-        mainWindow.webContents.send('copilot:tool-start', event.data)
-      } else if (event.type === 'tool.execution_end') {
-        
-        mainWindow.webContents.send('copilot:tool-end', event.data)
-      } else if (event.type === 'session.error') {
-        
-      }
-    })
+    // Create replacement session with new model
+    const newSessionId = await createNewSession(data.model)
+    console.log(`Sessions after model change: ${sessions.size} active`)
+    return { sessionId: newSessionId, model: data.model }
   }
   
-  return { model: currentModel }
+  return { model: data.model }
 })
 
 ipcMain.handle('copilot:getModels', async () => {
+  const currentModel = store.get('model') as string
   return { models: AVAILABLE_MODELS, current: currentModel }
 })
 
-ipcMain.handle('copilot:reset', async () => {
-  if (session) {
-    await session.destroy()
-  }
-  if (copilotClient) {
-    session = await copilotClient.createSession({
-      model: 'gpt-5',
-    })
-    
-    session.on((event) => {
-      if (!mainWindow || mainWindow.isDestroyed()) return
+// Create a new session (for new tabs)
+ipcMain.handle('copilot:createSession', async () => {
+  const sessionId = await createNewSession()
+  const sessionState = sessions.get(sessionId)!
+  return { sessionId, model: sessionState.model }
+})
 
-      if (event.type === 'assistant.message_delta') {
-        mainWindow.webContents.send('copilot:delta', event.data.deltaContent)
-      } else if (event.type === 'assistant.message') {
-        mainWindow.webContents.send('copilot:message', event.data.content)
-      } else if (event.type === 'session.idle') {
-        mainWindow.webContents.send('copilot:idle')
-      }
-    })
+// Close a session (when closing a tab)
+ipcMain.handle('copilot:closeSession', async (_event, sessionId: string) => {
+  const sessionState = sessions.get(sessionId)
+  if (sessionState) {
+    await sessionState.session.destroy()
+    sessions.delete(sessionId)
+    console.log(`Closed session ${sessionId}`)
   }
+  
+  // Update active session if needed
+  if (activeSessionId === sessionId) {
+    activeSessionId = sessions.keys().next().value || null
+  }
+  
+  return { success: true, remainingSessions: sessions.size }
+})
+
+// Switch active session
+ipcMain.handle('copilot:switchSession', async (_event, sessionId: string) => {
+  if (!sessions.has(sessionId)) {
+    throw new Error(`Session not found: ${sessionId}`)
+  }
+  activeSessionId = sessionId
+  const sessionState = sessions.get(sessionId)!
+  return { sessionId, model: sessionState.model }
 })
 
 // Window control handlers
@@ -399,10 +424,13 @@ if (!gotTheLock) {
 }
 
 app.on('window-all-closed', async () => {
-  if (session) {
-    await session.destroy()
-    session = null
+  // Destroy all sessions
+  for (const [id, state] of sessions) {
+    await state.session.destroy()
+    console.log(`Destroyed session ${id}`)
   }
+  sessions.clear()
+  
   if (copilotClient) {
     await copilotClient.stop()
     copilotClient = null
@@ -411,10 +439,12 @@ app.on('window-all-closed', async () => {
 })
 
 app.on('before-quit', async () => {
-  if (session) {
-    await session.destroy()
-    session = null
+  // Destroy all sessions
+  for (const [id, state] of sessions) {
+    await state.session.destroy()
   }
+  sessions.clear()
+  
   if (copilotClient) {
     await copilotClient.stop()
     copilotClient = null

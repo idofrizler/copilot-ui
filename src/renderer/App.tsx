@@ -26,6 +26,7 @@ interface ModelInfo {
 
 interface PendingConfirmation {
   requestId: string
+  sessionId: string
   kind: string
   executable?: string
   toolCallId?: string
@@ -35,22 +36,43 @@ interface PendingConfirmation {
   [key: string]: unknown
 }
 
+// Tab/Session state
+interface TabState {
+  id: string
+  name: string
+  messages: Message[]
+  model: string
+  isProcessing: boolean
+  activeTools: ActiveTool[]
+  hasUnreadCompletion: boolean
+  pendingConfirmation: PendingConfirmation | null
+}
+
 let messageIdCounter = 0
 const generateId = () => `msg-${++messageIdCounter}-${Date.now()}`
+
+let tabCounter = 0
+const generateTabName = () => `Chat ${++tabCounter}`
 
 const App: React.FC = () => {
   const [status, setStatus] = useState<Status>('connecting')
   const [inputValue, setInputValue] = useState('')
-  const [messages, setMessages] = useState<Message[]>([])
-  const [isProcessing, setIsProcessing] = useState(false)
-  const [currentModel, setCurrentModel] = useState('gpt-5')
+  const [tabs, setTabs] = useState<TabState[]>([])
+  const [activeTabId, setActiveTabId] = useState<string | null>(null)
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([])
   const [showModelDropdown, setShowModelDropdown] = useState(false)
-  const [activeTools, setActiveTools] = useState<ActiveTool[]>([])
-  const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null)
   
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const activeTabIdRef = useRef<string | null>(null)
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    activeTabIdRef.current = activeTabId
+  }, [activeTabId])
+
+  // Get the active tab
+  const activeTab = tabs.find(t => t.id === activeTabId)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -58,7 +80,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     scrollToBottom()
-  }, [messages])
+  }, [activeTab?.messages])
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -69,30 +91,33 @@ const App: React.FC = () => {
     }
   }, [showModelDropdown])
 
-  // Test mode: auto-send message from URL param ?test=message
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const testMessage = params.get('test')
-    if (testMessage && status === 'connected' && messages.length === 0) {
-      console.log('Test mode: sending message:', testMessage)
-      setInputValue(testMessage)
-      // Delay to ensure state is ready
-      setTimeout(() => {
-        setMessages([{ id: generateId(), role: 'user', content: testMessage }])
-        setIsProcessing(true)
-        setMessages(prev => [...prev, { id: generateId(), role: 'assistant', content: '', isStreaming: true }])
-        window.electronAPI.copilot.send(testMessage)
-      }, 500)
-    }
-  }, [status])
+  // Helper to update a specific tab
+  const updateTab = useCallback((tabId: string, updates: Partial<TabState>) => {
+    setTabs(prev => prev.map(tab => 
+      tab.id === tabId ? { ...tab, ...updates } : tab
+    ))
+  }, [])
 
   // Set up IPC listeners
   useEffect(() => {
     const unsubscribeReady = window.electronAPI.copilot.onReady((data) => {
-      console.log('Copilot ready with model:', data.model, 'models:', data.models)
+      console.log('Copilot ready with sessionId:', data.sessionId, 'model:', data.model)
       setStatus('connected')
-      setCurrentModel(data.model)
       setAvailableModels(data.models)
+      
+      // Create initial tab with this session
+      const initialTab: TabState = {
+        id: data.sessionId,
+        name: generateTabName(),
+        messages: [],
+        model: data.model,
+        isProcessing: false,
+        activeTools: [],
+        hasUnreadCompletion: false,
+        pendingConfirmation: null
+      }
+      setTabs([initialTab])
+      setActiveTabId(data.sessionId)
     })
     
     // Also fetch models in case ready event was missed
@@ -100,97 +125,136 @@ const App: React.FC = () => {
       console.log('Fetched models:', data)
       if (data.models && data.models.length > 0) {
         setAvailableModels(data.models)
-        setCurrentModel(data.current)
         setStatus('connected')
       }
     }).catch(err => console.log('getModels failed (SDK may still be initializing):', err))
 
-    const unsubscribeDelta = window.electronAPI.copilot.onDelta((delta: string) => {
-      setMessages(prev => {
-        const last = prev[prev.length - 1]
+    const unsubscribeDelta = window.electronAPI.copilot.onDelta((data) => {
+      const { sessionId, content } = data
+      setTabs(prev => prev.map(tab => {
+        if (tab.id !== sessionId) return tab
+        const last = tab.messages[tab.messages.length - 1]
         if (last && last.role === 'assistant' && last.isStreaming) {
-          return [...prev.slice(0, -1), { ...last, content: last.content + delta }]
+          return {
+            ...tab,
+            messages: [...tab.messages.slice(0, -1), { ...last, content: last.content + content }]
+          }
         }
-        return prev
-      })
+        return tab
+      }))
     })
 
-    const unsubscribeMessage = window.electronAPI.copilot.onMessage((content: string) => {
-      setMessages(prev => {
-        const last = prev[prev.length - 1]
+    const unsubscribeMessage = window.electronAPI.copilot.onMessage((data) => {
+      const { sessionId, content } = data
+      setTabs(prev => prev.map(tab => {
+        if (tab.id !== sessionId) return tab
+        const last = tab.messages[tab.messages.length - 1]
         if (last && last.role === 'assistant' && last.isStreaming) {
-          return [...prev.slice(0, -1), { ...last, content, isStreaming: false }]
+          return {
+            ...tab,
+            messages: [...tab.messages.slice(0, -1), { ...last, content, isStreaming: false }]
+          }
         }
-        return [...prev, { id: generateId(), role: 'assistant', content, isStreaming: false }]
-      })
+        return {
+          ...tab,
+          messages: [...tab.messages, { id: generateId(), role: 'assistant', content, isStreaming: false }]
+        }
+      }))
     })
 
-    const unsubscribeIdle = window.electronAPI.copilot.onIdle(() => {
-      setIsProcessing(false)
-      setActiveTools([]) // Clear tools when done
-      setMessages(prev => {
-        // Remove empty streaming messages and finalize
-        return prev.filter(msg => msg.content.trim() || msg.role === 'user').map(msg => 
-          msg.isStreaming ? { ...msg, isStreaming: false } : msg
-        )
-      })
+    const unsubscribeIdle = window.electronAPI.copilot.onIdle((data) => {
+      const { sessionId } = data
+      setTabs(prev => prev.map(tab => {
+        if (tab.id !== sessionId) return tab
+        return {
+          ...tab,
+          isProcessing: false,
+          activeTools: [],
+          // Mark as unread if this tab is not currently active
+          hasUnreadCompletion: tab.id !== activeTabIdRef.current,
+          messages: tab.messages
+            .filter(msg => msg.content.trim() || msg.role === 'user')
+            .map(msg => msg.isStreaming ? { ...msg, isStreaming: false } : msg)
+        }
+      }))
     })
 
-    const unsubscribeToolStart = window.electronAPI.copilot.onToolStart((data: unknown) => {
-      const toolData = data as { toolCallId?: string; toolName?: string; name?: string }
-      const toolName = toolData.toolName || toolData.name || 'unknown'
-      const toolCallId = toolData.toolCallId || generateId()
-      
-      // Skip internal tools like report_intent
-      if (toolName === 'report_intent' || toolName === 'update_todo') return
-      
-      setActiveTools(prev => [...prev, { toolCallId, toolName, status: 'running' }])
-    })
-
-    const unsubscribeToolEnd = window.electronAPI.copilot.onToolEnd((data: unknown) => {
-      const toolData = data as { toolCallId?: string; toolName?: string; name?: string }
-      const toolCallId = toolData.toolCallId
-      const toolName = toolData.toolName || toolData.name || 'unknown'
+    const unsubscribeToolStart = window.electronAPI.copilot.onToolStart((data) => {
+      const { sessionId, toolCallId, toolName } = data
+      const name = toolName || 'unknown'
+      const id = toolCallId || generateId()
       
       // Skip internal tools
-      if (toolName === 'report_intent' || toolName === 'update_todo') return
+      if (name === 'report_intent' || name === 'update_todo') return
       
-      setActiveTools(prev => 
-        prev.map(t => t.toolCallId === toolCallId ? { ...t, status: 'done' as const } : t)
-      )
+      setTabs(prev => prev.map(tab => {
+        if (tab.id !== sessionId) return tab
+        return {
+          ...tab,
+          activeTools: [...tab.activeTools, { toolCallId: id, toolName: name, status: 'running' }]
+        }
+      }))
+    })
+
+    const unsubscribeToolEnd = window.electronAPI.copilot.onToolEnd((data) => {
+      const { sessionId, toolCallId, toolName } = data
+      const name = toolName || 'unknown'
+      
+      // Skip internal tools
+      if (name === 'report_intent' || name === 'update_todo') return
+      
+      setTabs(prev => prev.map(tab => {
+        if (tab.id !== sessionId) return tab
+        return {
+          ...tab,
+          activeTools: tab.activeTools.map(t => 
+            t.toolCallId === toolCallId ? { ...t, status: 'done' as const } : t
+          )
+        }
+      }))
       
       // Remove completed tools after a short delay
       setTimeout(() => {
-        setActiveTools(prev => prev.filter(t => t.toolCallId !== toolCallId))
+        setTabs(prev => prev.map(tab => {
+          if (tab.id !== sessionId) return tab
+          return {
+            ...tab,
+            activeTools: tab.activeTools.filter(t => t.toolCallId !== toolCallId)
+          }
+        }))
       }, 2000)
     })
 
-    // Listen for permission requests (shell, write, read, etc.)
+    // Listen for permission requests
     const unsubscribePermission = window.electronAPI.copilot.onPermission((data) => {
       console.log('Permission requested:', data)
-      setPendingConfirmation({
+      const sessionId = data.sessionId as string
+      const confirmation: PendingConfirmation = {
         requestId: data.requestId,
+        sessionId,
         kind: data.kind,
-        executable: data.executable as string | undefined,
+        executable: data.executable,
         toolCallId: data.toolCallId as string | undefined,
-        fullCommandText: data.fullCommandText as string | undefined,
+        fullCommandText: data.fullCommandText,
         intention: data.intention as string | undefined,
         path: data.path as string | undefined,
-      })
+      }
+      setTabs(prev => prev.map(tab => 
+        tab.id === sessionId ? { ...tab, pendingConfirmation: confirmation } : tab
+      ))
     })
 
-    const unsubscribeError = window.electronAPI.copilot.onError((error: string) => {
-      console.error('Copilot error:', error)
-      // Don't disconnect on transient errors - just show the error and allow retry
-      setIsProcessing(false)
-      // Only add error message if it's meaningful (not the common invalid_request_body)
-      if (!error.includes('invalid_request_body')) {
-        setMessages(prev => [...prev, { 
-          id: generateId(), 
-          role: 'assistant', 
-          content: `⚠️ ${error}` 
-        }])
-      }
+    const unsubscribeError = window.electronAPI.copilot.onError((data) => {
+      const { sessionId, message } = data
+      console.error('Copilot error:', message)
+      
+      setTabs(prev => prev.map(tab => {
+        if (tab.id !== sessionId) return tab
+        const newMessages = !message.includes('invalid_request_body')
+          ? [...tab.messages, { id: generateId(), role: 'assistant' as const, content: `⚠️ ${message}` }]
+          : tab.messages
+        return { ...tab, isProcessing: false, messages: newMessages }
+      }))
     })
 
     return () => {
@@ -206,7 +270,7 @@ const App: React.FC = () => {
   }, [])
 
   const handleSendMessage = useCallback(async () => {
-    if (!inputValue.trim() || isProcessing) return
+    if (!inputValue.trim() || !activeTab || activeTab.isProcessing) return
     
     const userMessage: Message = {
       id: generateId(),
@@ -214,26 +278,26 @@ const App: React.FC = () => {
       content: inputValue.trim()
     }
     
-    setMessages(prev => [...prev, userMessage])
+    const tabId = activeTab.id
+    updateTab(tabId, {
+      messages: [...activeTab.messages, userMessage, {
+        id: generateId(),
+        role: 'assistant',
+        content: '',
+        isStreaming: true
+      }],
+      isProcessing: true,
+      activeTools: []
+    })
     setInputValue('')
-    setIsProcessing(true)
-    setActiveTools([]) // Clear any stale tool indicators
-    
-    // Add placeholder for assistant response
-    setMessages(prev => [...prev, {
-      id: generateId(),
-      role: 'assistant',
-      content: '',
-      isStreaming: true
-    }])
     
     try {
-      await window.electronAPI.copilot.send(userMessage.content)
+      await window.electronAPI.copilot.send(tabId, userMessage.content)
     } catch (error) {
       console.error('Send error:', error)
-      setIsProcessing(false)
+      updateTab(tabId, { isProcessing: false })
     }
-  }, [inputValue, isProcessing])
+  }, [inputValue, activeTab, updateTab])
 
   const handleKeyPress = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -243,12 +307,14 @@ const App: React.FC = () => {
   }, [handleSendMessage])
 
   const handleStop = () => {
-    window.electronAPI.copilot.abort()
-    setIsProcessing(false)
+    if (!activeTab) return
+    window.electronAPI.copilot.abort(activeTab.id)
+    updateTab(activeTab.id, { isProcessing: false })
   }
 
   const handleConfirmation = async (decision: 'approved' | 'always' | 'denied') => {
-    if (!pendingConfirmation) return
+    const pendingConfirmation = activeTab?.pendingConfirmation
+    if (!pendingConfirmation || !activeTab) return
     
     try {
       await window.electronAPI.copilot.respondPermission({
@@ -258,29 +324,95 @@ const App: React.FC = () => {
     } catch (error) {
       console.error('Permission response failed:', error)
     }
-    setPendingConfirmation(null)
+    updateTab(activeTab.id, { pendingConfirmation: null })
   }
 
-  const handleReset = async () => {
+  const handleNewTab = async () => {
     setStatus('connecting')
-    setMessages([])
-    await window.electronAPI.copilot.reset()
-    setStatus('connected')
+    try {
+      const result = await window.electronAPI.copilot.createSession()
+      const newTab: TabState = {
+        id: result.sessionId,
+        name: generateTabName(),
+        messages: [],
+        model: result.model,
+        isProcessing: false,
+        activeTools: [],
+        hasUnreadCompletion: false,
+        pendingConfirmation: null
+      }
+      setTabs(prev => [...prev, newTab])
+      setActiveTabId(result.sessionId)
+      setStatus('connected')
+    } catch (error) {
+      console.error('Failed to create new tab:', error)
+      setStatus('connected')
+    }
+  }
+
+  const handleCloseTab = async (tabId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation()
+    
+    // Don't close the last tab - just clear it
+    if (tabs.length === 1) {
+      updateTab(tabId, { messages: [], activeTools: [], hasUnreadCompletion: false, pendingConfirmation: null })
+      return
+    }
+    
+    try {
+      await window.electronAPI.copilot.closeSession(tabId)
+      
+      // If closing the active tab, switch to another one
+      if (activeTabId === tabId) {
+        const currentIndex = tabs.findIndex(t => t.id === tabId)
+        const newActiveTab = tabs[currentIndex - 1] || tabs[currentIndex + 1]
+        setActiveTabId(newActiveTab?.id || null)
+      }
+      
+      setTabs(prev => prev.filter(t => t.id !== tabId))
+    } catch (error) {
+      console.error('Failed to close tab:', error)
+    }
+  }
+
+  const handleSwitchTab = async (tabId: string) => {
+    if (tabId === activeTabId) return
+    setActiveTabId(tabId)
+    // Clear unread indicator when switching to this tab
+    updateTab(tabId, { hasUnreadCompletion: false })
+    try {
+      await window.electronAPI.copilot.switchSession(tabId)
+    } catch (error) {
+      console.error('Failed to switch session:', error)
+    }
   }
 
   const handleModelChange = async (model: string) => {
-    if (model === currentModel) {
+    if (!activeTab || model === activeTab.model) {
       setShowModelDropdown(false)
       return
     }
     
     setShowModelDropdown(false)
     setStatus('connecting')
-    setMessages([])
     
     try {
-      const result = await window.electronAPI.copilot.setModel(model)
-      setCurrentModel(result.model)
+      const result = await window.electronAPI.copilot.setModel(activeTab.id, model)
+      // Update the tab with new session ID and model, clear messages
+      setTabs(prev => {
+        const updated = prev.filter(t => t.id !== activeTab.id)
+        return [...updated, {
+          id: result.sessionId,
+          name: activeTab.name,
+          messages: [],
+          model: result.model,
+          isProcessing: false,
+          activeTools: [],
+          hasUnreadCompletion: false,
+          pendingConfirmation: null
+        }]
+      })
+      setActiveTabId(result.sessionId)
       setStatus('connected')
     } catch (error) {
       console.error('Failed to change model:', error)
@@ -325,7 +457,7 @@ const App: React.FC = () => {
                 }}
                 className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#21262d] hover:bg-[#30363d] transition-colors text-xs text-[#8b949e] hover:text-[#e6edf3]"
               >
-                <span>{availableModels.find(m => m.id === currentModel)?.name || currentModel}</span>
+                <span>{availableModels.find(m => m.id === activeTab?.model)?.name || activeTab?.model || 'Loading...'}</span>
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M6 9l6 6 6-6"/>
                 </svg>
@@ -341,10 +473,10 @@ const App: React.FC = () => {
                       key={model.id}
                       onClick={() => handleModelChange(model.id)}
                       className={`w-full px-3 py-1.5 text-left text-xs hover:bg-[#30363d] transition-colors flex justify-between items-center ${
-                        model.id === currentModel ? 'text-[#58a6ff]' : 'text-[#e6edf3]'
+                        model.id === activeTab?.model ? 'text-[#58a6ff]' : 'text-[#e6edf3]'
                       }`}
                     >
-                      <span>{model.id === currentModel && '✓ '}{model.name}</span>
+                      <span>{model.id === activeTab?.model && '✓ '}{model.name}</span>
                       <span className={`ml-2 ${
                         model.multiplier === 0 ? 'text-[#3fb950]' : 
                         model.multiplier < 1 ? 'text-[#3fb950]' :
@@ -369,7 +501,7 @@ const App: React.FC = () => {
             <span className="text-[10px] text-[#8b949e]">{status}</span>
           </div>
           
-          {isProcessing && (
+          {activeTab?.isProcessing && (
             <button 
               onClick={handleStop}
               className="p-1 rounded hover:bg-[#21262d] transition-colors"
@@ -380,23 +512,54 @@ const App: React.FC = () => {
               </svg>
             </button>
           )}
-          
-          <button 
-            onClick={handleReset}
-            className="p-1 rounded hover:bg-[#21262d] transition-colors"
-            title="New Chat"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#58a6ff" strokeWidth="2">
-              <path d="M23 4v6h-6M1 20v-6h6"/>
-              <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
-            </svg>
-          </button>
         </div>
+      </div>
+
+      {/* Tab Bar */}
+      <div className="flex items-center gap-1 px-2 py-1 bg-[#0d1117] border-b border-[#30363d] shrink-0 overflow-x-auto">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => handleSwitchTab(tab.id)}
+            className={`group flex items-center gap-1.5 px-3 py-1.5 rounded-t text-xs transition-colors ${
+              tab.id === activeTabId 
+                ? 'bg-[#161b22] text-[#e6edf3] border-t border-x border-[#30363d]' 
+                : 'text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d]'
+            }`}
+          >
+            <span className="max-w-[120px] truncate">{tab.name}</span>
+            {tab.pendingConfirmation ? (
+              <span className="inline-block w-2 h-2 rounded-full bg-[#58a6ff] animate-pulse" />
+            ) : tab.isProcessing ? (
+              <span className="inline-block w-2 h-2 rounded-full bg-[#d29922] animate-pulse" />
+            ) : tab.hasUnreadCompletion ? (
+              <span className="inline-block w-2 h-2 rounded-full bg-[#3fb950]" />
+            ) : null}
+            <button
+              onClick={(e) => handleCloseTab(tab.id, e)}
+              className="ml-1 p-0.5 rounded hover:bg-[#30363d] opacity-0 group-hover:opacity-100 transition-opacity"
+              title="Close tab"
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M18 6L6 18M6 6l12 12"/>
+              </svg>
+            </button>
+          </button>
+        ))}
+        <button
+          onClick={handleNewTab}
+          className="p-1.5 rounded hover:bg-[#21262d] text-[#8b949e] hover:text-[#e6edf3] transition-colors"
+          title="New Tab"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+        </button>
       </div>
 
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.length === 0 && status === 'connected' && (
+        {activeTab?.messages.length === 0 && status === 'connected' && (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" className="text-[#30363d] mb-4">
               <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" strokeWidth="1.5"/>
@@ -408,7 +571,7 @@ const App: React.FC = () => {
           </div>
         )}
         
-        {messages.filter(m => m.role !== 'system').map((message) => (
+        {(activeTab?.messages || []).filter(m => m.role !== 'system').map((message) => (
           <div 
             key={message.id}
             className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
@@ -480,10 +643,10 @@ const App: React.FC = () => {
         ))}
         
         {/* Active Tools Indicator */}
-        {activeTools.length > 0 && (
+        {(activeTab?.activeTools?.length || 0) > 0 && (
           <div className="flex justify-start">
             <div className="flex flex-wrap gap-2 px-3 py-2 bg-[#1c2128] rounded-lg border border-[#30363d]">
-              {activeTools.map((tool) => (
+              {activeTab?.activeTools.map((tool) => (
                 <span 
                   key={tool.toolCallId}
                   className={`text-xs flex items-center gap-1.5 ${
@@ -503,25 +666,25 @@ const App: React.FC = () => {
         )}
         
         {/* Permission Confirmation Dialog */}
-        {pendingConfirmation && (
+        {activeTab?.pendingConfirmation && (
           <div className="flex justify-start">
             <div className="max-w-[90%] bg-[#1c2128] rounded-lg border border-[#d29922] p-4">
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-[#d29922]">⚠️</span>
                 <span className="text-[#e6edf3] text-sm">
-                  Allow <strong className="font-bold">{pendingConfirmation.executable || pendingConfirmation.kind}</strong>?
+                  Allow <strong className="font-bold">{activeTab.pendingConfirmation.executable || activeTab.pendingConfirmation.kind}</strong>?
                 </span>
               </div>
-              {pendingConfirmation.intention && (
-                <div className="text-sm text-[#e6edf3] mb-2">{pendingConfirmation.intention}</div>
+              {activeTab.pendingConfirmation.intention && (
+                <div className="text-sm text-[#e6edf3] mb-2">{activeTab.pendingConfirmation.intention}</div>
               )}
-              {pendingConfirmation.fullCommandText && (
+              {activeTab.pendingConfirmation.fullCommandText && (
                 <pre className="bg-[#0d1117] rounded p-2 my-2 overflow-x-auto text-xs text-[#e6edf3] border border-[#30363d]">
-                  <code>{pendingConfirmation.fullCommandText}</code>
+                  <code>{activeTab.pendingConfirmation.fullCommandText}</code>
                 </pre>
               )}
-              {pendingConfirmation.path && !pendingConfirmation.intention && (
-                <div className="text-xs text-[#8b949e] mb-2">Path: {pendingConfirmation.path}</div>
+              {activeTab.pendingConfirmation.path && !activeTab.pendingConfirmation.intention && (
+                <div className="text-xs text-[#8b949e] mb-2">Path: {activeTab.pendingConfirmation.path}</div>
               )}
               <div className="flex gap-2 mt-3">
                 <button
@@ -533,7 +696,7 @@ const App: React.FC = () => {
                 <button
                   onClick={() => handleConfirmation('always')}
                   className="px-3 py-1.5 rounded bg-[#21262d] hover:bg-[#30363d] text-[#e6edf3] text-xs font-medium border border-[#30363d] transition-colors"
-                  title={`Always allow ${pendingConfirmation.executable || pendingConfirmation.kind} for this session`}
+                  title={`Always allow ${activeTab.pendingConfirmation.executable || activeTab.pendingConfirmation.kind} for this session`}
                 >
                   Always Allow
                 </button>
@@ -562,15 +725,15 @@ const App: React.FC = () => {
             onKeyDown={handleKeyPress}
             placeholder="Ask Copilot..."
             className="flex-1 bg-transparent py-2.5 px-4 text-[#e6edf3] placeholder-[#484f58] outline-none text-sm"
-            disabled={status !== 'connected' || isProcessing}
+            disabled={status !== 'connected' || activeTab?.isProcessing}
             autoFocus
           />
           <button
             onClick={handleSendMessage}
-            disabled={!inputValue.trim() || status !== 'connected' || isProcessing}
+            disabled={!inputValue.trim() || status !== 'connected' || activeTab?.isProcessing}
             className="mr-2 px-3 py-1.5 rounded bg-[#238636] hover:bg-[#2ea043] disabled:opacity-30 disabled:cursor-not-allowed text-white text-xs font-medium transition-colors"
           >
-            {isProcessing ? 'Sending...' : 'Send'}
+            {activeTab?.isProcessing ? 'Sending...' : 'Send'}
           </button>
         </div>
       </div>
