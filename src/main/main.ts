@@ -21,10 +21,16 @@ process.on('uncaughtException', (err) => {
 // Replace console with electron-log
 Object.assign(console, log.functions)
 
+interface StoredSession {
+  sessionId: string
+  model: string
+  cwd: string
+}
+
 const store = new Store({
   defaults: {
     model: 'gpt-5.2',
-    openSessionIds: [] as string[]  // Session IDs that were open in our app
+    openSessions: [] as StoredSession[]  // Sessions that were open in our app with their models and cwd
   }
 })
 
@@ -35,6 +41,7 @@ let copilotClient: CopilotClient | null = null
 interface SessionState {
   session: CopilotSession
   model: string
+  cwd: string  // Current working directory for the session
   alwaysAllowed: Set<string>  // Per-session always-allowed executables
 }
 const sessions = new Map<string, SessionState>()
@@ -139,16 +146,18 @@ async function handlePermissionRequest(
 }
 
 // Create a new session and return its ID
-async function createNewSession(model?: string): Promise<string> {
+async function createNewSession(model?: string, cwd?: string): Promise<string> {
   if (!copilotClient) {
     throw new Error('Copilot client not initialized')
   }
   
   const sessionId = `session-${++sessionCounter}`
   const sessionModel = model || store.get('model') as string
+  const sessionCwd = cwd || process.cwd()
   
   const newSession = await copilotClient.createSession({
     model: sessionModel,
+    cwd: sessionCwd,
     onPermissionRequest: (request, invocation) => handlePermissionRequest(request, invocation, sessionId),
   })
   
@@ -180,10 +189,10 @@ async function createNewSession(model?: string): Promise<string> {
     }
   })
   
-  sessions.set(sessionId, { session: newSession, model: sessionModel, alwaysAllowed: new Set() })
+  sessions.set(sessionId, { session: newSession, model: sessionModel, cwd: sessionCwd, alwaysAllowed: new Set() })
   activeSessionId = sessionId
   
-  console.log(`Created session ${sessionId} with model ${sessionModel}`)
+  console.log(`Created session ${sessionId} with model ${sessionModel} in ${sessionCwd}`)
   return sessionId
 }
 
@@ -192,11 +201,13 @@ async function initCopilot(): Promise<void> {
     copilotClient = new CopilotClient()
     await copilotClient.start()
     
-    // Get all available sessions and our stored open session IDs
+    // Get all available sessions and our stored open sessions with models
     const allSessions = await copilotClient.listSessions()
-    const openSessionIds = store.get('openSessionIds') as string[] || []
+    const openSessions = store.get('openSessions') as StoredSession[] || []
+    const openSessionIds = openSessions.map(s => s.sessionId)
+    const openSessionMap = new Map(openSessions.map(s => [s.sessionId, s]))
     
-    console.log(`Found ${allSessions.length} total sessions, ${openSessionIds.length} were open in our app`)
+    console.log(`Found ${allSessions.length} total sessions, ${openSessions.length} were open in our app`)
     console.log('Open session IDs:', openSessionIds)
     console.log('Available session IDs:', allSessions.map(s => s.sessionId))
     
@@ -212,13 +223,15 @@ async function initCopilot(): Promise<void> {
       .filter(s => !openSessionIds.includes(s.sessionId))
       .map(s => ({ sessionId: s.sessionId, name: s.summary || undefined, modifiedTime: s.modifiedTime.toISOString() }))
     
-    let resumedSessions: { sessionId: string; model: string; name?: string }[] = []
+    let resumedSessions: { sessionId: string; model: string; cwd: string; name?: string }[] = []
     
-    // Resume only our open sessions
+    // Resume only our open sessions with their stored models and cwd
     for (const sessionId of sessionsToResume) {
       const meta = sessionMetaMap.get(sessionId)!
+      const storedSession = openSessionMap.get(sessionId)
       try {
-        const sessionModel = store.get('model') as string || 'gpt-5.2'
+        const sessionModel = storedSession?.model || store.get('model') as string || 'gpt-5.2'
+        const sessionCwd = storedSession?.cwd || process.cwd()
         const session = await copilotClient.resumeSession(sessionId, {
           permissionHandler: (request, invocation) => handlePermissionRequest(request, invocation, sessionId)
         })
@@ -252,13 +265,14 @@ async function initCopilot(): Promise<void> {
           }
         })
         
-        sessions.set(sessionId, { session, model: sessionModel, alwaysAllowed: new Set() })
+        sessions.set(sessionId, { session, model: sessionModel, cwd: sessionCwd, alwaysAllowed: new Set() })
         resumedSessions.push({ 
           sessionId, 
           model: sessionModel,
+          cwd: sessionCwd,
           name: meta.summary || undefined
         })
-        console.log(`Resumed session ${sessionId}${meta.summary ? ` (${meta.summary})` : ''}`)
+        console.log(`Resumed session ${sessionId} with model ${sessionModel} in ${sessionCwd}${meta.summary ? ` (${meta.summary})` : ''}`)
       } catch (err) {
         console.error(`Failed to resume session ${sessionId}:`, err)
       }
@@ -268,9 +282,9 @@ async function initCopilot(): Promise<void> {
     if (resumedSessions.length === 0) {
       const sessionId = await createNewSession()
       const sessionState = sessions.get(sessionId)!
-      resumedSessions.push({ sessionId, model: sessionState.model })
+      resumedSessions.push({ sessionId, model: sessionState.model, cwd: sessionState.cwd })
       // Save this new session as open
-      store.set('openSessionIds', [sessionId])
+      store.set('openSessions', [{ sessionId, model: sessionState.model, cwd: sessionState.cwd }])
     }
     
     activeSessionId = resumedSessions[0].sessionId
@@ -469,10 +483,11 @@ ipcMain.handle('copilot:setModel', async (_event, data: { sessionId: string, mod
     await sessionState.session.destroy()
     sessions.delete(data.sessionId)
     
-    // Create replacement session with new model
-    const newSessionId = await createNewSession(data.model)
+    // Create replacement session with new model (keep same cwd)
+    const newSessionId = await createNewSession(data.model, sessionState.cwd)
+    const newSessionState = sessions.get(newSessionId)!
     console.log(`Sessions after model change: ${sessions.size} active`)
-    return { sessionId: newSessionId, model: data.model }
+    return { sessionId: newSessionId, model: data.model, cwd: newSessionState.cwd }
   }
   
   return { model: data.model }
@@ -487,7 +502,7 @@ ipcMain.handle('copilot:getModels', async () => {
 ipcMain.handle('copilot:createSession', async () => {
   const sessionId = await createNewSession()
   const sessionState = sessions.get(sessionId)!
-  return { sessionId, model: sessionState.model }
+  return { sessionId, model: sessionState.model, cwd: sessionState.cwd }
 })
 
 // Close a session (when closing a tab)
@@ -537,9 +552,9 @@ ipcMain.handle('copilot:removeAlwaysAllowed', async (_event, data: { sessionId: 
 })
 
 // Save open session IDs to persist across restarts
-ipcMain.handle('copilot:saveOpenSessions', async (_event, sessionIds: string[]) => {
-  store.set('openSessionIds', sessionIds)
-  console.log(`Saved ${sessionIds.length} open session IDs`)
+ipcMain.handle('copilot:saveOpenSessions', async (_event, openSessions: StoredSession[]) => {
+  store.set('openSessions', openSessions)
+  console.log(`Saved ${openSessions.length} open sessions with models`)
   return { success: true }
 })
 
@@ -552,10 +567,11 @@ ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string
   // Check if already resumed
   if (sessions.has(sessionId)) {
     const sessionState = sessions.get(sessionId)!
-    return { sessionId, model: sessionState.model, alreadyOpen: true }
+    return { sessionId, model: sessionState.model, cwd: sessionState.cwd, alreadyOpen: true }
   }
   
   const sessionModel = store.get('model') as string || 'gpt-5.2'
+  const sessionCwd = process.cwd()  // Use current cwd for resumed previous sessions
   const session = await copilotClient.resumeSession(sessionId, {
     permissionHandler: (request, invocation) => handlePermissionRequest(request, invocation, sessionId)
   })
@@ -587,11 +603,11 @@ ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string
     }
   })
   
-  sessions.set(sessionId, { session, model: sessionModel, alwaysAllowed: new Set() })
+  sessions.set(sessionId, { session, model: sessionModel, cwd: sessionCwd, alwaysAllowed: new Set() })
   activeSessionId = sessionId
   
-  console.log(`Resumed previous session ${sessionId}`)
-  return { sessionId, model: sessionModel, alreadyOpen: false }
+  console.log(`Resumed previous session ${sessionId} in ${sessionCwd}`)
+  return { sessionId, model: sessionModel, cwd: sessionCwd, alreadyOpen: false }
 })
 
 // Window control handlers

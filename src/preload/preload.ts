@@ -20,7 +20,7 @@ const electronAPI = {
     },
     
     // Session management
-    createSession: (): Promise<{ sessionId: string; model: string }> => {
+    createSession: (): Promise<{ sessionId: string; model: string; cwd: string }> => {
       return ipcRenderer.invoke('copilot:createSession')
     },
     closeSession: (sessionId: string): Promise<{ success: boolean; remainingSessions: number }> => {
@@ -29,19 +29,19 @@ const electronAPI = {
     switchSession: (sessionId: string): Promise<{ sessionId: string; model: string }> => {
       return ipcRenderer.invoke('copilot:switchSession', sessionId)
     },
-    saveOpenSessions: (sessionIds: string[]): Promise<{ success: boolean }> => {
-      return ipcRenderer.invoke('copilot:saveOpenSessions', sessionIds)
+    saveOpenSessions: (sessions: { sessionId: string; model: string; cwd: string }[]): Promise<{ success: boolean }> => {
+      return ipcRenderer.invoke('copilot:saveOpenSessions', sessions)
     },
-    resumePreviousSession: (sessionId: string): Promise<{ sessionId: string; model: string; alreadyOpen: boolean }> => {
+    resumePreviousSession: (sessionId: string): Promise<{ sessionId: string; model: string; cwd: string; alreadyOpen: boolean }> => {
       return ipcRenderer.invoke('copilot:resumePreviousSession', sessionId)
     },
     
-    onReady: (callback: (data: { sessions: { sessionId: string; model: string; name?: string }[]; previousSessions: { sessionId: string; name?: string; modifiedTime: string }[]; models: { id: string; name: string; multiplier: number }[] }) => void): (() => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: { sessions: { sessionId: string; model: string; name?: string }[]; previousSessions: { sessionId: string; name?: string; modifiedTime: string }[]; models: { id: string; name: string; multiplier: number }[] }): void => callback(data)
+    onReady: (callback: (data: { sessions: { sessionId: string; model: string; cwd: string; name?: string }[]; previousSessions: { sessionId: string; name?: string; modifiedTime: string }[]; models: { id: string; name: string; multiplier: number }[] }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { sessions: { sessionId: string; model: string; cwd: string; name?: string }[]; previousSessions: { sessionId: string; name?: string; modifiedTime: string }[]; models: { id: string; name: string; multiplier: number }[] }): void => callback(data)
       ipcRenderer.on('copilot:ready', handler)
       return () => ipcRenderer.removeListener('copilot:ready', handler)
     },
-    setModel: (sessionId: string, model: string): Promise<{ sessionId: string; model: string }> => {
+    setModel: (sessionId: string, model: string): Promise<{ sessionId: string; model: string; cwd?: string }> => {
       return ipcRenderer.invoke('copilot:setModel', { sessionId, model })
     },
     getModels: (): Promise<{ models: { id: string; name: string; multiplier: number }[]; current: string }> => {

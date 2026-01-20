@@ -42,6 +42,7 @@ interface TabState {
   name: string
   messages: Message[]
   model: string
+  cwd: string  // Current working directory for this session
   isProcessing: boolean
   activeTools: ActiveTool[]
   hasUnreadCompletion: boolean
@@ -84,11 +85,11 @@ const App: React.FC = () => {
     activeTabIdRef.current = activeTabId
   }, [activeTabId])
 
-  // Save open session IDs whenever tabs change
+  // Save open sessions with models and cwd whenever tabs change
   useEffect(() => {
     if (tabs.length > 0) {
-      const sessionIds = tabs.map(t => t.id)
-      window.electronAPI.copilot.saveOpenSessions(sessionIds)
+      const openSessions = tabs.map(t => ({ sessionId: t.id, model: t.model, cwd: t.cwd }))
+      window.electronAPI.copilot.saveOpenSessions(openSessions)
     }
   }, [tabs])
 
@@ -132,6 +133,7 @@ const App: React.FC = () => {
         name: s.name || `Session ${idx + 1}`,
         messages: [],  // Will be loaded below
         model: s.model,
+        cwd: s.cwd,
         isProcessing: false,
         activeTools: [],
         hasUnreadCompletion: false,
@@ -442,6 +444,7 @@ const App: React.FC = () => {
         name: generateTabName(),
         messages: [],
         model: result.model,
+        cwd: result.cwd,
         isProcessing: false,
         activeTools: [],
         hasUnreadCompletion: false,
@@ -472,6 +475,7 @@ const App: React.FC = () => {
           name: generateTabName(),
           messages: [],
           model: result.model,
+          cwd: result.cwd,
           isProcessing: false,
           activeTools: [],
           hasUnreadCompletion: false,
@@ -528,6 +532,7 @@ const App: React.FC = () => {
         name: prevSession.name || generateTabName(),
         messages: [],
         model: result.model,
+        cwd: result.cwd,
         isProcessing: false,
         activeTools: [],
         hasUnreadCompletion: false,
@@ -583,6 +588,7 @@ const App: React.FC = () => {
           name: generateTabName(),
           messages: [],
           model: modelResult.model,
+          cwd: modelResult.cwd || result.cwd,
           isProcessing: false,
           activeTools: [],
           hasUnreadCompletion: false,
@@ -606,6 +612,7 @@ const App: React.FC = () => {
           name: activeTab.name,
           messages: [],
           model: result.model,
+          cwd: result.cwd || activeTab.cwd,
           isProcessing: false,
           activeTools: [],
           hasUnreadCompletion: false,
@@ -810,11 +817,11 @@ const App: React.FC = () => {
         </div>
         
         {/* Main Content Area */}
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 flex flex-col min-h-0">
           {/* Messages Area */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
         {activeTab?.messages.length === 0 && status === 'connected' && (
-          <div className="flex flex-col items-center justify-center h-full text-center">
+          <div className="flex flex-col items-center justify-center min-h-full text-center -m-4 p-4">
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" className="text-[#30363d] mb-4">
               <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" strokeWidth="1.5"/>
               <path d="M2 17L12 22L22 17" stroke="currentColor" strokeWidth="1.5"/>
@@ -994,18 +1001,18 @@ const App: React.FC = () => {
         </div>
         
         {/* Right Panel - Session Info */}
-        <div className="flex flex-col border-l border-[#30363d]">
+        <div className="flex border-l border-[#30363d] shrink-0">
           {/* Toggle Button */}
           <button
             onClick={() => {
               setShowRightPanel(!showRightPanel)
               if (!showRightPanel) refreshAlwaysAllowed()
             }}
-            className="flex items-center justify-center w-10 h-10 text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors"
+            className="flex items-center justify-center w-8 text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#21262d] transition-colors"
             title={showRightPanel ? "Hide session info" : "Show session info"}
           >
             <svg 
-              width="16" height="16" 
+              width="14" height="14" 
               viewBox="0 0 24 24" 
               fill="none" 
               stroke="currentColor" 
@@ -1021,6 +1028,14 @@ const App: React.FC = () => {
             <div className="w-56 flex flex-col overflow-hidden">
               <div className="px-3 py-2 border-b border-[#30363d]">
                 <h3 className="text-xs font-medium text-[#e6edf3]">Session Info</h3>
+              </div>
+              
+              {/* Working Directory */}
+              <div className="px-3 py-2 border-b border-[#21262d]">
+                <div className="text-[10px] text-[#6e7681] uppercase tracking-wide mb-1">Working Directory</div>
+                <div className="text-xs text-[#8b949e] font-mono truncate" title={activeTab?.cwd}>
+                  {activeTab?.cwd || 'Unknown'}
+                </div>
               </div>
               
               {/* Always Allowed Section */}
