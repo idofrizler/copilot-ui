@@ -1999,9 +1999,6 @@ const App: React.FC = () => {
                               </svg>
                               <div className="flex-1 min-w-0">
                                 <div className="text-xs text-copilot-text truncate">{name}</div>
-                                <div className="text-[10px] text-copilot-text-muted truncate">
-                                  {isLocal ? (server as MCPLocalServerConfig).command : (server as MCPRemoteServerConfig).url}
-                                </div>
                                 <div className="text-[10px] text-copilot-accent">{toolCount} tools</div>
                               </div>
                               <div className="shrink-0 opacity-0 group-hover:opacity-100 flex gap-1">
