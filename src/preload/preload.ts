@@ -136,6 +136,12 @@ const electronAPI = {
     },
     generateCommitMessage: (diff: string): Promise<string> => {
       return ipcRenderer.invoke('git:generateCommitMessage', { diff })
+    },
+    getBranch: (cwd: string): Promise<{ branch: string | null; success: boolean; error?: string }> => {
+      return ipcRenderer.invoke('git:getBranch', cwd)
+    },
+    checkoutBranch: (cwd: string, branchName: string): Promise<{ success: boolean; error?: string }> => {
+      return ipcRenderer.invoke('git:checkoutBranch', { cwd, branchName })
     }
   },
   // Theme management

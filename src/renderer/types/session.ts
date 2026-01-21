@@ -56,6 +56,9 @@ export interface TabState {
   alwaysAllowed: string[]; // Executables that are always allowed for this session
   editedFiles: string[]; // Files edited/created in this session
   currentIntent: string | null; // Current agent intent from report_intent tool
+  autoBranchingEnabled: boolean; // Auto-checkout a branch before first file write
+  autoBranchingDone: boolean; // Prevent repeated auto-branch attempts per session
+  gitBranchRefresh: number; // Bumps to refresh GitBranchWidget
   isRenaming?: boolean;
   renameDraft?: string;
 }

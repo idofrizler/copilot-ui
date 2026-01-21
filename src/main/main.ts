@@ -1115,6 +1115,37 @@ ipcMain.handle('git:commitAndPush', async (_event, data: { cwd: string; files: s
   }
 })
 
+// Git operations - get current branch
+ipcMain.handle('git:getBranch', async (_event, cwd: string) => {
+  try {
+    const { stdout } = await execAsync('git branch --show-current', { cwd })
+    return { branch: stdout.trim(), success: true }
+  } catch (error) {
+    console.error('Git branch failed:', error)
+    return { branch: null, success: false, error: String(error) }
+  }
+})
+
+// Git operations - checkout (create) branch
+ipcMain.handle('git:checkoutBranch', async (_event, data: { cwd: string; branchName: string }) => {
+  try {
+    const branch = (data.branchName || '').trim()
+    if (!branch) {
+      return { success: false, error: 'Branch name is required' }
+    }
+    // Prefer `git switch -c` when available
+    try {
+      await execAsync(`git switch -c "${branch.replace(/"/g, '\\"')}"`, { cwd: data.cwd })
+    } catch {
+      await execAsync(`git checkout -b "${branch.replace(/"/g, '\\"')}"`, { cwd: data.cwd })
+    }
+    return { success: true }
+  } catch (error) {
+    console.error('Git checkout branch failed:', error)
+    return { success: false, error: String(error) }
+  }
+})
+
 // Resume a previous session (from the history list)
 ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string) => {
   // Check if already resumed
