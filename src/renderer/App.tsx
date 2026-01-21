@@ -660,17 +660,22 @@ const App: React.FC = () => {
     }
   }
 
-  const handleNewTab = async (cwd?: string) => {
-    // Check trust for the directory
-    const dirToCheck = cwd || await window.electronAPI.copilot.getCwd()
-    const trustResult = await window.electronAPI.copilot.checkDirectoryTrust(dirToCheck)
-    if (!trustResult.trusted) {
-      return // User declined to trust, don't create session
-    }
-    
-    setStatus('connecting')
+  const handleNewTab = async () => {
+    // Always show folder picker when creating a new session
     try {
-      const result = await window.electronAPI.copilot.createSession(cwd ? { cwd } : undefined)
+      const folderResult = await window.electronAPI.copilot.pickFolder()
+      if (folderResult.canceled || !folderResult.path) {
+        return // User cancelled folder selection
+      }
+      
+      // Check trust for the selected directory
+      const trustResult = await window.electronAPI.copilot.checkDirectoryTrust(folderResult.path)
+      if (!trustResult.trusted) {
+        return // User declined to trust, don't create session
+      }
+      
+      setStatus('connecting')
+      const result = await window.electronAPI.copilot.createSession({ cwd: folderResult.path })
       const newTab: TabState = {
         id: result.sessionId,
         name: generateTabName(),
@@ -691,56 +696,6 @@ const App: React.FC = () => {
       setStatus('connected')
     } catch (error) {
       console.error('Failed to create new tab:', error)
-      setStatus('connected')
-    }
-  }
-
-  const handleChangeDirectory = async () => {
-    if (!activeTab) return
-    
-    try {
-      const result = await window.electronAPI.copilot.pickFolder()
-      if (result.canceled || !result.path) return
-      
-      // Check trust for the selected directory
-      const trustResult = await window.electronAPI.copilot.checkDirectoryTrust(result.path)
-      if (!trustResult.trusted) {
-        return // User declined to trust, don't change directory
-      }
-      
-      // If current session is empty, replace it; otherwise create new
-      if (activeTab.messages.length === 0) {
-        setStatus('connecting')
-        // Close old session and create new one in selected directory
-        await window.electronAPI.copilot.closeSession(activeTab.id)
-        const newSession = await window.electronAPI.copilot.createSession({ cwd: result.path })
-        
-        setTabs(prev => {
-          const updated = prev.filter(t => t.id !== activeTab.id)
-          return [...updated, {
-            id: newSession.sessionId,
-            name: activeTab.name,
-            messages: [],
-            model: newSession.model,
-            cwd: newSession.cwd,
-            isProcessing: false,
-            activeTools: [],
-            hasUnreadCompletion: false,
-            pendingConfirmation: null,
-            needsTitle: true,
-            alwaysAllowed: [],
-            editedFiles: [],
-            currentIntent: null
-          }]
-        })
-        setActiveTabId(newSession.sessionId)
-        setStatus('connected')
-      } else {
-        // Session has messages, create a new tab
-        await handleNewTab(result.path)
-      }
-    } catch (error) {
-      console.error('Failed to change directory:', error)
       setStatus('connected')
     }
   }
@@ -1437,17 +1392,9 @@ const App: React.FC = () => {
             {/* Session Info Section */}
             <div className="border-t border-[#30363d] mt-auto">
               {/* Working Directory */}
-              <div className="px-3 py-2 border-b border-[#21262d] group relative">
-                <div className="flex items-center justify-between mb-1">
-                  <div className="text-[10px] text-[#6e7681] uppercase tracking-wide">Directory</div>
-                  <button
-                    onClick={handleChangeDirectory}
-                    className="text-[10px] text-[#58a6ff] hover:text-[#79c0ff] transition-colors"
-                  >
-                    Change
-                  </button>
-                </div>
-                <div className="text-xs text-[#8b949e] font-mono truncate">{activeTab?.cwd || 'Unknown'}</div>
+              <div className="px-3 py-2 border-b border-[#21262d]">
+                <div className="text-[10px] text-[#6e7681] uppercase tracking-wide mb-1">Directory</div>
+                <div className="text-xs text-[#8b949e] font-mono truncate" title={activeTab?.cwd}>{activeTab?.cwd || 'Unknown'}</div>
               </div>
               
               {/* Edited Files */}
