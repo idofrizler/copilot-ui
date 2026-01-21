@@ -32,6 +32,10 @@ export interface PendingConfirmation {
   fullCommandText?: string;
   intention?: string;
   path?: string;
+  url?: string;
+  serverName?: string;
+  toolName?: string;
+  toolTitle?: string;
   isOutOfScope?: boolean; // True if reading outside session's cwd
   content?: string; // File content for write/create operations
   [key: string]: unknown;

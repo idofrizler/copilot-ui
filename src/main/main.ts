@@ -374,6 +374,13 @@ function extractExecutables(command: string): string[] {
   return executables
 }
 
+// Normalize stored identifiers so UI/behavior stays stable across versions
+function normalizeAlwaysAllowed(id: string): string {
+  // Older versions stored `write:<path>`; treat all writes as a single global permission.
+  if (id.startsWith('write:')) return 'write'
+  return id
+}
+
 // Extract executable identifier from permission request (for "always allow" tracking)
 function getExecutableIdentifier(request: PermissionRequest): string {
   const req = request as Record<string, unknown>
@@ -384,13 +391,36 @@ function getExecutableIdentifier(request: PermissionRequest): string {
     return executables.join(', ') || 'shell'
   }
   
-  // For read/write, use kind + filename
-  if ((request.kind === 'read' || request.kind === 'write') && req.path) {
+  // For read, use kind + filename
+  if (request.kind === 'read' && req.path) {
     const path = req.path as string
     const filename = path.split('/').pop() || path
     return `${request.kind}:${filename}`
   }
-  
+
+  // For write, treat as global (all file changes)
+  if (request.kind === 'write') {
+    return 'write'
+  }
+
+  // For URL, use kind + hostname
+  if (request.kind === 'url' && (request as any).url) {
+    try {
+      const u = new URL(String((request as any).url))
+      return `url:${u.host}`
+    } catch {
+      return `url:${String((request as any).url)}`
+    }
+  }
+
+  // For MCP, use kind + server/tool
+  if (request.kind === 'mcp') {
+    const r: any = request as any
+    const tool = r.toolName || r.toolTitle || 'tool'
+    const server = r.serverName || 'server'
+    return `mcp:${server}/${tool}`
+  }
+
   // Fallback to kind
   return request.kind
 }
@@ -647,8 +677,8 @@ async function initCopilot(): Promise<void> {
           }
         })
         
-        // Restore alwaysAllowed set from stored data
-        const alwaysAllowedSet = new Set(storedAlwaysAllowed)
+        // Restore alwaysAllowed set from stored data (normalize legacy ids)
+        const alwaysAllowedSet = new Set(storedAlwaysAllowed.map(normalizeAlwaysAllowed))
         sessions.set(sessionId, { session, client, model: sessionModel, cwd: sessionCwd, alwaysAllowed: alwaysAllowedSet })
         resumedSessions.push({ 
           sessionId, 
@@ -870,9 +900,9 @@ ipcMain.handle('copilot:permissionResponse', async (_event, data: {
       // Add each executable individually (handle comma-separated list)
       const executables = pending.executable.split(', ').filter(e => e.trim())
       for (const exec of executables) {
-        sessionState.alwaysAllowed.add(exec.trim())
+        sessionState.alwaysAllowed.add(normalizeAlwaysAllowed(exec.trim()))
       }
-      console.log(`[${pending.sessionId}] Added to always allow:`, executables)
+      console.log(`[${pending.sessionId}] Added to always allow:`, executables.map(normalizeAlwaysAllowed))
     }
   }
   
