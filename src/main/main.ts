@@ -2,11 +2,72 @@ import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron'
 import { join } from 'path'
 import { exec } from 'child_process'
 import { promisify } from 'util'
+import { readFile, writeFile, mkdir } from 'fs/promises'
+import { existsSync } from 'fs'
 
 const execAsync = promisify(exec)
 import { CopilotClient, CopilotSession, PermissionRequest, PermissionRequestResult } from '@github/copilot-sdk'
 import Store from 'electron-store'
 import log from 'electron-log/main'
+
+// MCP Server Configuration types (matching SDK)
+interface MCPServerConfigBase {
+  tools: string[]
+  type?: string
+  timeout?: number
+}
+
+interface MCPLocalServerConfig extends MCPServerConfigBase {
+  type?: 'local' | 'stdio'
+  command: string
+  args: string[]
+  env?: Record<string, string>
+  cwd?: string
+}
+
+interface MCPRemoteServerConfig extends MCPServerConfigBase {
+  type: 'http' | 'sse'
+  url: string
+  headers?: Record<string, string>
+}
+
+type MCPServerConfig = MCPLocalServerConfig | MCPRemoteServerConfig
+
+interface MCPConfigFile {
+  mcpServers: Record<string, MCPServerConfig>
+}
+
+// Path to MCP config file
+const getMcpConfigPath = (): string => join(app.getPath('home'), '.copilot', 'mcp-config.json')
+
+// Read MCP config from file
+async function readMcpConfig(): Promise<MCPConfigFile> {
+  const configPath = getMcpConfigPath()
+  try {
+    if (!existsSync(configPath)) {
+      return { mcpServers: {} }
+    }
+    const content = await readFile(configPath, 'utf-8')
+    return JSON.parse(content) as MCPConfigFile
+  } catch (error) {
+    console.error('Failed to read MCP config:', error)
+    return { mcpServers: {} }
+  }
+}
+
+// Write MCP config to file
+async function writeMcpConfig(config: MCPConfigFile): Promise<void> {
+  const configPath = getMcpConfigPath()
+  const configDir = join(app.getPath('home'), '.copilot')
+  
+  // Ensure directory exists
+  if (!existsSync(configDir)) {
+    await mkdir(configDir, { recursive: true })
+  }
+  
+  await writeFile(configPath, JSON.stringify(config, null, 2), 'utf-8')
+  console.log('Saved MCP config:', Object.keys(config.mcpServers))
+}
 
 // Set up file logging only - no IPC to renderer (causes errors)
 log.transports.file.level = 'info'
@@ -359,8 +420,12 @@ async function createNewSession(model?: string, cwd?: string): Promise<string> {
   // Get or create a client for this cwd
   const client = await getClientForCwd(sessionCwd)
   
+  // Load MCP servers config
+  const mcpConfig = await readMcpConfig()
+  
   const newSession = await client.createSession({
     model: sessionModel,
+    mcpServers: mcpConfig.mcpServers,
     onPermissionRequest: (request, invocation) => handlePermissionRequest(request, invocation, newSession.sessionId),
   })
   
@@ -454,7 +519,12 @@ async function initCopilot(): Promise<void> {
         
         // Get or create client for this session's cwd
         const client = await getClientForCwd(sessionCwd)
+        
+        // Load MCP servers config
+        const mcpConfig = await readMcpConfig()
+        
         const session = await client.resumeSession(sessionId, {
+          mcpServers: mcpConfig.mcpServers,
           onPermissionRequest: (request, invocation) => handlePermissionRequest(request, invocation, sessionId)
         })
         
@@ -933,7 +1003,12 @@ ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string
   
   // Get or create client for this cwd
   const client = await getClientForCwd(sessionCwd)
+  
+  // Load MCP servers config
+  const mcpConfig = await readMcpConfig()
+  
   const session = await client.resumeSession(sessionId, {
+    mcpServers: mcpConfig.mcpServers,
     onPermissionRequest: (request, invocation) => handlePermissionRequest(request, invocation, sessionId)
   })
   
@@ -975,6 +1050,44 @@ ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string
   
   console.log(`Resumed previous session ${sessionId} in ${sessionCwd}`)
   return { sessionId, model: sessionModel, cwd: sessionCwd, alreadyOpen: false }
+})
+
+// MCP Server Management
+ipcMain.handle('mcp:getConfig', async () => {
+  const config = await readMcpConfig()
+  return config
+})
+
+ipcMain.handle('mcp:saveConfig', async (_event, config: MCPConfigFile) => {
+  await writeMcpConfig(config)
+  return { success: true }
+})
+
+ipcMain.handle('mcp:addServer', async (_event, data: { name: string; server: MCPServerConfig }) => {
+  const config = await readMcpConfig()
+  config.mcpServers[data.name] = data.server
+  await writeMcpConfig(config)
+  return { success: true }
+})
+
+ipcMain.handle('mcp:updateServer', async (_event, data: { name: string; server: MCPServerConfig }) => {
+  const config = await readMcpConfig()
+  if (config.mcpServers[data.name]) {
+    config.mcpServers[data.name] = data.server
+    await writeMcpConfig(config)
+    return { success: true }
+  }
+  return { success: false, error: 'Server not found' }
+})
+
+ipcMain.handle('mcp:deleteServer', async (_event, name: string) => {
+  const config = await readMcpConfig()
+  if (config.mcpServers[name]) {
+    delete config.mcpServers[name]
+    await writeMcpConfig(config)
+    return { success: true }
+  }
+  return { success: false, error: 'Server not found' }
 })
 
 // Window control handlers
