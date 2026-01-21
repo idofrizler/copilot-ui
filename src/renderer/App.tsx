@@ -902,7 +902,7 @@ const App: React.FC = () => {
               <path d="M2 17L12 22L22 17" stroke="currentColor" strokeWidth="2"/>
               <path d="M2 12L12 17L22 12" stroke="currentColor" strokeWidth="2"/>
             </svg>
-            <span className="text-[#e6edf3] text-sm font-medium">GitHub Copilot</span>
+            <span className="text-[#e6edf3] text-sm font-medium">Copilot Skins</span>
             
             {/* Model Selector */}
             <div className="relative no-drag">

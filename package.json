@@ -1,5 +1,5 @@
 {
-  "name": "copilot-ui",
+  "name": "copilot-skins",
   "version": "1.0.0",
   "description": "A beautiful native desktop GUI for GitHub Copilot",
   "main": "./out/main/index.js",
@@ -10,11 +10,11 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "start": "electron-vite dev",
-    "dist": "electron-vite build && electron-builder --mac --dir && hdiutil create -volname 'Copilot UI' -srcfolder release/mac-arm64 -ov -format UDZO release/Copilot-UI-1.0.0-arm64.dmg"
+    "dist": "electron-vite build && electron-builder --mac --dir && hdiutil create -volname 'Copilot Skins' -srcfolder release/mac-arm64 -ov -format UDZO release/Copilot-Skins-1.0.0-arm64.dmg"
   },
   "build": {
-    "appId": "com.idofrizler.copilot-ui",
-    "productName": "Copilot UI",
+    "appId": "com.idofrizler.copilot-skins",
+    "productName": "Copilot Skins",
     "directories": {
       "output": "release"
     },
@@ -22,7 +22,8 @@
       "out/**/*"
     ],
     "mac": {
-      "category": "public.app-category.developer-tools"
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.icns"
     }
   },
   "dependencies": {
