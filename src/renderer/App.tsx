@@ -628,11 +628,6 @@ const App: React.FC = () => {
     }
   }, [handleSendMessage])
 
-  const handleStop = () => {
-    if (!activeTab) return
-    window.electronAPI.copilot.abort(activeTab.id)
-    updateTab(activeTab.id, { isProcessing: false })
-  }
 
   const handleConfirmation = async (decision: 'approved' | 'always' | 'denied') => {
     // Get the first pending confirmation from the queue
@@ -1111,124 +1106,114 @@ const App: React.FC = () => {
                 </div>
               )}
             </div>
-            
-            {/* Theme Selector */}
-            <div className="relative no-drag">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setShowThemeDropdown(!showThemeDropdown)
-                }}
-                className="flex items-center gap-1 px-2 py-0.5 rounded bg-copilot-surface hover:bg-copilot-surface-hover transition-colors text-xs text-copilot-text-muted hover:text-copilot-text"
-                title="Theme"
-              >
-                {/* Sun/Moon icon based on active theme */}
-                {activeTheme.type === 'dark' ? (
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-                  </svg>
-                ) : (
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <circle cx="12" cy="12" r="5"/>
-                    <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
-                  </svg>
-                )}
-                <span>{themePreference === 'system' ? 'System' : activeTheme.name}</span>
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M6 9l6 6 6-6"/>
-                </svg>
-              </button>
-              
-              {showThemeDropdown && (
-                <div 
-                  className="absolute top-full right-0 mt-1 py-1 bg-copilot-surface border border-copilot-border rounded-lg shadow-lg z-50 min-w-[180px]"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {/* System option */}
-                  <button
-                    onClick={() => { setTheme('system'); setShowThemeDropdown(false) }}
-                    className={`w-full px-3 py-1.5 text-left text-xs hover:bg-copilot-surface-hover transition-colors flex items-center gap-2 ${
-                      themePreference === 'system' ? 'text-copilot-accent' : 'text-copilot-text'
-                    }`}
-                  >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
-                      <path d="M8 21h8M12 17v4"/>
-                    </svg>
-                    <span>{themePreference === 'system' && '✓ '}System</span>
-                  </button>
-                  
-                  <div className="border-t border-copilot-border my-1" />
-                  
-                  {/* Built-in and external themes */}
-                  {availableThemes.map((theme) => (
-                    <button
-                      key={theme.id}
-                      onClick={() => { setTheme(theme.id); setShowThemeDropdown(false) }}
-                      className={`w-full px-3 py-1.5 text-left text-xs hover:bg-copilot-surface-hover transition-colors flex items-center gap-2 ${
-                        themePreference === theme.id ? 'text-copilot-accent' : 'text-copilot-text'
-                      }`}
-                    >
-                      {theme.type === 'dark' ? (
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-                        </svg>
-                      ) : (
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <circle cx="12" cy="12" r="5"/>
-                          <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
-                        </svg>
-                      )}
-                      <span>{themePreference === theme.id && '✓ '}{theme.name}</span>
-                      {theme.author && <span className="ml-auto text-copilot-text-muted text-[10px]">by {theme.author}</span>}
-                    </button>
-                  ))}
-                  
-                  <div className="border-t border-copilot-border my-1" />
-                  
-                  {/* Import theme */}
-                  <button
-                    onClick={async () => {
-                      const result = await importTheme()
-                      if (result.error) {
-                        // Could show a toast here, but for now just log
-                        console.error('Failed to import theme:', result.error)
-                      }
-                      setShowThemeDropdown(false)
-                    }}
-                    className="w-full px-3 py-1.5 text-left text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover transition-colors flex items-center gap-2"
-                  >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
-                    </svg>
-                    <span>Import Theme...</span>
-                  </button>
-                </div>
-              )}
-            </div>
+
           </div>
         </div>
 
         <div className="flex items-center gap-2 no-drag">
-          <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-copilot-surface">
-            <div className={`w-1.5 h-1.5 rounded-full transition-colors ${
-              status === 'connected' ? 'bg-copilot-success' : 
-              status === 'connecting' ? 'bg-copilot-warning animate-pulse' : 'bg-copilot-error'
-            }`}/>
-            <span className="text-[10px] text-copilot-text-muted">{status}</span>
-          </div>
-          
-          {activeTab?.isProcessing && (
-            <button 
-              onClick={handleStop}
-              className="p-1 rounded hover:bg-copilot-surface transition-colors"
-              title="Stop"
+          {/* Theme Selector */}
+          <div className="relative no-drag">
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                setShowThemeDropdown(!showThemeDropdown)
+              }}
+              className="flex items-center gap-1 px-2 py-0.5 rounded bg-copilot-surface hover:bg-copilot-surface-hover transition-colors text-xs text-copilot-text-muted hover:text-copilot-text"
+              title="Theme"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" className="text-copilot-error">
-                <rect x="6" y="6" width="12" height="12" rx="2"/>
+              {/* Sun/Moon icon based on active theme */}
+              {activeTheme.type === 'dark' ? (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                </svg>
+              ) : (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="5" />
+                  <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+                </svg>
+              )}
+              <span>{themePreference === 'system' ? 'System' : activeTheme.name}</span>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M6 9l6 6 6-6" />
               </svg>
             </button>
-          )}
+
+            {showThemeDropdown && (
+              <div
+                className="absolute top-full right-0 mt-1 py-1 bg-copilot-surface border border-copilot-border rounded-lg shadow-lg z-50 min-w-[180px]"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* System option */}
+                <button
+                  onClick={() => {
+                    setTheme('system')
+                    setShowThemeDropdown(false)
+                  }}
+                  className={`w-full px-3 py-1.5 text-left text-xs hover:bg-copilot-surface-hover transition-colors flex items-center gap-2 ${
+                    themePreference === 'system' ? 'text-copilot-accent' : 'text-copilot-text'
+                  }`}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                    <path d="M8 21h8M12 17v4" />
+                  </svg>
+                  <span>{themePreference === 'system' && '✓ '}System</span>
+                </button>
+
+                <div className="border-t border-copilot-border my-1" />
+
+                {/* Built-in and external themes */}
+                {availableThemes.map((theme) => (
+                  <button
+                    key={theme.id}
+                    onClick={() => {
+                      setTheme(theme.id)
+                      setShowThemeDropdown(false)
+                    }}
+                    className={`w-full px-3 py-1.5 text-left text-xs hover:bg-copilot-surface-hover transition-colors flex items-center gap-2 ${
+                      themePreference === theme.id ? 'text-copilot-accent' : 'text-copilot-text'
+                    }`}
+                  >
+                    {theme.type === 'dark' ? (
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                      </svg>
+                    ) : (
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <circle cx="12" cy="12" r="5" />
+                        <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+                      </svg>
+                    )}
+                    <span>
+                      {themePreference === theme.id && '✓ '}
+                      {theme.name}
+                    </span>
+                    {theme.author && <span className="ml-auto text-copilot-text-muted text-[10px]">by {theme.author}</span>}
+                  </button>
+                ))}
+
+                <div className="border-t border-copilot-border my-1" />
+
+                {/* Import theme */}
+                <button
+                  onClick={async () => {
+                    const result = await importTheme()
+                    if (result.error) {
+                      // Could show a toast here, but for now just log
+                      console.error('Failed to import theme:', result.error)
+                    }
+                    setShowThemeDropdown(false)
+                  }}
+                  className="w-full px-3 py-1.5 text-left text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover transition-colors flex items-center gap-2"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" />
+                  </svg>
+                  <span>Import Theme...</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1381,7 +1366,7 @@ const App: React.FC = () => {
         <div className="flex-1 flex flex-col min-h-0 min-w-0">
           {/* Messages Area - Conversation Only */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
-        {activeTab?.messages.length === 0 && status === 'connected' && (
+        {activeTab?.messages.length === 0 && (
           <div className="flex flex-col items-center justify-center min-h-full text-center -m-4 p-4">
             <img src={logo} alt="Copilot Skins" className="w-16 h-16 mb-4" />
             <h2 className="text-copilot-text text-lg font-medium mb-1">How can I help you today?</h2>
@@ -1518,7 +1503,7 @@ const App: React.FC = () => {
             <div className="text-xs text-copilot-accent mb-2 font-mono truncate" title={pendingConfirmation.path}>
               📄 {pendingConfirmation.path}
             </div>
-          )
+          )}
           {pendingConfirmation.fullCommandText && (
             <pre className="bg-copilot-bg rounded p-3 my-2 overflow-x-auto text-xs text-copilot-text border border-copilot-border max-h-32">
               <code>{pendingConfirmation.fullCommandText}</code>
@@ -1587,25 +1572,13 @@ const App: React.FC = () => {
               target.style.height = Math.min(target.scrollHeight, 200) + 'px'
             }}
           />
-          {activeTab?.isProcessing ? (
-            <button
-              onClick={handleStop}
-              className="shrink-0 px-4 py-2.5 text-copilot-error hover:brightness-110 text-xs font-medium transition-colors flex items-center gap-1.5"
-            >
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
-                <rect x="6" y="6" width="12" height="12" rx="2"/>
-              </svg>
-              Stop
-            </button>
-          ) : (
-            <button
-              onClick={handleSendMessage}
-              disabled={!inputValue.trim() || status !== 'connected'}
-              className="shrink-0 px-4 py-2.5 text-copilot-accent hover:brightness-110 disabled:opacity-30 disabled:cursor-not-allowed text-xs font-medium transition-colors"
-            >
-              Send
-            </button>
-          )}
+          <button
+            onClick={handleSendMessage}
+            disabled={!inputValue.trim() || status !== 'connected' || activeTab?.isProcessing}
+            className="shrink-0 px-4 py-2.5 text-copilot-accent hover:brightness-110 disabled:opacity-30 disabled:cursor-not-allowed text-xs font-medium transition-colors"
+          >
+            Send
+          </button>
         </div>
       </div>
         </div>
@@ -1796,7 +1769,7 @@ const App: React.FC = () => {
                     </svg>
                     <span>Edited Files</span>
                     {(activeTab?.editedFiles.length || 0) > 0 && (
-                      <span className="text-copilot-success">({activeTab?.editedFiles.length})</span>
+                      <span className="text-copilot-accent">({activeTab?.editedFiles.length})</span>
                     )}
                   </button>
                   {(activeTab?.editedFiles.length || 0) > 0 && (
@@ -1843,7 +1816,7 @@ const App: React.FC = () => {
                   </svg>
                   <span>Always Allowed</span>
                   {(activeTab?.alwaysAllowed.length || 0) > 0 && (
-                    <span className="ml-auto text-copilot-accent">({activeTab?.alwaysAllowed.length})</span>
+                    <span className="text-copilot-accent">({activeTab?.alwaysAllowed.length})</span>
                   )}
                 </button>
                 {showAlwaysAllowed && activeTab && (
