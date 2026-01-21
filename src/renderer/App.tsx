@@ -1691,7 +1691,12 @@ const App: React.FC = () => {
               {/* Working Directory */}
               <div className="px-3 py-2 border-b border-copilot-surface">
                 <div className="text-[10px] text-copilot-text-muted uppercase tracking-wide mb-1">Directory</div>
-                <div className="text-xs text-copilot-text-muted font-mono truncate" title={activeTab?.cwd}>{activeTab?.cwd || 'Unknown'}</div>
+                <div className="flex items-center gap-1.5 text-xs min-w-0">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-copilot-accent shrink-0">
+                    <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/>
+                  </svg>
+                  <span className="text-copilot-text font-mono truncate" title={activeTab?.cwd}>{activeTab?.cwd || 'Unknown'}</span>
+                </div>
               </div>
 
               {/* Git Branch */}
