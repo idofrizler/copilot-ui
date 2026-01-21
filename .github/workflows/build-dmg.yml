@@ -13,14 +13,10 @@ concurrency:
 
 jobs:
   build-dmg:
-    # Prevent infinite loop when the workflow commits the DMG.
-    if: github.actor != 'github-actions[bot]' && !contains(github.event.head_commit.message, '[skip dmg]')
     runs-on: macos-14
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -36,26 +32,21 @@ jobs:
       - name: Build DMG
         run: npm run dist
 
-      - name: Commit DMG (if changed)
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Copilot-Skins-dmg
+          path: release/*.dmg
+          if-no-files-found: error
 
-          # Ensure we're on a branch (checkout is often detached on Actions)
-          git checkout -B main
-
-          # Sync with latest main BEFORE staging any files.
-          git fetch origin main
-          git rebase origin/main
-
-          # Stage only the DMG (release/ is otherwise ignored)
-          git add -f release/*.dmg || true
-
-          if git diff --cached --quiet; then
-            echo "No DMG changes to commit."
-            exit 0
-          fi
-
-          git commit -m "chore: update dmg [skip dmg]"
-          git push origin HEAD:main
+      - name: Publish "nightly" release asset
+        uses: ncipollo/release-action@v1
+        with:
+          tag: nightly
+          name: Nightly
+          prerelease: true
+          allowUpdates: true
+          replacesArtifacts: true
+          artifacts: release/*.dmg
+          body: |
+            Automated build from `${{ github.sha }}`.
