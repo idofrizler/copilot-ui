@@ -1,4 +1,8 @@
-# Copilot UI
+# Copilot Skins
+
+<p align="center">
+  <img src="build/icon.png" alt="Copilot Skins Logo" width="128" height="128">
+</p>
 
 A beautiful native desktop GUI for GitHub Copilot, built with Electron and the [Copilot SDK](https://github.blog/changelog/2026-01-14-copilot-sdk-in-technical-preview/).
 
@@ -46,7 +50,7 @@ A beautiful native desktop GUI for GitHub Copilot, built with Electron and the [
 
 ### Download (macOS)
 
-**[⬇️ Download Copilot UI for macOS (Apple Silicon)](https://github.com/idofrizler/copilot-ui/releases/latest/download/Copilot-UI-1.0.0-arm64.dmg)**
+**[⬇️ Download Copilot Skins for macOS (Apple Silicon)](https://github.com/idofrizler/copilot-ui/releases/latest/download/Copilot-Skins-1.0.0-arm64.dmg)**
 
 Or visit the [Releases page](https://github.com/idofrizler/copilot-ui/releases) for all versions.
 
