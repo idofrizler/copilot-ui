@@ -134,6 +134,33 @@ const electronAPI = {
     generateCommitMessage: (diff: string): Promise<string> => {
       return ipcRenderer.invoke('git:generateCommitMessage', { diff })
     }
+  },
+
+  // Theme management
+  theme: {
+    get: (): Promise<string> => {
+      return ipcRenderer.invoke('theme:get')
+    },
+    set: (themeId: string): Promise<{ success: boolean }> => {
+      return ipcRenderer.invoke('theme:set', themeId)
+    },
+    getSystemTheme: (): Promise<'light' | 'dark'> => {
+      return ipcRenderer.invoke('theme:getSystemTheme')
+    },
+    listExternal: (): Promise<{ themes: { id: string; name: string; type: 'light' | 'dark'; colors: Record<string, string>; author?: string; version?: string }[]; invalidFiles: string[] }> => {
+      return ipcRenderer.invoke('theme:listExternal')
+    },
+    import: (): Promise<{ success: boolean; canceled?: boolean; error?: string; theme?: { id: string; name: string; type: 'light' | 'dark' } }> => {
+      return ipcRenderer.invoke('theme:import')
+    },
+    getThemesDir: (): Promise<string> => {
+      return ipcRenderer.invoke('theme:getThemesDir')
+    },
+    onSystemChange: (callback: (data: { systemTheme: 'light' | 'dark' }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { systemTheme: 'light' | 'dark' }): void => callback(data)
+      ipcRenderer.on('theme:systemChanged', handler)
+      return () => ipcRenderer.removeListener('theme:systemChanged', handler)
+    }
   }
 }
 

@@ -6,13 +6,31 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        'copilot-bg': 'rgba(30, 30, 30, 0.85)',
-        'copilot-surface': 'rgba(45, 45, 45, 0.9)',
-        'copilot-border': 'rgba(70, 70, 70, 0.5)',
-        'copilot-accent': '#58a6ff',
-        'copilot-accent-hover': '#79b8ff',
-        'copilot-text': '#e6edf3',
-        'copilot-text-muted': '#8b949e'
+        'copilot-bg': 'var(--copilot-bg)',
+        'copilot-surface': 'var(--copilot-surface)',
+        'copilot-surface-hover': 'var(--copilot-surface-hover)',
+        'copilot-border': 'var(--copilot-border)',
+        'copilot-border-hover': 'var(--copilot-border-hover)',
+        'copilot-accent': 'var(--copilot-accent)',
+        'copilot-accent-hover': 'var(--copilot-accent-hover)',
+        'copilot-accent-muted': 'var(--copilot-accent-muted)',
+        'copilot-text': 'var(--copilot-text)',
+        'copilot-text-muted': 'var(--copilot-text-muted)',
+        'copilot-text-inverse': 'var(--copilot-text-inverse)',
+        'copilot-success': 'var(--copilot-success)',
+        'copilot-success-muted': 'var(--copilot-success-muted)',
+        'copilot-warning': 'var(--copilot-warning)',
+        'copilot-warning-muted': 'var(--copilot-warning-muted)',
+        'copilot-error': 'var(--copilot-error)',
+        'copilot-error-muted': 'var(--copilot-error-muted)',
+        'copilot-scrollbar-thumb': 'var(--copilot-scrollbar-thumb)',
+        'copilot-scrollbar-thumb-hover': 'var(--copilot-scrollbar-thumb-hover)',
+        'copilot-selection': 'var(--copilot-selection)',
+        'copilot-shadow': 'var(--copilot-shadow)',
+        'copilot-shadow-strong': 'var(--copilot-shadow-strong)',
+        'copilot-terminal-bg': 'var(--copilot-terminal-bg)',
+        'copilot-terminal-text': 'var(--copilot-terminal-text)',
+        'copilot-terminal-cursor': 'var(--copilot-terminal-cursor)',
       },
       fontFamily: {
         mono: ['JetBrains Mono', 'Fira Code', 'SF Mono', 'Menlo', 'Monaco', 'Consolas', 'monospace']
@@ -26,8 +44,8 @@ module.exports = {
       },
       keyframes: {
         glow: {
-          '0%': { boxShadow: '0 0 5px rgba(88, 166, 255, 0.3)' },
-          '100%': { boxShadow: '0 0 20px rgba(88, 166, 255, 0.6)' }
+          '0%': { boxShadow: '0 0 5px var(--copilot-accent-muted)' },
+          '100%': { boxShadow: '0 0 20px var(--copilot-accent)' }
         }
       }
     }

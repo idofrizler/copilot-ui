@@ -2,6 +2,73 @@
 @tailwind components;
 @tailwind utilities;
 
+/* CSS Variables for theming */
+:root {
+  /* Backgrounds */
+  --copilot-bg: rgba(30, 30, 30, 0.85);
+  --copilot-surface: rgba(45, 45, 45, 0.9);
+  --copilot-surface-hover: rgba(55, 55, 55, 0.9);
+  
+  /* Borders */
+  --copilot-border: rgba(70, 70, 70, 0.5);
+  --copilot-border-hover: rgba(90, 90, 90, 0.6);
+  
+  /* Accent colors */
+  --copilot-accent: #58a6ff;
+  --copilot-accent-hover: #79b8ff;
+  --copilot-accent-muted: rgba(88, 166, 255, 0.25);
+  
+  /* Text colors */
+  --copilot-text: #e6edf3;
+  --copilot-text-muted: #8b949e;
+  --copilot-text-inverse: #1e1e1e;
+  
+  /* Status colors */
+  --copilot-success: #3fb950;
+  --copilot-success-muted: rgba(63, 185, 80, 0.4);
+  --copilot-warning: #d29922;
+  --copilot-warning-muted: rgba(210, 153, 34, 0.4);
+  --copilot-error: #f85149;
+  --copilot-error-muted: rgba(248, 81, 73, 0.4);
+  
+  /* Scrollbar */
+  --copilot-scrollbar-thumb: rgba(139, 148, 158, 0.3);
+  --copilot-scrollbar-thumb-hover: rgba(139, 148, 158, 0.5);
+  
+  /* Selection */
+  --copilot-selection: rgba(88, 166, 255, 0.3);
+  
+  /* Shadows */
+  --copilot-shadow: rgba(0, 0, 0, 0.2);
+  --copilot-shadow-strong: rgba(0, 0, 0, 0.4);
+  
+  /* Terminal */
+  --copilot-terminal-bg: transparent;
+  --copilot-terminal-text: #e6edf3;
+  --copilot-terminal-cursor: #58a6ff;
+}
+
+/* Theme transition for smooth switching */
+html,
+html *,
+html *::before,
+html *::after {
+  transition: background-color 150ms ease, 
+              border-color 150ms ease, 
+              color 150ms ease,
+              box-shadow 150ms ease,
+              fill 150ms ease,
+              stroke 150ms ease;
+}
+
+/* Disable transitions on page load */
+html.no-transitions,
+html.no-transitions *,
+html.no-transitions *::before,
+html.no-transitions *::after {
+  transition: none !important;
+}
+
 /* Base styles */
 * {
   margin: 0;
@@ -15,7 +82,7 @@ html, body, #root {
   overflow: hidden;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
   background: transparent;
-  color: #e6edf3;
+  color: var(--copilot-text);
 }
 
 body {
@@ -34,12 +101,12 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(139, 148, 158, 0.3);
+  background: var(--copilot-scrollbar-thumb);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(139, 148, 158, 0.5);
+  background: var(--copilot-scrollbar-thumb-hover);
 }
 
 /* Window drag region */
@@ -71,7 +138,7 @@ body {
 
 /* Terminal selection */
 .xterm .xterm-selection div {
-  background: rgba(88, 166, 255, 0.25) !important;
+  background: var(--copilot-selection) !important;
 }
 
 /* Terminal cursor */
@@ -101,10 +168,10 @@ kbd {
 /* Status glow animation */
 @keyframes status-glow {
   0%, 100% {
-    box-shadow: 0 0 4px rgba(63, 185, 80, 0.4);
+    box-shadow: 0 0 4px var(--copilot-success-muted);
   }
   50% {
-    box-shadow: 0 0 12px rgba(63, 185, 80, 0.8);
+    box-shadow: 0 0 12px var(--copilot-success);
   }
 }
 
@@ -114,7 +181,7 @@ kbd {
 
 /* Selection styles */
 ::selection {
-  background: rgba(88, 166, 255, 0.3);
+  background: var(--copilot-selection);
   color: inherit;
 }
 
@@ -133,9 +200,9 @@ button,
 /* Window shadow when focused */
 #root > div {
   box-shadow: 
-    0 0 0 1px rgba(48, 54, 61, 0.5),
-    0 8px 32px rgba(0, 0, 0, 0.4),
-    0 2px 8px rgba(0, 0, 0, 0.2);
+    0 0 0 1px var(--copilot-border),
+    0 8px 32px var(--copilot-shadow-strong),
+    0 2px 8px var(--copilot-shadow);
 }
 
 /* Subtle inner glow for depth */

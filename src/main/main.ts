@@ -1,5 +1,6 @@
-import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, dialog, nativeTheme } from 'electron'
 import { join } from 'path'
+import { existsSync, mkdirSync, readdirSync, readFileSync, copyFileSync } from 'fs'
 import { exec } from 'child_process'
 import { promisify } from 'util'
 
@@ -44,9 +45,93 @@ const store = new Store({
   defaults: {
     model: 'gpt-5.2',
     openSessions: [] as StoredSession[],  // Sessions that were open in our app with their models and cwd
-    trustedDirectories: [] as string[]  // Directories that are always trusted
+    trustedDirectories: [] as string[],  // Directories that are always trusted
+    theme: 'system' as string  // Theme preference: 'system', 'light', 'dark', or custom theme id
   }
 })
+
+// Theme directory for external JSON themes
+const themesDir = join(app.getPath('userData'), 'themes')
+
+// Ensure themes directory exists
+if (!existsSync(themesDir)) {
+  mkdirSync(themesDir, { recursive: true })
+}
+
+// Theme validation - matches renderer/themes/types.ts structure
+const REQUIRED_COLOR_KEYS = [
+  'bg', 'surface', 'surfaceHover', 'border', 'borderHover',
+  'accent', 'accentHover', 'accentMuted',
+  'text', 'textMuted', 'textInverse',
+  'success', 'successMuted', 'warning', 'warningMuted', 'error', 'errorMuted',
+  'scrollbarThumb', 'scrollbarThumbHover', 'selection',
+  'shadow', 'shadowStrong', 'terminalBg', 'terminalText', 'terminalCursor'
+]
+
+interface ExternalTheme {
+  id: string
+  name: string
+  type: 'light' | 'dark'
+  colors: Record<string, string>
+  author?: string
+  version?: string
+}
+
+function validateTheme(data: unknown): { valid: boolean; theme?: ExternalTheme } {
+  if (!data || typeof data !== 'object') return { valid: false }
+  const obj = data as Record<string, unknown>
+  
+  if (typeof obj.id !== 'string' || !obj.id.trim()) return { valid: false }
+  if (typeof obj.name !== 'string' || !obj.name.trim()) return { valid: false }
+  if (obj.type !== 'light' && obj.type !== 'dark') return { valid: false }
+  if (!obj.colors || typeof obj.colors !== 'object') return { valid: false }
+  
+  const colors = obj.colors as Record<string, unknown>
+  for (const key of REQUIRED_COLOR_KEYS) {
+    if (typeof colors[key] !== 'string') return { valid: false }
+  }
+  
+  return {
+    valid: true,
+    theme: {
+      id: obj.id as string,
+      name: obj.name as string,
+      type: obj.type as 'light' | 'dark',
+      colors: colors as Record<string, string>,
+      author: typeof obj.author === 'string' ? obj.author : undefined,
+      version: typeof obj.version === 'string' ? obj.version : undefined
+    }
+  }
+}
+
+function loadExternalThemes(): { themes: ExternalTheme[]; invalidFiles: string[] } {
+  const themes: ExternalTheme[] = []
+  const invalidFiles: string[] = []
+  
+  try {
+    const files = readdirSync(themesDir).filter(f => f.endsWith('.json'))
+    
+    for (const file of files) {
+      try {
+        const content = readFileSync(join(themesDir, file), 'utf-8')
+        const data = JSON.parse(content)
+        const result = validateTheme(data)
+        
+        if (result.valid && result.theme) {
+          themes.push(result.theme)
+        } else {
+          invalidFiles.push(file)
+        }
+      } catch {
+        invalidFiles.push(file)
+      }
+    }
+  } catch (err) {
+    console.error('Failed to load external themes:', err)
+  }
+  
+  return { themes, invalidFiles }
+}
 
 let mainWindow: BrowserWindow | null = null
 
@@ -996,6 +1081,70 @@ ipcMain.on('window:close', () => {
 
 ipcMain.on('window:quit', () => {
   app.quit()
+})
+
+// Theme handlers
+ipcMain.handle('theme:get', () => {
+  return store.get('theme') as string
+})
+
+ipcMain.handle('theme:set', (_event, themeId: string) => {
+  store.set('theme', themeId)
+  return { success: true }
+})
+
+ipcMain.handle('theme:getSystemTheme', () => {
+  return nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
+})
+
+ipcMain.handle('theme:listExternal', () => {
+  return loadExternalThemes()
+})
+
+ipcMain.handle('theme:import', async () => {
+  const result = await dialog.showOpenDialog(mainWindow!, {
+    properties: ['openFile'],
+    filters: [{ name: 'Theme Files', extensions: ['json'] }],
+    title: 'Import Theme'
+  })
+  
+  if (result.canceled || result.filePaths.length === 0) {
+    return { success: false, canceled: true }
+  }
+  
+  const sourcePath = result.filePaths[0]
+  const fileName = sourcePath.split(/[/\\]/).pop() || 'theme.json'
+  
+  try {
+    const content = readFileSync(sourcePath, 'utf-8')
+    const data = JSON.parse(content)
+    const validationResult = validateTheme(data)
+    
+    if (!validationResult.valid) {
+      return { success: false, error: 'Theme file is not valid' }
+    }
+    
+    // Copy to themes directory
+    const destPath = join(themesDir, fileName)
+    copyFileSync(sourcePath, destPath)
+    
+    return { success: true, theme: validationResult.theme }
+  } catch {
+    return { success: false, error: 'Theme file is not valid' }
+  }
+})
+
+ipcMain.handle('theme:getThemesDir', () => {
+  return themesDir
+})
+
+// Listen to system theme changes and notify renderer
+nativeTheme.on('updated', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('theme:systemChanged', {
+      systemTheme: nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
+    })
+  }
 })
 
 // App lifecycle - enforce single instance
