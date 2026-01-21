@@ -1325,73 +1325,134 @@ const App: React.FC = () => {
             {/* Tools List */}
             {(activeTab?.activeTools?.length || 0) > 0 && (
               <div className="border-b border-[#21262d]">
-                {activeTab?.activeTools.map((tool) => {
-                  const input = tool.input || {}
-                  const path = input.path as string | undefined
-                  const shortPath = path ? path.split('/').slice(-2).join('/') : ''
-                  const isEdit = tool.toolName === 'edit'
-                  const isGrep = tool.toolName === 'grep'
-                  const isGlob = tool.toolName === 'glob'
-                  const isView = tool.toolName === 'view'
-                  const isBash = tool.toolName === 'bash'
-                  const isReadBash = tool.toolName === 'read_bash'
-                  const isWriteBash = tool.toolName === 'write_bash'
-                  
-                  let description = ''
-                  if (isGrep) {
-                    const pattern = input.pattern as string || ''
-                    description = pattern ? `"${pattern}"` : ''
-                  } else if (isGlob) {
-                    description = (input.pattern as string) || ''
-                  } else if (isView) {
-                    description = shortPath || path || ''
-                  } else if (isEdit || tool.toolName === 'create') {
-                    description = shortPath || path || ''
-                  } else if (isBash) {
-                    const desc = input.description as string || ''
-                    const cmd = (input.command as string || '').slice(0, 40)
-                    description = desc || (cmd ? `$ ${cmd}...` : '')
-                  } else if (isReadBash || isWriteBash) {
-                    description = `session`
-                  } else if (tool.toolName === 'web_fetch') {
-                    description = (input.url as string || '').slice(0, 30)
+                {(() => {
+                  type GroupedTool = { tool: ActiveTool; count: number }
+
+                  const tools = activeTab?.activeTools || []
+                  const groups: GroupedTool[] = []
+
+                  const getDescription = (tool: ActiveTool): string => {
+                    const input = tool.input || {}
+                    const path = input.path as string | undefined
+                    const shortPath = path ? path.split('/').slice(-2).join('/') : ''
+
+                    if (tool.toolName === 'grep') {
+                      const pattern = input.pattern as string || ''
+                      return pattern ? `"${pattern}"` : ''
+                    }
+
+                    if (tool.toolName === 'glob') {
+                      return (input.pattern as string) || ''
+                    }
+
+                    if (tool.toolName === 'view') {
+                      return shortPath || path || ''
+                    }
+
+                    if (tool.toolName === 'edit' || tool.toolName === 'create') {
+                      return shortPath || path || ''
+                    }
+
+                    if (tool.toolName === 'bash') {
+                      const desc = input.description as string || ''
+                      const cmd = (input.command as string || '').slice(0, 40)
+                      return desc || (cmd ? `$ ${cmd}...` : '')
+                    }
+
+                    if (tool.toolName === 'read_bash' || tool.toolName === 'write_bash') {
+                      return 'session'
+                    }
+
+                    if (tool.toolName === 'web_fetch') {
+                      return (input.url as string || '').slice(0, 30)
+                    }
+
+                    return ''
                   }
-                  
-                  return (
-                    <div key={tool.toolCallId} className="px-3 py-1.5 border-b border-[#161b22] last:border-b-0">
-                      <div className="flex items-start gap-2 text-xs">
-                        {tool.status === 'running' ? (
-                          <span className="text-[#d29922] shrink-0 mt-0.5">○</span>
-                        ) : (
-                          <span className="text-[#3fb950] shrink-0">✓</span>
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <span className={`font-medium ${tool.status === 'done' ? 'text-[#e6edf3]' : 'text-[#8b949e]'}`}>
-                            {tool.toolName.charAt(0).toUpperCase() + tool.toolName.slice(1)}
-                          </span>
-                          {description && (
-                            <span className="text-[#6e7681] font-mono ml-1 text-[10px] truncate block">
-                              {description}
-                            </span>
+
+                  const getGroupKey = (tool: ActiveTool): string => {
+                    const input = tool.input || {}
+                    const description = getDescription(tool)
+                    const summary = tool.status === 'done' ? formatToolOutput(tool.toolName, input, tool.output) : ''
+                    let key = `${tool.toolName}|${description}|${summary}`
+
+                    // For edits, include first-line diff so unrelated edits don't collapse.
+                    if (tool.toolName === 'edit' && tool.status === 'done' && input.old_str) {
+                      const oldLine = String(input.old_str).split('\n')[0]
+                      const newLine = input.new_str !== undefined ? String(input.new_str).split('\n')[0] : ''
+                      key += `|${oldLine}|${newLine}`
+                    }
+
+                    return key
+                  }
+
+                  const groupMap = new Map<string, GroupedTool>()
+
+                  // Group all completed tools by identical rendered label/summary.
+                  for (const tool of tools) {
+                    if (tool.status !== 'done') {
+                      groups.push({ tool, count: 1 })
+                      continue
+                    }
+
+                    const key = getGroupKey(tool)
+                    const existing = groupMap.get(key)
+                    if (existing) {
+                      existing.count += 1
+                      continue
+                    }
+
+                    const entry = { tool, count: 1 }
+                    groupMap.set(key, entry)
+                    groups.push(entry)
+                  }
+
+                  return groups.map(({ tool, count }) => {
+                    const input = tool.input || {}
+                    const isEdit = tool.toolName === 'edit'
+                    const description = getDescription(tool)
+
+                    return (
+                      <div key={`${tool.toolCallId}-g`} className="px-3 py-1.5 border-b border-[#161b22] last:border-b-0">
+                        <div className="flex items-start gap-2 text-xs">
+                          {tool.status === 'running' ? (
+                            <span className="text-[#d29922] shrink-0 mt-0.5">○</span>
+                          ) : (
+                            <span className="text-[#3fb950] shrink-0">✓</span>
                           )}
-                          {tool.status === 'done' && (
-                            <div className="text-[#6e7681] text-[10px] mt-0.5">
-                              {formatToolOutput(tool.toolName, input, tool.output)}
-                            </div>
-                          )}
-                          {isEdit && tool.status === 'done' && input.old_str && (
-                            <div className="mt-1 text-[10px] font-mono pl-2 border-l border-[#30363d]">
-                              <div className="text-[#f85149] truncate">− {(input.old_str as string).split('\n')[0].slice(0, 35)}</div>
-                              {input.new_str !== undefined && (
-                                <div className="text-[#3fb950] truncate">+ {(input.new_str as string).split('\n')[0].slice(0, 35)}</div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className={`font-medium ${tool.status === 'done' ? 'text-[#e6edf3]' : 'text-[#8b949e]'}`}>
+                                {tool.toolName.charAt(0).toUpperCase() + tool.toolName.slice(1)}
+                              </span>
+                              {tool.status === 'done' && count > 1 && (
+                                <span className="text-[10px] text-[#6e7681]">×{count}</span>
                               )}
                             </div>
-                          )}
+                            {description && (
+                              <span className="text-[#6e7681] font-mono ml-1 text-[10px] truncate block">
+                                {description}
+                              </span>
+                            )}
+                            {tool.status === 'done' && (
+                              <div className="text-[#6e7681] text-[10px] mt-0.5">
+                                {formatToolOutput(tool.toolName, input, tool.output)}
+                              </div>
+                            )}
+                            {isEdit && tool.status === 'done' && input.old_str && (
+                              <div className="mt-1 text-[10px] font-mono pl-2 border-l border-[#30363d]">
+                                <div className="text-[#f85149] truncate">− {(input.old_str as string).split('\n')[0].slice(0, 35)}</div>
+                                {input.new_str !== undefined && (
+                                  <div className="text-[#3fb950] truncate">+ {(input.new_str as string).split('\n')[0].slice(0, 35)}</div>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  )
-                })}
+                    )
+                  })
+                })()}
               </div>
             )}
             
