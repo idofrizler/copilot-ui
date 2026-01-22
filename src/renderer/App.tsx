@@ -1714,7 +1714,7 @@ const App: React.FC = () => {
                     }}
                     className="text-[10px] uppercase tracking-wide shrink-0 text-copilot-text-muted hover:text-copilot-text transition-colors"
                     aria-pressed={!!activeTab?.autoBranchingEnabled}
-                    title={`Auto-checkout: ${activeTab?.autoBranchingEnabled ? 'On' : 'Off'} (click to toggle)`}
+                    title="Automatically checks out a new branch for the coding task"
                   >
                     Auto-checkout: <span className={activeTab?.autoBranchingEnabled ? 'text-copilot-success' : 'text-copilot-text-muted'}>{activeTab?.autoBranchingEnabled ? 'ON' : 'OFF'}</span>
                   </button>
