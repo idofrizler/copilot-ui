@@ -10,7 +10,7 @@ A native desktop GUI for GitHub Copilot, wrapping the [Copilot SDK](https://gith
 
 ## Prerequisites
 
-- Node.js 18+
+- Node.js 22+ (required for Copilot SDK)
 - GitHub Copilot subscription
 - GitHub CLI authenticated (`gh auth login`)
 
