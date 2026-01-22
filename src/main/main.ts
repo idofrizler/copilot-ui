@@ -258,6 +258,9 @@ const pendingPermissions = new Map<string, {
   sessionId: string
 }>()
 
+// Track in-flight permission requests by session+executable to deduplicate parallel requests
+const inFlightPermissions = new Map<string, Promise<PermissionRequestResult>>()
+
 // Model info with multipliers
 interface ModelInfo {
   id: string
@@ -513,8 +516,16 @@ async function handlePermissionRequest(
   // Log all request fields for debugging
   console.log(`[${ourSessionId}] Full permission request:`, JSON.stringify(request, null, 2))
   
-  // Send to renderer and wait for response
-  return new Promise((resolve) => {
+  // Deduplicate parallel permission requests for the same executable+session
+  const inFlightKey = `${ourSessionId}:${executable}`
+  const existingRequest = inFlightPermissions.get(inFlightKey)
+  if (existingRequest) {
+    console.log(`[${ourSessionId}] Reusing in-flight permission request for:`, executable)
+    return existingRequest
+  }
+  
+  // Create new permission request and track it
+  const permissionPromise = new Promise<PermissionRequestResult>((resolve) => {
     pendingPermissions.set(requestId, { resolve, request, executable, sessionId: ourSessionId })
     mainWindow!.webContents.send('copilot:permission', {
       requestId,
@@ -525,6 +536,16 @@ async function handlePermissionRequest(
     })
     bounceDock()
   })
+  
+  // Track the in-flight request
+  inFlightPermissions.set(inFlightKey, permissionPromise)
+  
+  // Clean up after resolution
+  permissionPromise.finally(() => {
+    inFlightPermissions.delete(inFlightKey)
+  })
+  
+  return permissionPromise
 }
 
 // Create a new session and return its ID
@@ -1097,6 +1118,25 @@ ipcMain.handle('git:getDiff', async (_event, data: { cwd: string; files: string[
 // Git operations - commit and push
 ipcMain.handle('git:commitAndPush', async (_event, data: { cwd: string; files: string[]; message: string }) => {
   try {
+    // Get current branch name
+    const { stdout: branchOutput } = await execAsync('git branch --show-current', { cwd: data.cwd })
+    const currentBranch = branchOutput.trim()
+    const isMainBranch = currentBranch === 'main' || currentBranch === 'master'
+    
+    // Determine the target main branch by checking which exists
+    let targetBranch = 'main'
+    try {
+      await execAsync('git rev-parse --verify main', { cwd: data.cwd })
+    } catch {
+      // 'main' doesn't exist, try 'master'
+      try {
+        await execAsync('git rev-parse --verify master', { cwd: data.cwd })
+        targetBranch = 'master'
+      } catch {
+        // Neither exists, default to 'main'
+      }
+    }
+    
     // Stage the files
     for (const file of data.files) {
       await execAsync(`git add "${file}"`, { cwd: data.cwd })
@@ -1112,17 +1152,33 @@ ipcMain.handle('git:commitAndPush', async (_event, data: { cwd: string; files: s
       // If push fails due to no upstream branch, set upstream and push
       const errorMsg = String(pushError)
       if (errorMsg.includes('has no upstream branch')) {
-        // Get current branch name
-        const { stdout: branch } = await execAsync('git branch --show-current', { cwd: data.cwd })
-        const branchName = branch.trim()
         // Set upstream and push
-        await execAsync(`git push --set-upstream origin ${branchName}`, { cwd: data.cwd })
+        await execAsync(`git push --set-upstream origin ${currentBranch}`, { cwd: data.cwd })
       } else {
         throw pushError
       }
     }
     
-    return { success: true }
+    // If not on main/master, merge to main and push
+    if (!isMainBranch && currentBranch) {
+      console.log(`Merging ${currentBranch} to ${targetBranch}...`)
+      
+      // Switch to main/master
+      await execAsync(`git checkout ${targetBranch}`, { cwd: data.cwd })
+      console.log(`Switched to ${targetBranch}`)
+      
+      // Merge the feature branch
+      await execAsync(`git merge ${currentBranch}`, { cwd: data.cwd })
+      console.log(`Merged ${currentBranch} into ${targetBranch}`)
+      
+      // Push main/master
+      await execAsync('git push', { cwd: data.cwd })
+      console.log(`Pushed ${targetBranch} to origin`)
+      
+      return { success: true, mergedToMain: true, finalBranch: targetBranch }
+    }
+    
+    return { success: true, mergedToMain: false, finalBranch: currentBranch }
   } catch (error) {
     console.error('Git commit/push failed:', error)
     return { success: false, error: String(error) }

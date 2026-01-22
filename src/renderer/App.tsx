@@ -903,10 +903,13 @@ const App: React.FC = () => {
       );
 
       if (result.success) {
-        // Clear the edited files list
-        updateTab(activeTab.id, { editedFiles: [] });
-        setShowCommitModal(false);
-        setCommitMessage("");
+        // Clear the edited files list and refresh git branch widget
+        updateTab(activeTab.id, { 
+          editedFiles: [],
+          gitBranchRefresh: (activeTab.gitBranchRefresh || 0) + 1
+        })
+        setShowCommitModal(false)
+        setCommitMessage('')
       } else {
         setCommitError(result.error || "Commit failed");
       }
@@ -2054,7 +2057,7 @@ const App: React.FC = () => {
                     }}
                     className="text-[10px] uppercase tracking-wide shrink-0 text-copilot-text-muted hover:text-copilot-text transition-colors"
                     aria-pressed={!!activeTab?.autoBranchingEnabled}
-                    title={`Auto-checkout: ${activeTab?.autoBranchingEnabled ? "On" : "Off"} (click to toggle)`}
+                    title="Automatically checks out a new branch for the coding task"
                   >
                     Auto-checkout:{" "}
                     <span
