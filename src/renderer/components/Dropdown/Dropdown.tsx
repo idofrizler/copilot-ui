@@ -42,6 +42,8 @@ export interface DropdownProps<T = string> {
   title?: string
   /** Disabled state */
   disabled?: boolean
+  /** Test ID for automated testing */
+  testId?: string
 }
 
 export function Dropdown<T = string>({
@@ -58,6 +60,7 @@ export function Dropdown<T = string>({
   align = 'right',
   title,
   disabled = false,
+  testId,
 }: DropdownProps<T>): React.ReactElement {
   const [isOpen, setIsOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -84,12 +87,13 @@ export function Dropdown<T = string>({
   }
 
   return (
-    <div className="relative no-drag" ref={dropdownRef}>
+    <div className="relative no-drag" ref={dropdownRef} data-testid={testId}>
       <button
         onClick={handleToggle}
         className={`flex items-center gap-1 px-2 py-0.5 rounded bg-copilot-surface hover:bg-copilot-surface-hover transition-colors text-xs text-copilot-text-muted hover:text-copilot-text disabled:opacity-50 disabled:cursor-not-allowed ${className}`}
         title={title}
         disabled={disabled}
+        data-testid={testId ? `${testId}-trigger` : undefined}
       >
         {trigger || (
           <>

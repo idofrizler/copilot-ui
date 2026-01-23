@@ -14,6 +14,8 @@ export interface ModalProps {
   width?: string
   /** Show close button in header (default: true) */
   showCloseButton?: boolean
+  /** Test ID for automated testing */
+  testId?: string
 }
 
 export interface ModalHeaderProps {
@@ -66,14 +68,17 @@ export const Modal: React.FC<ModalProps> & {
   Header: typeof ModalHeader
   Body: typeof ModalBody
   Footer: typeof ModalFooter
-} = ({ isOpen, onClose, title, children, width = '500px', showCloseButton = true }) => {
+} = ({ isOpen, onClose, title, children, width = '500px', showCloseButton = true, testId }) => {
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" data-testid={testId}>
       <div
         className="bg-copilot-surface border border-copilot-border rounded-lg shadow-xl max-w-[90%]"
         style={{ width }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={`${testId}-title`}
       >
         <ModalHeader title={title} onClose={onClose} showCloseButton={showCloseButton} />
         {children}

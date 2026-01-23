@@ -75,7 +75,7 @@ export const GitBranchWidget: React.FC<GitBranchWidgetProps> = ({ cwd, refreshKe
   }
 
   return (
-    <div className="flex items-center gap-1.5 text-xs min-w-0">
+    <div className="flex items-center gap-1.5 text-xs min-w-0" data-testid="git-branch-widget">
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-copilot-accent shrink-0">
         <path d="M6 3v12" />
         <circle cx="18" cy="6" r="3" />

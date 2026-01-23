@@ -11,16 +11,21 @@ vi.mock('electron', () => ({
   }
 }))
 
-// Mock fs
-vi.mock('fs', () => ({
-  existsSync: vi.fn(),
-  mkdirSync: vi.fn(),
-  readFileSync: vi.fn(),
-  writeFileSync: vi.fn(),
-  rmSync: vi.fn(),
-  statSync: vi.fn(),
-  readdirSync: vi.fn()
-}))
+// Mock fs with default export
+vi.mock('fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs')>()
+  return {
+    ...actual,
+    default: actual,
+    existsSync: vi.fn(),
+    mkdirSync: vi.fn(),
+    readFileSync: vi.fn(),
+    writeFileSync: vi.fn(),
+    rmSync: vi.fn(),
+    statSync: vi.fn(),
+    readdirSync: vi.fn()
+  }
+})
 
 // Import mocked fs
 import { existsSync, readFileSync } from 'fs'

@@ -13,6 +13,8 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
   rightIcon?: React.ReactNode
   /** Full width button */
   fullWidth?: boolean
+  /** Test ID for automated testing */
+  testId?: string
 }
 
 const variantClasses = {
@@ -36,6 +38,7 @@ export const Button: React.FC<ButtonProps> = ({
   disabled,
   className = '',
   children,
+  testId,
   ...props
 }) => {
   const baseClasses = 'rounded transition-colors inline-flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed'
@@ -44,6 +47,7 @@ export const Button: React.FC<ButtonProps> = ({
     <button
       className={`${baseClasses} ${variantClasses[variant]} ${sizeClasses[size]} ${fullWidth ? 'w-full' : ''} ${className}`}
       disabled={disabled || isLoading}
+      data-testid={testId}
       {...props}
     >
       {isLoading ? (

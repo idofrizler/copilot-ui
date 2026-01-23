@@ -12,6 +12,10 @@
     "start": "electron-vite dev",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:components": "vitest run --config vitest.config.ts tests/components",
+    "test:e2e": "npm run build && npx playwright test",
+    "test:e2e:headed": "npm run build && npx playwright test --headed",
+    "test:all": "npm run test && npm run test:e2e",
     "dist": "electron-vite build && electron-builder --mac --dir && hdiutil create -volname 'Copilot Skins' -srcfolder release/mac-arm64 -ov -format UDZO release/Copilot-Skins-1.0.0-arm64.dmg"
   },
   "build": {
@@ -40,6 +44,10 @@
   "devDependencies": {
     "@electron-toolkit/preload": "^3.0.0",
     "@electron-toolkit/utils": "^3.0.0",
+    "@playwright/test": "^1.58.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^20.10.0",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
@@ -48,6 +56,7 @@
     "electron": "^28.1.0",
     "electron-builder": "^26.4.0",
     "electron-vite": "^2.0.0",
+    "jsdom": "^27.4.0",
     "postcss": "^8.4.0",
     "tailwindcss": "^3.4.0",
     "typescript": "^5.3.0",
