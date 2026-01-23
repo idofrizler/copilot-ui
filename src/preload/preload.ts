@@ -202,6 +202,14 @@ const electronAPI = {
   },
   // Worktree Session Management
   worktree: {
+    fetchGitHubIssue: (issueUrl: string): Promise<{
+      success: boolean
+      issue?: { number: number; title: string; body: string | null; state: 'open' | 'closed'; html_url: string }
+      suggestedBranch?: string
+      error?: string
+    }> => {
+      return ipcRenderer.invoke('worktree:fetchGitHubIssue', issueUrl)
+    },
     checkGitVersion: (): Promise<{ supported: boolean; version: string }> => {
       return ipcRenderer.invoke('worktree:checkGitVersion')
     },

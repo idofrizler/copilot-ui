@@ -17,15 +17,20 @@ export const CreateWorktreeSession: React.FC<CreateWorktreeSessionProps> = ({
   onSessionCreated
 }) => {
   const [branch, setBranch] = useState('')
+  const [issueUrl, setIssueUrl] = useState('')
   const [isCreating, setIsCreating] = useState(false)
+  const [isFetchingIssue, setIsFetchingIssue] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [gitSupported, setGitSupported] = useState<boolean | null>(null)
   const [gitVersion, setGitVersion] = useState<string>('')
+  const [issueTitle, setIssueTitle] = useState<string | null>(null)
 
   useEffect(() => {
     if (isOpen) {
       setBranch('')
+      setIssueUrl('')
       setError(null)
+      setIssueTitle(null)
       checkGitVersion()
     }
   }, [isOpen])
@@ -38,6 +43,28 @@ export const CreateWorktreeSession: React.FC<CreateWorktreeSessionProps> = ({
     } catch {
       setGitSupported(false)
       setGitVersion('unknown')
+    }
+  }
+
+  const handleFetchIssue = async () => {
+    if (!issueUrl.trim()) return
+    
+    setIsFetchingIssue(true)
+    setError(null)
+    setIssueTitle(null)
+    
+    try {
+      const result = await window.electronAPI.worktree.fetchGitHubIssue(issueUrl.trim())
+      if (result.success && result.issue && result.suggestedBranch) {
+        setBranch(result.suggestedBranch)
+        setIssueTitle(result.issue.title)
+      } else {
+        setError(result.error || 'Failed to fetch issue')
+      }
+    } catch (err) {
+      setError(String(err))
+    } finally {
+      setIsFetchingIssue(false)
     }
   }
 
@@ -75,6 +102,12 @@ export const CreateWorktreeSession: React.FC<CreateWorktreeSessionProps> = ({
     }
   }
 
+  const handleIssueKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !isFetchingIssue && issueUrl.trim()) {
+      handleFetchIssue()
+    }
+  }
+
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="New Worktree Session" width="450px">
       <Modal.Body>
@@ -91,6 +124,38 @@ export const CreateWorktreeSession: React.FC<CreateWorktreeSessionProps> = ({
               <div className="text-sm text-copilot-text font-mono truncate bg-copilot-bg px-2 py-1.5 rounded border border-copilot-border">
                 {repoPath}
               </div>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-xs text-copilot-text-muted mb-1">
+                GitHub Issue URL (optional)
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={issueUrl}
+                  onChange={(e) => setIssueUrl(e.target.value)}
+                  onKeyDown={handleIssueKeyDown}
+                  placeholder="https://github.com/owner/repo/issues/123"
+                  className="flex-1 px-3 py-2 bg-copilot-bg border border-copilot-border rounded text-sm text-copilot-text placeholder:text-copilot-text-muted focus:outline-none focus:border-copilot-accent"
+                  disabled={isCreating || isFetchingIssue}
+                />
+                <Button
+                  variant="secondary"
+                  onClick={handleFetchIssue}
+                  disabled={!issueUrl.trim() || isFetchingIssue || isCreating}
+                >
+                  {isFetchingIssue ? <Spinner /> : 'Fetch'}
+                </Button>
+              </div>
+              <p className="text-xs text-copilot-text-muted mt-1">
+                Paste a GitHub issue URL to auto-generate a branch name.
+              </p>
+              {issueTitle && (
+                <p className="text-xs text-copilot-accent mt-1 truncate" title={issueTitle}>
+                  Issue: {issueTitle}
+                </p>
+              )}
             </div>
 
             <div className="mb-4">

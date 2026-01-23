@@ -10,8 +10,18 @@ import { promisify } from 'util'
 import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, statSync, readdirSync } from 'fs'
 import { join, basename } from 'path'
 import { app } from 'electron'
+import { net } from 'electron'
 
 const execAsync = promisify(exec)
+
+// GitHub issue types
+interface GitHubIssue {
+  number: number
+  title: string
+  body: string | null
+  state: 'open' | 'closed'
+  html_url: string
+}
 
 // Session registry types
 interface WorktreeSession {
@@ -564,4 +574,99 @@ export function getWorktreeConfig(): WorktreeConfig {
  */
 export function updateWorktreeConfig(updates: Partial<WorktreeConfig>): void {
   saveConfig(updates)
+}
+
+/**
+ * Parse a GitHub issue URL and extract owner, repo, and issue number
+ */
+function parseGitHubIssueUrl(url: string): { owner: string; repo: string; issueNumber: number } | null {
+  // Match patterns like:
+  // https://github.com/owner/repo/issues/123
+  // github.com/owner/repo/issues/123
+  const match = url.match(/(?:https?:\/\/)?github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)/)
+  if (!match) return null
+  
+  return {
+    owner: match[1],
+    repo: match[2],
+    issueNumber: parseInt(match[3], 10)
+  }
+}
+
+/**
+ * Generate a branch name from issue title
+ */
+function generateBranchFromTitle(issueNumber: number, title: string): string {
+  // Clean and format the title for a branch name
+  const cleaned = title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')  // Remove special chars
+    .replace(/\s+/g, '-')          // Replace spaces with hyphens
+    .replace(/-+/g, '-')           // Collapse multiple hyphens
+    .replace(/^-|-$/g, '')         // Trim leading/trailing hyphens
+    .substring(0, 50)              // Limit length
+  
+  return `feature/${issueNumber}-${cleaned}`
+}
+
+/**
+ * Fetch GitHub issue details and generate a branch name
+ */
+export async function fetchGitHubIssue(issueUrl: string): Promise<{
+  success: boolean
+  issue?: GitHubIssue
+  suggestedBranch?: string
+  error?: string
+}> {
+  const parsed = parseGitHubIssueUrl(issueUrl)
+  if (!parsed) {
+    return { success: false, error: 'Invalid GitHub issue URL. Expected format: https://github.com/owner/repo/issues/123' }
+  }
+  
+  const { owner, repo, issueNumber } = parsed
+  const apiUrl = `https://api.github.com/repos/${owner}/${repo}/issues/${issueNumber}`
+  
+  return new Promise((resolve) => {
+    const request = net.request({
+      method: 'GET',
+      url: apiUrl
+    })
+    
+    request.setHeader('Accept', 'application/vnd.github.v3+json')
+    request.setHeader('User-Agent', 'Copilot-UI')
+    
+    let responseBody = ''
+    
+    request.on('response', (response) => {
+      if (response.statusCode === 404) {
+        resolve({ success: false, error: 'Issue not found. Check the URL and ensure the repository is public.' })
+        return
+      }
+      
+      if (response.statusCode !== 200) {
+        resolve({ success: false, error: `GitHub API error: ${response.statusCode}` })
+        return
+      }
+      
+      response.on('data', (chunk) => {
+        responseBody += chunk.toString()
+      })
+      
+      response.on('end', () => {
+        try {
+          const issue = JSON.parse(responseBody) as GitHubIssue
+          const suggestedBranch = generateBranchFromTitle(issue.number, issue.title)
+          resolve({ success: true, issue, suggestedBranch })
+        } catch (err) {
+          resolve({ success: false, error: 'Failed to parse GitHub response' })
+        }
+      })
+    })
+    
+    request.on('error', (error) => {
+      resolve({ success: false, error: `Network error: ${error.message}` })
+    })
+    
+    request.end()
+  })
 }
