@@ -1343,24 +1343,57 @@ ipcMain.handle('git:commitAndPush', async (_event, data: { cwd: string; files: s
     if (data.mergeToMain && !isMainBranch && currentBranch) {
       console.log(`Merging ${currentBranch} to ${targetBranch}...`)
       
-      // Switch to main/master
-      await execAsync(`git checkout ${targetBranch}`, { cwd: data.cwd })
-      console.log(`Switched to ${targetBranch}`)
+      // Check if we're in a worktree by comparing git-dir and git-common-dir
+      const { stdout: gitDir } = await execAsync('git rev-parse --git-dir', { cwd: data.cwd })
+      const { stdout: commonDir } = await execAsync('git rev-parse --git-common-dir', { cwd: data.cwd })
+      const isWorktree = gitDir.trim() !== commonDir.trim()
       
-      // Pull latest
-      try {
-        await execAsync('git pull', { cwd: data.cwd })
-      } catch {
-        // Ignore pull errors
+      // Get the main repository path (where main/master is checked out)
+      let mainRepoPath = data.cwd
+      if (isWorktree) {
+        // commonDir points to the .git folder of the main repo
+        // The main repo is one level up from the .git folder
+        const commonDirPath = commonDir.trim()
+        mainRepoPath = dirname(commonDirPath)
       }
       
-      // Merge the feature branch
-      await execAsync(`git merge ${currentBranch}`, { cwd: data.cwd })
-      console.log(`Merged ${currentBranch} into ${targetBranch}`)
-      
-      // Push main/master
-      await execAsync('git push', { cwd: data.cwd })
-      console.log(`Pushed ${targetBranch} to origin`)
+      if (isWorktree) {
+        // For worktrees, run merge commands from the main repo
+        // Pull latest on main in the main repo
+        try {
+          await execAsync('git pull', { cwd: mainRepoPath })
+        } catch {
+          // Ignore pull errors
+        }
+        
+        // Merge the feature branch into main (from the main repo)
+        await execAsync(`git merge ${currentBranch}`, { cwd: mainRepoPath })
+        console.log(`Merged ${currentBranch} into ${targetBranch}`)
+        
+        // Push main/master from the main repo
+        await execAsync('git push', { cwd: mainRepoPath })
+        console.log(`Pushed ${targetBranch} to origin`)
+      } else {
+        // Standard flow for non-worktree repos
+        // Switch to main/master
+        await execAsync(`git checkout ${targetBranch}`, { cwd: data.cwd })
+        console.log(`Switched to ${targetBranch}`)
+        
+        // Pull latest
+        try {
+          await execAsync('git pull', { cwd: data.cwd })
+        } catch {
+          // Ignore pull errors
+        }
+        
+        // Merge the feature branch
+        await execAsync(`git merge ${currentBranch}`, { cwd: data.cwd })
+        console.log(`Merged ${currentBranch} into ${targetBranch}`)
+        
+        // Push main/master
+        await execAsync('git push', { cwd: data.cwd })
+        console.log(`Pushed ${targetBranch} to origin`)
+      }
       
       return { success: true, mergedToMain: true, finalBranch: targetBranch }
     }
@@ -1461,6 +1494,20 @@ ipcMain.handle('git:mergeToMain', async (_event, data: { cwd: string; deleteBran
       return { success: false, error: 'Already on main/master branch' }
     }
     
+    // Check if we're in a worktree by comparing git-dir and git-common-dir
+    const { stdout: gitDir } = await execAsync('git rev-parse --git-dir', { cwd: data.cwd })
+    const { stdout: commonDir } = await execAsync('git rev-parse --git-common-dir', { cwd: data.cwd })
+    const isWorktree = gitDir.trim() !== commonDir.trim()
+    
+    // Get the main repository path (where main/master is checked out)
+    let mainRepoPath = data.cwd
+    if (isWorktree) {
+      // commonDir points to the .git folder of the main repo
+      // The main repo is one level up from the .git folder
+      const commonDirPath = commonDir.trim()
+      mainRepoPath = dirname(commonDirPath)
+    }
+    
     // Determine the target main branch
     let targetBranch = 'main'
     try {
@@ -1492,27 +1539,45 @@ ipcMain.handle('git:mergeToMain', async (_event, data: { cwd: string; deleteBran
       }
     }
     
-    // Switch to main/master
-    await execAsync(`git checkout ${targetBranch}`, { cwd: data.cwd })
-    
-    // Pull latest
-    try {
-      await execAsync('git pull', { cwd: data.cwd })
-    } catch {
-      // Ignore pull errors (might be a new repo)
+    // For worktrees, we need to run merge commands from the main repo
+    // because main/master is checked out there
+    if (isWorktree) {
+      // Pull latest on main in the main repo
+      try {
+        await execAsync('git pull', { cwd: mainRepoPath })
+      } catch {
+        // Ignore pull errors (might be a new repo)
+      }
+      
+      // Merge the feature branch into main (from the main repo)
+      await execAsync(`git merge ${currentBranch}`, { cwd: mainRepoPath })
+      
+      // Push main/master from the main repo
+      await execAsync('git push', { cwd: mainRepoPath })
+    } else {
+      // Standard flow for non-worktree repos
+      // Switch to main/master
+      await execAsync(`git checkout ${targetBranch}`, { cwd: data.cwd })
+      
+      // Pull latest
+      try {
+        await execAsync('git pull', { cwd: data.cwd })
+      } catch {
+        // Ignore pull errors (might be a new repo)
+      }
+      
+      // Merge the feature branch
+      await execAsync(`git merge ${currentBranch}`, { cwd: data.cwd })
+      
+      // Push main/master
+      await execAsync('git push', { cwd: data.cwd })
     }
-    
-    // Merge the feature branch
-    await execAsync(`git merge ${currentBranch}`, { cwd: data.cwd })
-    
-    // Push main/master
-    await execAsync('git push', { cwd: data.cwd })
     
     // Optionally delete the feature branch
     if (data.deleteBranch) {
       try {
-        await execAsync(`git branch -d ${currentBranch}`, { cwd: data.cwd })
-        await execAsync(`git push origin --delete ${currentBranch}`, { cwd: data.cwd })
+        await execAsync(`git branch -d ${currentBranch}`, { cwd: mainRepoPath })
+        await execAsync(`git push origin --delete ${currentBranch}`, { cwd: mainRepoPath })
       } catch {
         // Ignore branch deletion errors
       }
