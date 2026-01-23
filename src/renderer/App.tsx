@@ -47,6 +47,7 @@ import {
   formatToolOutput,
   setTabCounter,
 } from "./utils/session";
+import { playNotificationSound } from "./utils/sound";
 
 const App: React.FC = () => {
   const [status, setStatus] = useState<Status>("connecting");
@@ -351,6 +352,9 @@ const App: React.FC = () => {
     const unsubscribeIdle = window.electronAPI.copilot.onIdle((data) => {
       const { sessionId } = data;
 
+      // Play notification sound when session completes
+      playNotificationSound();
+
       // First update tab state
       setTabs((prev) => {
         const tab = prev.find((t) => t.id === sessionId);
@@ -620,6 +624,9 @@ const App: React.FC = () => {
     // Listen for permission requests
     const unsubscribePermission = window.electronAPI.copilot.onPermission(
       (data) => {
+        // Play notification sound when permission is needed
+        playNotificationSound();
+
         console.log(
           "Permission requested (full data):",
           JSON.stringify(data, null, 2),
