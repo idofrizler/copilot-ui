@@ -50,9 +50,9 @@ export interface PreviousSession {
 
 // Ralph Wiggum loop configuration
 // See: https://github.com/anthropics/claude-code/tree/main/plugins/ralph-wiggum
+export const RALPH_COMPLETION_SIGNAL = "<promise>COMPLETE</promise>";
 export interface RalphConfig {
   originalPrompt: string;
-  completionPromise: string;
   maxIterations: number;
   currentIteration: number;
   active: boolean;

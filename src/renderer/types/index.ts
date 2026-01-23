@@ -9,6 +9,8 @@ export type {
   RalphConfig,
 } from "./session";
 
+export { RALPH_COMPLETION_SIGNAL } from "./session";
+
 export type {
   MCPServerConfigBase,
   MCPLocalServerConfig,

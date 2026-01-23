@@ -40,6 +40,7 @@ import {
   MCPLocalServerConfig,
   MCPRemoteServerConfig,
   RalphConfig,
+  RALPH_COMPLETION_SIGNAL,
 } from "./types";
 import {
   generateId,
@@ -96,7 +97,6 @@ const App: React.FC = () => {
   // Ralph Wiggum loop state
   const [showRalphSettings, setShowRalphSettings] = useState(false);
   const [ralphEnabled, setRalphEnabled] = useState(false);
-  const [ralphCompletionPromise, setRalphCompletionPromise] = useState("COMPLETE");
   const [ralphMaxIterations, setRalphMaxIterations] = useState(20);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -363,7 +363,7 @@ const App: React.FC = () => {
         if (tab?.ralphConfig?.active) {
           const lastMessage = tab.messages[tab.messages.length - 1];
           const hasCompletionPromise = lastMessage?.content?.includes(
-            tab.ralphConfig.completionPromise
+            RALPH_COMPLETION_SIGNAL
           );
           const maxReached = tab.ralphConfig.currentIteration >= tab.ralphConfig.maxIterations;
 
@@ -712,16 +712,20 @@ const App: React.FC = () => {
 
     const tabId = activeTab.id;
 
-    // Set up Ralph config if enabled
+    // Set up Ralph config if enabled - auto-inject completion instruction
     const ralphConfig: RalphConfig | undefined = ralphEnabled
       ? {
           originalPrompt: userMessage.content,
-          completionPromise: ralphCompletionPromise,
           maxIterations: ralphMaxIterations,
           currentIteration: 1,
           active: true,
         }
       : undefined;
+    
+    // If Ralph is enabled, append completion instruction to the prompt
+    const promptToSend = ralphEnabled
+      ? `${userMessage.content}\n\nWhen you have fully completed this task, output exactly: ${RALPH_COMPLETION_SIGNAL}`
+      : userMessage.content;
 
     updateTab(tabId, {
       messages: [
@@ -747,12 +751,12 @@ const App: React.FC = () => {
     }
 
     try {
-      await window.electronAPI.copilot.send(tabId, userMessage.content);
+      await window.electronAPI.copilot.send(tabId, promptToSend);
     } catch (error) {
       console.error("Send error:", error);
       updateTab(tabId, { isProcessing: false, ralphConfig: undefined });
     }
-  }, [inputValue, activeTab, updateTab, ralphEnabled, ralphCompletionPromise, ralphMaxIterations]);
+  }, [inputValue, activeTab, updateTab, ralphEnabled, ralphMaxIterations]);
 
   const handleStop = useCallback(() => {
     if (!activeTab) return;
@@ -1864,18 +1868,6 @@ const App: React.FC = () => {
                   <div className="space-y-2">
                     <div>
                       <label className="text-[10px] text-copilot-text-muted block mb-1">
-                        Completion phrase (agent outputs this when done)
-                      </label>
-                      <input
-                        type="text"
-                        value={ralphCompletionPromise}
-                        onChange={(e) => setRalphCompletionPromise(e.target.value)}
-                        className="w-full bg-copilot-surface border border-copilot-border rounded px-2 py-1 text-xs text-copilot-text font-mono"
-                        placeholder="COMPLETE"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[10px] text-copilot-text-muted block mb-1">
                         Max iterations (safety limit)
                       </label>
                       <input
@@ -1888,7 +1880,7 @@ const App: React.FC = () => {
                       />
                     </div>
                     <p className="text-[10px] text-copilot-text-muted">
-                      Tip: Include "{`<promise>${ralphCompletionPromise}</promise>`}" in your prompt as the completion signal.
+                      The agent will loop until it signals completion or hits the max iterations.
                     </p>
                   </div>
                 )}

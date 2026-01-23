@@ -5,6 +5,7 @@ export * from './IconButton'
 export * from './Icons'
 export * from './Modal'
 export * from './WindowControls'
+export * from './WorktreeSessions'
 
 // Existing Components
 export * from './Spinner'

@@ -187,6 +187,63 @@ const electronAPI = {
     deleteServer: (name: string): Promise<{ success: boolean; error?: string }> => {
       return ipcRenderer.invoke('mcp:deleteServer', name)
     }
+  },
+  // Worktree Session Management
+  worktree: {
+    checkGitVersion: (): Promise<{ supported: boolean; version: string }> => {
+      return ipcRenderer.invoke('worktree:checkGitVersion')
+    },
+    createSession: (data: { repoPath: string; branch: string; skipDeps?: boolean }): Promise<{
+      success: boolean
+      session?: WorktreeSession
+      error?: string
+      warning?: string
+    }> => {
+      return ipcRenderer.invoke('worktree:createSession', data)
+    },
+    removeSession: (data: { sessionId: string; force?: boolean }): Promise<{
+      success: boolean
+      error?: string
+    }> => {
+      return ipcRenderer.invoke('worktree:removeSession', data)
+    },
+    listSessions: (): Promise<{
+      sessions: Array<WorktreeSession & { diskUsage: string }>
+      totalDiskUsage: string
+    }> => {
+      return ipcRenderer.invoke('worktree:listSessions')
+    },
+    getSession: (sessionId: string): Promise<WorktreeSession | null> => {
+      return ipcRenderer.invoke('worktree:getSession', sessionId)
+    },
+    findSession: (data: { repoPath: string; branch: string }): Promise<WorktreeSession | null> => {
+      return ipcRenderer.invoke('worktree:findSession', data)
+    },
+    switchSession: (sessionId: string): Promise<WorktreeSession | null> => {
+      return ipcRenderer.invoke('worktree:switchSession', sessionId)
+    },
+    pruneSessions: (options?: { dryRun?: boolean; maxAgeDays?: number }): Promise<{
+      pruned: string[]
+      errors: Array<{ sessionId: string; error: string }>
+    }> => {
+      return ipcRenderer.invoke('worktree:pruneSessions', options)
+    },
+    checkOrphaned: (): Promise<WorktreeSession[]> => {
+      return ipcRenderer.invoke('worktree:checkOrphaned')
+    },
+    recoverSession: (sessionId: string): Promise<{
+      success: boolean
+      session?: WorktreeSession
+      error?: string
+    }> => {
+      return ipcRenderer.invoke('worktree:recoverSession', sessionId)
+    },
+    getConfig: (): Promise<WorktreeConfig> => {
+      return ipcRenderer.invoke('worktree:getConfig')
+    },
+    updateConfig: (updates: Partial<WorktreeConfig>): Promise<{ success: boolean }> => {
+      return ipcRenderer.invoke('worktree:updateConfig', updates)
+    }
   }
 }
 
@@ -212,6 +269,26 @@ interface MCPRemoteServerConfig extends MCPServerConfigBase {
 }
 
 type MCPServerConfig = MCPLocalServerConfig | MCPRemoteServerConfig
+
+// Worktree Session types
+interface WorktreeSession {
+  id: string
+  repoPath: string
+  branch: string
+  worktreePath: string
+  createdAt: string
+  lastAccessedAt: string
+  status: 'active' | 'idle' | 'orphaned'
+  pid?: number
+}
+
+interface WorktreeConfig {
+  directory: string
+  pruneAfterDays: number
+  autoInstallDeps: boolean
+  preferCoW: boolean
+  warnDiskThresholdMB: number
+}
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI)
 

@@ -4,13 +4,13 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, copyFileSync } from '
 import { exec } from 'child_process'
 import { promisify } from 'util'
 import { readFile, writeFile, mkdir } from 'fs/promises'
-import { existsSync } from 'fs'
 
 const execAsync = promisify(exec)
 import { CopilotClient, CopilotSession, PermissionRequest, PermissionRequestResult } from '@github/copilot-sdk'
 import Store from 'electron-store'
 import log from 'electron-log/main'
 import { extractExecutables } from './utils/extractExecutables'
+import * as worktree from './worktree'
 
 // MCP Server Configuration types (matching SDK)
 interface MCPServerConfigBase {
@@ -796,8 +796,8 @@ async function initCopilot(): Promise<void> {
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 650,
+    width: 1400,
+    height: 750,
     minWidth: 900,
     minHeight: 500,
     frame: false,
@@ -1592,5 +1592,86 @@ app.on('before-quit', async () => {
     await client.stop()
   }
   copilotClients.clear()
+})
+
+// ============================================================================
+// Worktree Session Management IPC Handlers
+// ============================================================================
+
+// Check git version for worktree support
+ipcMain.handle('worktree:checkGitVersion', async () => {
+  return worktree.checkGitVersion()
+})
+
+// Create a new worktree session
+ipcMain.handle('worktree:createSession', async (_event, data: { 
+  repoPath: string
+  branch: string
+  skipDeps?: boolean 
+}) => {
+  return worktree.createWorktreeSession(data.repoPath, data.branch, { skipDeps: data.skipDeps })
+})
+
+// Remove a worktree session
+ipcMain.handle('worktree:removeSession', async (_event, data: { 
+  sessionId: string
+  force?: boolean 
+}) => {
+  return worktree.removeWorktreeSession(data.sessionId, { force: data.force })
+})
+
+// List all worktree sessions
+ipcMain.handle('worktree:listSessions', async () => {
+  return worktree.listWorktreeSessions()
+})
+
+// Get a specific session
+ipcMain.handle('worktree:getSession', async (_event, sessionId: string) => {
+  return worktree.getWorktreeSession(sessionId)
+})
+
+// Find session by repo and branch
+ipcMain.handle('worktree:findSession', async (_event, data: { repoPath: string; branch: string }) => {
+  return worktree.findWorktreeSession(data.repoPath, data.branch)
+})
+
+// Switch to a worktree session
+ipcMain.handle('worktree:switchSession', async (_event, sessionId: string) => {
+  return worktree.switchToWorktreeSession(sessionId)
+})
+
+// Prune orphaned and stale sessions
+ipcMain.handle('worktree:pruneSessions', async (_event, options?: { 
+  dryRun?: boolean
+  maxAgeDays?: number 
+}) => {
+  return worktree.pruneWorktreeSessions(options)
+})
+
+// Check for orphaned sessions
+ipcMain.handle('worktree:checkOrphaned', async () => {
+  return worktree.checkOrphanedSessions()
+})
+
+// Recover an orphaned session
+ipcMain.handle('worktree:recoverSession', async (_event, sessionId: string) => {
+  return worktree.recoverWorktreeSession(sessionId)
+})
+
+// Get worktree config
+ipcMain.handle('worktree:getConfig', async () => {
+  return worktree.getWorktreeConfig()
+})
+
+// Update worktree config
+ipcMain.handle('worktree:updateConfig', async (_event, updates: Partial<{
+  directory: string
+  pruneAfterDays: number
+  autoInstallDeps: boolean
+  preferCoW: boolean
+  warnDiskThresholdMB: number
+}>) => {
+  worktree.updateWorktreeConfig(updates)
+  return { success: true }
 })
 
