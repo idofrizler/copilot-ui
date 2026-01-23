@@ -251,6 +251,98 @@ const sessions = new Map<string, SessionState>()
 let activeSessionId: string | null = null
 let sessionCounter = 0
 
+// Keep-alive interval (5 minutes) to prevent session timeout
+const SESSION_KEEPALIVE_INTERVAL = 5 * 60 * 1000
+let keepAliveTimer: NodeJS.Timeout | null = null
+
+// Start keep-alive timer for active sessions
+function startKeepAlive(): void {
+  if (keepAliveTimer) return
+  
+  keepAliveTimer = setInterval(async () => {
+    for (const [sessionId, sessionState] of sessions.entries()) {
+      try {
+        // Ping the session by getting messages (lightweight operation)
+        await sessionState.session.getMessages()
+        log.info(`[${sessionId}] Keep-alive ping successful`)
+      } catch (error) {
+        log.warn(`[${sessionId}] Keep-alive ping failed:`, error)
+        // Session may have timed out - mark for reconnection on next use
+      }
+    }
+  }, SESSION_KEEPALIVE_INTERVAL)
+  
+  log.info('Started session keep-alive timer')
+}
+
+// Stop keep-alive timer
+function stopKeepAlive(): void {
+  if (keepAliveTimer) {
+    clearInterval(keepAliveTimer)
+    keepAliveTimer = null
+    log.info('Stopped session keep-alive timer')
+  }
+}
+
+// Resume a session that has been disconnected
+async function resumeDisconnectedSession(sessionId: string, sessionState: SessionState): Promise<CopilotSession> {
+  log.info(`[${sessionId}] Attempting to resume disconnected session...`)
+  
+  const client = await getClientForCwd(sessionState.cwd)
+  const mcpConfig = await readMcpConfig()
+  
+  const resumedSession = await client.resumeSession(sessionId, {
+    mcpServers: mcpConfig.mcpServers,
+    onPermissionRequest: (request, invocation) => handlePermissionRequest(request, invocation, sessionId)
+  })
+  
+  // Set up event handler for resumed session
+  resumedSession.on((event) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    
+    log.info(`[${sessionId}] Event:`, event.type)
+    
+    if (event.type === 'assistant.message_delta') {
+      mainWindow.webContents.send('copilot:delta', { sessionId, content: event.data.deltaContent })
+    } else if (event.type === 'assistant.message') {
+      mainWindow.webContents.send('copilot:message', { sessionId, content: event.data.content })
+    } else if (event.type === 'session.idle') {
+      mainWindow.webContents.send('copilot:idle', { sessionId })
+      bounceDock()
+    } else if (event.type === 'tool.execution_start') {
+      log.info(`[${sessionId}] Tool start FULL:`, JSON.stringify(event.data, null, 2))
+      mainWindow.webContents.send('copilot:tool-start', { 
+        sessionId, 
+        toolCallId: event.data.toolCallId, 
+        toolName: event.data.toolName,
+        input: event.data.arguments || event.data.input || (event.data as Record<string, unknown>)
+      })
+    } else if (event.type === 'tool.execution_complete') {
+      log.info(`[${sessionId}] Tool end FULL:`, JSON.stringify(event.data, null, 2))
+      mainWindow.webContents.send('copilot:tool-end', { 
+        sessionId, 
+        toolCallId: event.data.toolCallId, 
+        toolName: event.data.toolName,
+        input: event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
+        output: event.data.output
+      })
+    } else if (event.type === 'tool.confirmation_requested') {
+      log.info(`[${sessionId}] Confirmation requested:`, event.data)
+      mainWindow.webContents.send('copilot:confirm', { sessionId, ...event.data })
+    } else if (event.type === 'session.error') {
+      log.info(`[${sessionId}] Session error:`, event.data)
+      mainWindow.webContents.send('copilot:error', { sessionId, message: event.data?.message || JSON.stringify(event.data) })
+    }
+  })
+  
+  // Update session state with new session object
+  sessionState.session = resumedSession
+  sessionState.client = client
+  
+  log.info(`[${sessionId}] Session resumed successfully`)
+  return resumedSession
+}
+
 // Pending permission requests waiting for user response
 const pendingPermissions = new Map<string, {
   resolve: (result: PermissionRequestResult) => void
@@ -692,6 +784,9 @@ async function initCopilot(): Promise<void> {
         models: AVAILABLE_MODELS 
       })
     }
+    
+    // Start keep-alive timer to prevent session timeouts
+    startKeepAlive()
   } catch (err) {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('copilot:error', String(err))
@@ -756,8 +851,32 @@ ipcMain.handle('copilot:send', async (_event, data: { sessionId: string, prompt:
     throw new Error(`Session not found: ${data.sessionId}`)
   }
   
-  const messageId = await sessionState.session.send({ prompt: data.prompt })
-  return messageId
+  try {
+    const messageId = await sessionState.session.send({ prompt: data.prompt })
+    return messageId
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    
+    // Check if session was disconnected/timed out
+    if (errorMessage.includes('Session not found') || errorMessage.includes('session.send failed')) {
+      log.warn(`[${data.sessionId}] Session appears disconnected, attempting to resume...`)
+      
+      try {
+        // Try to resume the session
+        await resumeDisconnectedSession(data.sessionId, sessionState)
+        
+        // Retry the send
+        const messageId = await sessionState.session.send({ prompt: data.prompt })
+        log.info(`[${data.sessionId}] Successfully sent message after session resume`)
+        return messageId
+      } catch (resumeError) {
+        log.error(`[${data.sessionId}] Failed to resume session:`, resumeError)
+        throw new Error(`Session disconnected and could not be resumed. Please try again.`)
+      }
+    }
+    
+    throw error
+  }
 })
 
 ipcMain.handle('copilot:sendAndWait', async (_event, data: { sessionId: string, prompt: string }) => {
@@ -766,8 +885,28 @@ ipcMain.handle('copilot:sendAndWait', async (_event, data: { sessionId: string, 
     throw new Error(`Session not found: ${data.sessionId}`)
   }
   
-  const response = await sessionState.session.sendAndWait({ prompt: data.prompt })
-  return response?.data?.content || ''
+  try {
+    const response = await sessionState.session.sendAndWait({ prompt: data.prompt })
+    return response?.data?.content || ''
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    
+    // Check if session was disconnected/timed out
+    if (errorMessage.includes('Session not found') || errorMessage.includes('session.send failed')) {
+      log.warn(`[${data.sessionId}] Session appears disconnected, attempting to resume...`)
+      
+      try {
+        await resumeDisconnectedSession(data.sessionId, sessionState)
+        const response = await sessionState.session.sendAndWait({ prompt: data.prompt })
+        return response?.data?.content || ''
+      } catch (resumeError) {
+        log.error(`[${data.sessionId}] Failed to resume session:`, resumeError)
+        throw new Error(`Session disconnected and could not be resumed. Please try again.`)
+      }
+    }
+    
+    throw error
+  }
 })
 
 ipcMain.on('copilot:abort', async (_event, sessionId: string) => {
@@ -784,20 +923,50 @@ ipcMain.handle('copilot:getMessages', async (_event, sessionId: string) => {
     throw new Error(`Session not found: ${sessionId}`)
   }
   
-  const events = await sessionState.session.getMessages()
-  
-  // Convert events to simplified message format
-  const messages: { role: 'user' | 'assistant'; content: string }[] = []
-  
-  for (const event of events) {
-    if (event.type === 'user.message') {
-      messages.push({ role: 'user', content: event.data.content })
-    } else if (event.type === 'assistant.message') {
-      messages.push({ role: 'assistant', content: event.data.content })
+  try {
+    const events = await sessionState.session.getMessages()
+    
+    // Convert events to simplified message format
+    const messages: { role: 'user' | 'assistant'; content: string }[] = []
+    
+    for (const event of events) {
+      if (event.type === 'user.message') {
+        messages.push({ role: 'user', content: event.data.content })
+      } else if (event.type === 'assistant.message') {
+        messages.push({ role: 'assistant', content: event.data.content })
+      }
     }
+    
+    return messages
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    
+    // Check if session was disconnected/timed out
+    if (errorMessage.includes('Session not found') || errorMessage.includes('failed')) {
+      log.warn(`[${sessionId}] Session appears disconnected, attempting to resume for getMessages...`)
+      
+      try {
+        await resumeDisconnectedSession(sessionId, sessionState)
+        const events = await sessionState.session.getMessages()
+        
+        const messages: { role: 'user' | 'assistant'; content: string }[] = []
+        for (const event of events) {
+          if (event.type === 'user.message') {
+            messages.push({ role: 'user', content: event.data.content })
+          } else if (event.type === 'assistant.message') {
+            messages.push({ role: 'assistant', content: event.data.content })
+          }
+        }
+        return messages
+      } catch (resumeError) {
+        log.error(`[${sessionId}] Failed to resume session for getMessages:`, resumeError)
+        // Return empty array instead of throwing - messages may not be recoverable
+        return []
+      }
+    }
+    
+    throw error
   }
-  
-  return messages
 })
 
 // Generate a short title for a conversation using AI
@@ -1391,6 +1560,9 @@ if (!gotTheLock) {
 }
 
 app.on('window-all-closed', async () => {
+  // Stop keep-alive timer
+  stopKeepAlive()
+  
   // Destroy all sessions
   for (const [id, state] of sessions) {
     await state.session.destroy()
