@@ -268,7 +268,12 @@ function startKeepAlive(): void {
         log.info(`[${sessionId}] Keep-alive ping successful`)
       } catch (error) {
         log.warn(`[${sessionId}] Keep-alive ping failed:`, error)
-        // Session may have timed out - mark for reconnection on next use
+        // Session may have timed out on the backend - send idle event to frontend
+        // to ensure the UI doesn't stay stuck in "processing" state
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          log.info(`[${sessionId}] Sending fallback idle event due to session timeout`)
+          mainWindow.webContents.send('copilot:idle', { sessionId })
+        }
       }
     }
   }, SESSION_KEEPALIVE_INTERVAL)

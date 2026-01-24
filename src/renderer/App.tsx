@@ -723,20 +723,20 @@ const App: React.FC = () => {
 
     const tabId = activeTab.id;
 
-    // Set up Ralph config if enabled - auto-inject completion instruction
+    // If Ralph is enabled, append completion instruction to the prompt
+    const promptToSend = ralphEnabled
+      ? `${userMessage.content}\n\nWhen you have fully completed this task, output exactly: ${RALPH_COMPLETION_SIGNAL}`
+      : userMessage.content;
+
+    // Set up Ralph config if enabled - store full prompt with completion instruction
     const ralphConfig: RalphConfig | undefined = ralphEnabled
       ? {
-          originalPrompt: userMessage.content,
+          originalPrompt: promptToSend, // Store full prompt including completion instruction
           maxIterations: ralphMaxIterations,
           currentIteration: 1,
           active: true,
         }
       : undefined;
-    
-    // If Ralph is enabled, append completion instruction to the prompt
-    const promptToSend = ralphEnabled
-      ? `${userMessage.content}\n\nWhen you have fully completed this task, output exactly: ${RALPH_COMPLETION_SIGNAL}`
-      : userMessage.content;
 
     updateTab(tabId, {
       messages: [
