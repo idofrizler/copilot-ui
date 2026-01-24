@@ -1,15 +1,15 @@
 {
   "name": "copilot-skins",
-  "version": "1.0.0+202601242303",
+  "version": "1.0.0+202601242323",
   "description": "A beautiful native desktop GUI for GitHub Copilot",
   "main": "./out/main/index.js",
   "author": "Ido Frizler",
   "license": "MIT",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "npm run prebuild-info && electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "start": "electron-vite dev",
+    "start": "npm run prebuild-info && electron-vite dev",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:components": "vitest run --config vitest.config.ts tests/components",
