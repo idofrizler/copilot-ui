@@ -110,6 +110,13 @@ const App: React.FC = () => {
   const [showCreateWorktree, setShowCreateWorktree] = useState(false);
   const [worktreeRepoPath, setWorktreeRepoPath] = useState("");
 
+  // Resizable panel state
+  const [leftPanelWidth, setLeftPanelWidth] = useState(192); // default w-48
+  const [rightPanelWidth, setRightPanelWidth] = useState(288); // default w-72
+  const resizingPanel = useRef<'left' | 'right' | null>(null);
+  const resizeStartX = useRef(0);
+  const resizeStartWidth = useRef(0);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const activeTabIdRef = useRef<string | null>(null);
@@ -147,6 +154,51 @@ const App: React.FC = () => {
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
+
+  // Resize handlers for side panels
+  const handleResizeMouseDown = useCallback((e: React.MouseEvent, panel: 'left' | 'right') => {
+    e.preventDefault();
+    resizingPanel.current = panel;
+    resizeStartX.current = e.clientX;
+    resizeStartWidth.current = panel === 'left' ? leftPanelWidth : rightPanelWidth;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, [leftPanelWidth, rightPanelWidth]);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!resizingPanel.current) return;
+      
+      const delta = e.clientX - resizeStartX.current;
+      const minWidth = 120;
+      const maxWidth = 400;
+      
+      if (resizingPanel.current === 'left') {
+        const newWidth = Math.min(maxWidth, Math.max(minWidth, resizeStartWidth.current + delta));
+        setLeftPanelWidth(newWidth);
+      } else {
+        // For right panel, dragging right decreases width
+        const newWidth = Math.min(maxWidth, Math.max(minWidth, resizeStartWidth.current - delta));
+        setRightPanelWidth(newWidth);
+      }
+    };
+
+    const handleMouseUp = () => {
+      if (resizingPanel.current) {
+        resizingPanel.current = null;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
 
   useEffect(() => {
     scrollToBottom();
@@ -1531,7 +1583,10 @@ const App: React.FC = () => {
       {/* Tab Bar */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left Sidebar - Vertical Tabs */}
-        <div className="w-48 bg-copilot-bg border-r border-copilot-border flex flex-col shrink-0">
+        <div 
+          className="bg-copilot-bg border-r border-copilot-border flex flex-col shrink-0"
+          style={{ width: leftPanelWidth }}
+        >
           {/* New Tab Button */}
           <button
             onClick={() => handleNewTab()}
@@ -1740,6 +1795,12 @@ const App: React.FC = () => {
             </div>
           )}
         </div>
+
+        {/* Left Resize Handle */}
+        <div
+          className="w-1 hover:w-1.5 bg-transparent hover:bg-copilot-accent/50 cursor-col-resize shrink-0 transition-all"
+          onMouseDown={(e) => handleResizeMouseDown(e, 'left')}
+        />
 
         {/* Main Content Area */}
         <div className="flex-1 flex flex-col min-h-0 min-w-0">
@@ -2126,8 +2187,17 @@ const App: React.FC = () => {
           </div>
         </div>
 
+        {/* Right Resize Handle */}
+        <div
+          className="w-1 hover:w-1.5 bg-transparent hover:bg-copilot-accent/50 cursor-col-resize shrink-0 transition-all"
+          onMouseDown={(e) => handleResizeMouseDown(e, 'right')}
+        />
+
         {/* Right Panel - Activity & Session Info */}
-        <div className="w-72 border-l border-copilot-border flex flex-col shrink-0 bg-copilot-bg">
+        <div 
+          className="border-l border-copilot-border flex flex-col shrink-0 bg-copilot-bg"
+          style={{ width: rightPanelWidth }}
+        >
           {/* Activity Header with Intent */}
           <div className="px-3 py-2 border-b border-copilot-border bg-copilot-surface">
             <div className="flex items-center gap-2">
