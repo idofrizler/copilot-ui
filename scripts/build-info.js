@@ -10,17 +10,13 @@ const timestamp = now.toISOString().replace(/[-:T]/g, '').slice(0, 12) // YYYYMM
 const gitSha = execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim()
 const gitBranch = execSync('git rev-parse --abbrev-ref HEAD', { encoding: 'utf8' }).trim()
 
-// Read package.json
+// Read package.json (for base version only, don't modify it)
 const pkgPath = path.join(__dirname, '..', 'package.json')
 const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'))
 
 // Extract base version (e.g., 1.0.0 from 1.0.0+whatever)
 const baseVersion = pkg.version.split('+')[0].split('-')[0]
 const newVersion = `${baseVersion}+${timestamp}`
-
-// Update package.json version
-pkg.version = newVersion
-fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n')
 
 // Create build-info.json in src/renderer
 const buildInfo = {
