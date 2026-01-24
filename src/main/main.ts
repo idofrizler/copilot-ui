@@ -247,6 +247,7 @@ interface SessionState {
   cwd: string  // Current working directory for the session
   alwaysAllowed: Set<string>  // Per-session always-allowed executables
   allowedPaths: Set<string>  // Per-session allowed out-of-scope paths (parent directories)
+  isProcessing: boolean  // Whether the session is currently waiting for a response
 }
 const sessions = new Map<string, SessionState>()
 let activeSessionId: string | null = null
@@ -262,6 +263,9 @@ function startKeepAlive(): void {
   
   keepAliveTimer = setInterval(async () => {
     for (const [sessionId, sessionState] of sessions.entries()) {
+      // Only ping sessions that are actively processing to avoid noise
+      if (!sessionState.isProcessing) continue
+      
       try {
         // Ping the session by getting messages (lightweight operation)
         await sessionState.session.getMessages()
@@ -273,6 +277,7 @@ function startKeepAlive(): void {
         if (mainWindow && !mainWindow.isDestroyed()) {
           log.info(`[${sessionId}] Sending fallback idle event due to session timeout`)
           mainWindow.webContents.send('copilot:idle', { sessionId })
+          sessionState.isProcessing = false
         }
       }
     }
@@ -313,6 +318,8 @@ async function resumeDisconnectedSession(sessionId: string, sessionState: Sessio
     } else if (event.type === 'assistant.message') {
       mainWindow.webContents.send('copilot:message', { sessionId, content: event.data.content })
     } else if (event.type === 'session.idle') {
+      const currentSessionState = sessions.get(sessionId)
+      if (currentSessionState) currentSessionState.isProcessing = false
       mainWindow.webContents.send('copilot:idle', { sessionId })
       bounceDock()
     } else if (event.type === 'tool.execution_start') {
@@ -657,6 +664,8 @@ async function createNewSession(model?: string, cwd?: string): Promise<string> {
     } else if (event.type === 'assistant.message') {
       mainWindow.webContents.send('copilot:message', { sessionId, content: event.data.content })
     } else if (event.type === 'session.idle') {
+      const currentSessionState = sessions.get(sessionId)
+      if (currentSessionState) currentSessionState.isProcessing = false
       mainWindow.webContents.send('copilot:idle', { sessionId })
       bounceDock()
     } else if (event.type === 'tool.execution_start') {
@@ -685,7 +694,7 @@ async function createNewSession(model?: string, cwd?: string): Promise<string> {
     }
   })
   
-  sessions.set(sessionId, { session: newSession, client, model: sessionModel, cwd: sessionCwd, alwaysAllowed: new Set(), allowedPaths: new Set() })
+  sessions.set(sessionId, { session: newSession, client, model: sessionModel, cwd: sessionCwd, alwaysAllowed: new Set(), allowedPaths: new Set(), isProcessing: false })
   activeSessionId = sessionId
   
   console.log(`Created session ${sessionId} with model ${sessionModel} in ${sessionCwd}`)
@@ -753,6 +762,8 @@ async function initCopilot(): Promise<void> {
           } else if (event.type === 'assistant.message') {
             mainWindow.webContents.send('copilot:message', { sessionId, content: event.data.content })
           } else if (event.type === 'session.idle') {
+            const currentSessionState = sessions.get(sessionId)
+            if (currentSessionState) currentSessionState.isProcessing = false
             mainWindow.webContents.send('copilot:idle', { sessionId })
             bounceDock()
           } else if (event.type === 'tool.execution_start') {
@@ -777,7 +788,7 @@ async function initCopilot(): Promise<void> {
         
         // Restore alwaysAllowed set from stored data (normalize legacy ids)
         const alwaysAllowedSet = new Set(storedAlwaysAllowed.map(normalizeAlwaysAllowed))
-        sessions.set(sessionId, { session, client, model: sessionModel, cwd: sessionCwd, alwaysAllowed: alwaysAllowedSet, allowedPaths: new Set() })
+        sessions.set(sessionId, { session, client, model: sessionModel, cwd: sessionCwd, alwaysAllowed: alwaysAllowedSet, allowedPaths: new Set(), isProcessing: false })
         resumedSessions.push({ 
           sessionId, 
           model: sessionModel,
@@ -875,6 +886,8 @@ ipcMain.handle('copilot:send', async (_event, data: { sessionId: string, prompt:
     throw new Error(`Session not found: ${data.sessionId}`)
   }
   
+  sessionState.isProcessing = true
+  
   try {
     const messageId = await sessionState.session.send({ prompt: data.prompt })
     return messageId
@@ -895,10 +908,12 @@ ipcMain.handle('copilot:send', async (_event, data: { sessionId: string, prompt:
         return messageId
       } catch (resumeError) {
         log.error(`[${data.sessionId}] Failed to resume session:`, resumeError)
+        sessionState.isProcessing = false
         throw new Error(`Session disconnected and could not be resumed. Please try again.`)
       }
     }
     
+    sessionState.isProcessing = false
     throw error
   }
 })
@@ -909,8 +924,11 @@ ipcMain.handle('copilot:sendAndWait', async (_event, data: { sessionId: string, 
     throw new Error(`Session not found: ${data.sessionId}`)
   }
   
+  sessionState.isProcessing = true
+  
   try {
     const response = await sessionState.session.sendAndWait({ prompt: data.prompt })
+    sessionState.isProcessing = false
     return response?.data?.content || ''
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
@@ -922,13 +940,16 @@ ipcMain.handle('copilot:sendAndWait', async (_event, data: { sessionId: string, 
       try {
         await resumeDisconnectedSession(data.sessionId, sessionState)
         const response = await sessionState.session.sendAndWait({ prompt: data.prompt })
+        sessionState.isProcessing = false
         return response?.data?.content || ''
       } catch (resumeError) {
         log.error(`[${data.sessionId}] Failed to resume session:`, resumeError)
+        sessionState.isProcessing = false
         throw new Error(`Session disconnected and could not be resumed. Please try again.`)
       }
     }
     
+    sessionState.isProcessing = false
     throw error
   }
 })
@@ -1710,6 +1731,8 @@ ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string
     } else if (event.type === 'assistant.message') {
       mainWindow.webContents.send('copilot:message', { sessionId, content: event.data.content })
     } else if (event.type === 'session.idle') {
+      const currentSessionState = sessions.get(sessionId)
+      if (currentSessionState) currentSessionState.isProcessing = false
       mainWindow.webContents.send('copilot:idle', { sessionId })
       bounceDock()
     } else if (event.type === 'tool.execution_start') {
@@ -1732,7 +1755,7 @@ ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string
     }
   })
   
-  sessions.set(sessionId, { session, client, model: sessionModel, cwd: sessionCwd, alwaysAllowed: new Set(), allowedPaths: new Set() })
+  sessions.set(sessionId, { session, client, model: sessionModel, cwd: sessionCwd, alwaysAllowed: new Set(), allowedPaths: new Set(), isProcessing: false })
   activeSessionId = sessionId
   
   console.log(`Resumed previous session ${sessionId} in ${sessionCwd}`)
