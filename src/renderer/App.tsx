@@ -1902,7 +1902,7 @@ Start by exploring the codebase to understand the current implementation, then m
           )}
 
           {/* Messages Area - Conversation Only */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
+          <div className="flex-1 overflow-y-auto p-4 space-y-2 min-h-0">
             {activeTab?.messages.length === 0 && (
               <div className="flex flex-col items-center justify-center min-h-full text-center -m-4 p-4">
                 <img
