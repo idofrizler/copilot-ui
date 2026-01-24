@@ -1,2 +1,2 @@
 export { WorktreeSessionsList } from './WorktreeSessionsList'
-export { CreateWorktreeSession } from './CreateWorktreeSession'
+export { CreateWorktreeSession, type IssueInfo } from './CreateWorktreeSession'

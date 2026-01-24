@@ -1150,7 +1150,11 @@ const App: React.FC = () => {
   };
 
   // Handle when worktree session is created
-  const handleWorktreeSessionCreated = async (worktreePath: string, branch: string) => {
+  const handleWorktreeSessionCreated = async (
+    worktreePath: string,
+    branch: string,
+    autoStart?: { issueInfo: { url: string; title: string; body: string | null } }
+  ) => {
     try {
       // Check trust for the worktree directory
       const trustResult = await window.electronAPI.copilot.checkDirectoryTrust(worktreePath);
@@ -1165,6 +1169,19 @@ const App: React.FC = () => {
       const result = await window.electronAPI.copilot.createSession({
         cwd: worktreePath,
       });
+
+      // If autoStart is enabled, pre-approve GitHub web fetches and file writes
+      const preApprovedCommands = autoStart
+        ? ['write', 'url:github.com']
+        : [];
+      
+      // Add pre-approved commands to the session
+      if (autoStart) {
+        for (const cmd of preApprovedCommands) {
+          await window.electronAPI.copilot.addAlwaysAllowed(result.sessionId, cmd);
+        }
+      }
+
       const newTab: TabState = {
         id: result.sessionId,
         name: `${branch} (worktree)`,
@@ -1176,7 +1193,7 @@ const App: React.FC = () => {
         hasUnreadCompletion: false,
         pendingConfirmations: [],
         needsTitle: false, // Already has a good name
-        alwaysAllowed: [],
+        alwaysAllowed: preApprovedCommands,
         editedFiles: [],
         currentIntent: null,
         autoBranchingEnabled: false, // Already on the right branch
@@ -1186,6 +1203,63 @@ const App: React.FC = () => {
       setTabs((prev) => [...prev, newTab]);
       setActiveTabId(result.sessionId);
       setStatus("connected");
+
+      // If autoStart is enabled, send the initial prompt with issue context
+      if (autoStart) {
+        const issueContext = autoStart.issueInfo.body
+          ? `## Issue Description\n\n${autoStart.issueInfo.body}`
+          : '';
+        
+        const initialPrompt = `Please implement the following GitHub issue:
+
+**Issue URL:** ${autoStart.issueInfo.url}
+**Title:** ${autoStart.issueInfo.title}
+
+${issueContext}
+
+Start by exploring the codebase to understand the current implementation, then make the necessary changes to address this issue.`;
+
+        const userMessage: Message = {
+          id: generateId(),
+          role: "user",
+          content: initialPrompt,
+        };
+
+        // Update tab with the initial message and start processing
+        setTabs((prev) =>
+          prev.map((tab) =>
+            tab.id === result.sessionId
+              ? {
+                  ...tab,
+                  messages: [
+                    userMessage,
+                    {
+                      id: generateId(),
+                      role: "assistant",
+                      content: "",
+                      isStreaming: true,
+                    },
+                  ],
+                  isProcessing: true,
+                }
+              : tab
+          )
+        );
+
+        // Send the prompt
+        try {
+          await window.electronAPI.copilot.send(result.sessionId, initialPrompt);
+        } catch (error) {
+          console.error("Failed to send initial prompt:", error);
+          setTabs((prev) =>
+            prev.map((tab) =>
+              tab.id === result.sessionId
+                ? { ...tab, isProcessing: false }
+                : tab
+            )
+          );
+        }
+      }
     } catch (error) {
       console.error("Failed to create worktree session tab:", error);
       setStatus("connected");

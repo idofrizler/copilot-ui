@@ -3,11 +3,17 @@ import { Modal } from '../Modal'
 import { Button } from '../Button'
 import { Spinner } from '../Spinner'
 
+export interface IssueInfo {
+  url: string
+  title: string
+  body: string | null
+}
+
 interface CreateWorktreeSessionProps {
   isOpen: boolean
   onClose: () => void
   repoPath: string
-  onSessionCreated: (worktreePath: string, branch: string) => void
+  onSessionCreated: (worktreePath: string, branch: string, autoStart?: { issueInfo: IssueInfo }) => void
 }
 
 export const CreateWorktreeSession: React.FC<CreateWorktreeSessionProps> = ({
@@ -24,6 +30,8 @@ export const CreateWorktreeSession: React.FC<CreateWorktreeSessionProps> = ({
   const [gitSupported, setGitSupported] = useState<boolean | null>(null)
   const [gitVersion, setGitVersion] = useState<string>('')
   const [issueTitle, setIssueTitle] = useState<string | null>(null)
+  const [issueBody, setIssueBody] = useState<string | null>(null)
+  const [autoStart, setAutoStart] = useState(false)
 
   useEffect(() => {
     if (isOpen) {
@@ -31,6 +39,8 @@ export const CreateWorktreeSession: React.FC<CreateWorktreeSessionProps> = ({
       setIssueUrl('')
       setError(null)
       setIssueTitle(null)
+      setIssueBody(null)
+      setAutoStart(false)
       checkGitVersion()
     }
   }, [isOpen])
@@ -58,6 +68,7 @@ export const CreateWorktreeSession: React.FC<CreateWorktreeSessionProps> = ({
       if (result.success && result.issue && result.suggestedBranch) {
         setBranch(result.suggestedBranch)
         setIssueTitle(result.issue.title)
+        setIssueBody(result.issue.body)
       } else {
         setError(result.error || 'Failed to fetch issue')
       }
@@ -84,7 +95,14 @@ export const CreateWorktreeSession: React.FC<CreateWorktreeSessionProps> = ({
       })
 
       if (result.success && result.session) {
-        onSessionCreated(result.session.worktreePath, result.session.branch)
+        const autoStartInfo = autoStart && issueTitle ? {
+          issueInfo: {
+            url: issueUrl.trim(),
+            title: issueTitle,
+            body: issueBody
+          }
+        } : undefined
+        onSessionCreated(result.session.worktreePath, result.session.branch, autoStartInfo)
         onClose()
       } else {
         setError(result.error || 'Failed to create worktree session')
@@ -157,6 +175,26 @@ export const CreateWorktreeSession: React.FC<CreateWorktreeSessionProps> = ({
                 </p>
               )}
             </div>
+
+            {issueTitle && (
+              <div className="mb-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={autoStart}
+                    onChange={(e) => setAutoStart(e.target.checked)}
+                    className="w-4 h-4 accent-copilot-accent"
+                    disabled={isCreating}
+                  />
+                  <span className="text-sm text-copilot-text">
+                    Start working immediately
+                  </span>
+                </label>
+                <p className="text-xs text-copilot-text-muted mt-1 ml-6">
+                  Automatically starts with the issue context. Pre-approves GitHub web fetches and file edits.
+                </p>
+              </div>
+            )}
 
             <div className="mb-4">
               <label className="block text-xs text-copilot-text-muted mb-1">
