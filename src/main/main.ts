@@ -110,7 +110,8 @@ const store = new Store({
     model: 'gpt-5.2',
     openSessions: [] as StoredSession[],  // Sessions that were open in our app with their models and cwd
     trustedDirectories: [] as string[],  // Directories that are always trusted
-    theme: 'system' as string  // Theme preference: 'system', 'light', 'dark', or custom theme id
+    theme: 'system' as string,  // Theme preference: 'system', 'light', 'dark', or custom theme id
+    sessionCwds: {} as Record<string, string>  // Persistent map of sessionId -> cwd (survives session close)
   }
 })
 
@@ -698,6 +699,11 @@ async function createNewSession(model?: string, cwd?: string): Promise<string> {
   sessions.set(sessionId, { session: newSession, client, model: sessionModel, cwd: sessionCwd, alwaysAllowed: new Set(), allowedPaths: new Set(), isProcessing: false })
   activeSessionId = sessionId
   
+  // Persist session cwd so it can be restored when resuming from history
+  const sessionCwds = store.get('sessionCwds') as Record<string, string> || {}
+  sessionCwds[sessionId] = sessionCwd
+  store.set('sessionCwds', sessionCwds)
+  
   console.log(`Created session ${sessionId} with model ${sessionModel} in ${sessionCwd}`)
   return sessionId
 }
@@ -725,10 +731,13 @@ async function initCopilot(): Promise<void> {
     const sessionsToResume = openSessionIds.filter(id => sessionMetaMap.has(id))
     console.log('Sessions to resume:', sessionsToResume)
     
+    // Get stored session cwds for previous sessions
+    const sessionCwds = store.get('sessionCwds') as Record<string, string> || {}
+    
     // Build list of previous sessions (all sessions not in our open list)
     const previousSessions = allSessions
       .filter(s => !openSessionIds.includes(s.sessionId))
-      .map(s => ({ sessionId: s.sessionId, name: s.summary || undefined, modifiedTime: s.modifiedTime.toISOString() }))
+      .map(s => ({ sessionId: s.sessionId, name: s.summary || undefined, modifiedTime: s.modifiedTime.toISOString(), cwd: sessionCwds[s.sessionId] }))
     
     let resumedSessions: { sessionId: string; model: string; cwd: string; name?: string; editedFiles?: string[]; alwaysAllowed?: string[] }[] = []
     
@@ -1833,7 +1842,7 @@ ipcMain.handle('git:createPullRequest', async (_event, data: { cwd: string; titl
 })
 
 // Resume a previous session (from the history list)
-ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string) => {
+ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string, cwd?: string) => {
   // Check if already resumed
   if (sessions.has(sessionId)) {
     const sessionState = sessions.get(sessionId)!
@@ -1841,8 +1850,10 @@ ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string
   }
   
   const sessionModel = store.get('model') as string || 'gpt-5.2'
-  // Use home dir for packaged app since process.cwd() can be '/'
-  const sessionCwd = app.isPackaged ? app.getPath('home') : process.cwd()
+  // Use provided cwd, or look up stored cwd, or fall back to default
+  const sessionCwds = store.get('sessionCwds') as Record<string, string> || {}
+  const defaultCwd = app.isPackaged ? app.getPath('home') : process.cwd()
+  const sessionCwd = cwd || sessionCwds[sessionId] || defaultCwd
   
   // Get or create client for this cwd
   const client = await getClientForCwd(sessionCwd)
