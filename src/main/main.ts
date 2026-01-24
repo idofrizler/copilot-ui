@@ -110,7 +110,8 @@ const store = new Store({
     model: 'gpt-5.2',
     openSessions: [] as StoredSession[],  // Sessions that were open in our app with their models and cwd
     trustedDirectories: [] as string[],  // Directories that are always trusted
-    theme: 'system' as string  // Theme preference: 'system', 'light', 'dark', or custom theme id
+    theme: 'system' as string,  // Theme preference: 'system', 'light', 'dark', or custom theme id
+    sessionCwds: {} as Record<string, string>  // Persistent map of sessionId -> cwd (survives session close)
   }
 })
 
@@ -698,6 +699,11 @@ async function createNewSession(model?: string, cwd?: string): Promise<string> {
   sessions.set(sessionId, { session: newSession, client, model: sessionModel, cwd: sessionCwd, alwaysAllowed: new Set(), allowedPaths: new Set(), isProcessing: false })
   activeSessionId = sessionId
   
+  // Persist session cwd so it can be restored when resuming from history
+  const sessionCwds = store.get('sessionCwds') as Record<string, string> || {}
+  sessionCwds[sessionId] = sessionCwd
+  store.set('sessionCwds', sessionCwds)
+  
   console.log(`Created session ${sessionId} with model ${sessionModel} in ${sessionCwd}`)
   return sessionId
 }
@@ -725,10 +731,13 @@ async function initCopilot(): Promise<void> {
     const sessionsToResume = openSessionIds.filter(id => sessionMetaMap.has(id))
     console.log('Sessions to resume:', sessionsToResume)
     
+    // Get stored session cwds for previous sessions
+    const sessionCwds = store.get('sessionCwds') as Record<string, string> || {}
+    
     // Build list of previous sessions (all sessions not in our open list)
     const previousSessions = allSessions
       .filter(s => !openSessionIds.includes(s.sessionId))
-      .map(s => ({ sessionId: s.sessionId, name: s.summary || undefined, modifiedTime: s.modifiedTime.toISOString() }))
+      .map(s => ({ sessionId: s.sessionId, name: s.summary || undefined, modifiedTime: s.modifiedTime.toISOString(), cwd: sessionCwds[s.sessionId] }))
     
     let resumedSessions: { sessionId: string; model: string; cwd: string; name?: string; editedFiles?: string[]; alwaysAllowed?: string[] }[] = []
     
@@ -1420,6 +1429,60 @@ ipcMain.handle('git:commitAndPush', async (_event, data: { cwd: string; files: s
           // Ignore pull errors
         }
         
+        // Fetch latest to ensure we have origin's main
+        try {
+          await execAsync('git fetch origin', { cwd: data.cwd })
+        } catch {
+          // Ignore fetch errors
+        }
+        
+        // Get HEAD before merge to detect if sync brought in changes
+        const { stdout: headBefore } = await execAsync('git rev-parse HEAD', { cwd: data.cwd })
+        
+        // Merge main into the feature branch first (in the worktree) to ensure it's up-to-date
+        // This prevents losing changes when the feature branch was based on an older main
+        try {
+          await execAsync(`git merge origin/${targetBranch}`, { cwd: data.cwd })
+          console.log(`Merged ${targetBranch} into ${currentBranch} to sync`)
+        } catch (mergeError) {
+          const errorMsg = String(mergeError)
+          if (errorMsg.includes('CONFLICT')) {
+            throw new Error(`Merge conflicts detected when syncing '${targetBranch}' into '${currentBranch}'. Please resolve conflicts first.`)
+          }
+          // Continue if no conflicts - branch might already be up to date
+        }
+        
+        // Get HEAD after merge to check if changes were brought in
+        const { stdout: headAfter } = await execAsync('git rev-parse HEAD', { cwd: data.cwd })
+        const syncBroughtChanges = headBefore.trim() !== headAfter.trim()
+        
+        // Push the updated feature branch
+        try {
+          await execAsync('git push', { cwd: data.cwd })
+        } catch {
+          // Ignore - might already be up to date
+        }
+        
+        // If sync brought in changes, return early so user can test before merging
+        if (syncBroughtChanges) {
+          // Get list of files that were changed by the merge
+          let incomingFiles: string[] = []
+          try {
+            const { stdout: diffFiles } = await execAsync(`git diff --name-only ${headBefore.trim()} ${headAfter.trim()}`, { cwd: data.cwd })
+            incomingFiles = diffFiles.trim().split('\n').filter(f => f)
+          } catch {
+            // Ignore errors
+          }
+          
+          return { 
+            success: true, 
+            mergedToMain: false, 
+            finalBranch: currentBranch,
+            mainSyncedWithChanges: true,
+            incomingFiles
+          }
+        }
+        
         // Merge the feature branch into main (from the main repo)
         await execAsync(`git merge ${currentBranch}`, { cwd: mainRepoPath })
         console.log(`Merged ${currentBranch} into ${targetBranch}`)
@@ -1801,7 +1864,7 @@ ipcMain.handle('git:createPullRequest', async (_event, data: { cwd: string; titl
 })
 
 // Resume a previous session (from the history list)
-ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string) => {
+ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string, cwd?: string) => {
   // Check if already resumed
   if (sessions.has(sessionId)) {
     const sessionState = sessions.get(sessionId)!
@@ -1809,8 +1872,10 @@ ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string
   }
   
   const sessionModel = store.get('model') as string || 'gpt-5.2'
-  // Use home dir for packaged app since process.cwd() can be '/'
-  const sessionCwd = app.isPackaged ? app.getPath('home') : process.cwd()
+  // Use provided cwd, or look up stored cwd, or fall back to default
+  const sessionCwds = store.get('sessionCwds') as Record<string, string> || {}
+  const defaultCwd = app.isPackaged ? app.getPath('home') : process.cwd()
+  const sessionCwd = cwd || sessionCwds[sessionId] || defaultCwd
   
   // Get or create client for this cwd
   const client = await getClientForCwd(sessionCwd)

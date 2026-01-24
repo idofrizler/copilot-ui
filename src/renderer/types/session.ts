@@ -7,6 +7,7 @@ export interface Message {
   isStreaming?: boolean;
   toolName?: string;
   toolCallId?: string;
+  timestamp?: number; // Unix timestamp in milliseconds for when the message was finalized
 }
 
 export interface ActiveTool {
@@ -46,6 +47,7 @@ export interface PreviousSession {
   sessionId: string;
   name?: string;
   modifiedTime: string;
+  cwd?: string; // Original working directory for this session
 }
 
 // Ralph Wiggum loop configuration
@@ -73,6 +75,7 @@ export interface TabState {
   alwaysAllowed: string[]; // Executables that are always allowed for this session
   editedFiles: string[]; // Files edited/created in this session
   currentIntent: string | null; // Current agent intent from report_intent tool
+  currentIntentTimestamp: number | null; // When the current intent was set
   gitBranchRefresh: number; // Bumps to refresh GitBranchWidget
   isRenaming?: boolean;
   renameDraft?: string;

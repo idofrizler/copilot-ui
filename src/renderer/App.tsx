@@ -27,6 +27,8 @@ import {
   TrashIcon,
   GlobeIcon,
   RalphIcon,
+  TerminalIcon,
+  TerminalPanel,
   WorktreeSessionsList,
   CreateWorktreeSession,
 } from "./components";
@@ -51,6 +53,7 @@ import {
   setTabCounter,
 } from "./utils/session";
 import { playNotificationSound } from "./utils/sound";
+import buildInfo from "./build-info.json";
 
 const App: React.FC = () => {
   const [status, setStatus] = useState<Status>("connecting");
@@ -72,6 +75,7 @@ const App: React.FC = () => {
   const [commitError, setCommitError] = useState<string | null>(null);
   const [commitAction, setCommitAction] = useState<'push' | 'merge' | 'pr'>('push');
   const [removeWorktreeAfterMerge, setRemoveWorktreeAfterMerge] = useState(false);
+  const [pendingMergeInfo, setPendingMergeInfo] = useState<{ incomingFiles: string[] } | null>(null);
 
   // Theme context
   const {
@@ -109,6 +113,11 @@ const App: React.FC = () => {
   const [showWorktreeList, setShowWorktreeList] = useState(false);
   const [showCreateWorktree, setShowCreateWorktree] = useState(false);
   const [worktreeRepoPath, setWorktreeRepoPath] = useState("");
+
+  // Terminal panel state - track which session has terminal open
+  const [terminalOpenForSession, setTerminalOpenForSession] = useState<string | null>(null);
+  // Terminal output attachment state
+  const [terminalAttachment, setTerminalAttachment] = useState<{output: string; lineCount: number} | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -226,8 +235,7 @@ const App: React.FC = () => {
               alwaysAllowed: [],
               editedFiles: [],
               currentIntent: null,
-              autoBranchingEnabled: true,
-              autoBranchingDone: false,
+              currentIntentTimestamp: null,
               gitBranchRefresh: 0,
             };
             setTabs([newTab]);
@@ -254,8 +262,7 @@ const App: React.FC = () => {
           alwaysAllowed: s.alwaysAllowed || [],
           editedFiles: s.editedFiles || [],
           currentIntent: null,
-          autoBranchingEnabled: true,
-          autoBranchingDone: false,
+          currentIntentTimestamp: null,
           gitBranchRefresh: 0,
         }));
 
@@ -340,7 +347,7 @@ const App: React.FC = () => {
               ...tab,
               messages: [
                 ...tab.messages.slice(0, -1),
-                { ...last, content, isStreaming: false },
+                { ...last, content, isStreaming: false, timestamp: Date.now() },
               ],
             };
           }
@@ -353,6 +360,7 @@ const App: React.FC = () => {
                 role: "assistant",
                 content,
                 isStreaming: false,
+                timestamp: Date.now(),
               },
             ],
           };
@@ -458,6 +466,7 @@ const App: React.FC = () => {
             isProcessing: false,
             activeTools: [],
             currentIntent: null,
+            currentIntentTimestamp: null,
             // Deactivate Ralph if it was active
             ralphConfig: tab.ralphConfig?.active 
               ? { ...tab.ralphConfig, active: false }
@@ -491,7 +500,7 @@ const App: React.FC = () => {
           if (intent) {
             setTabs((prev) =>
               prev.map((tab) =>
-                tab.id === sessionId ? { ...tab, currentIntent: intent } : tab,
+                tab.id === sessionId ? { ...tab, currentIntent: intent, currentIntentTimestamp: Date.now() } : tab,
               ),
             );
           }
@@ -501,66 +510,8 @@ const App: React.FC = () => {
         // Skip other internal tools
         if (name === "update_todo") return;
 
-        // Auto-checkout branch on first file write (per session)
+        // Track edited/created files at start time (we have reliable input here)
         const isFileOperation = name === "edit" || name === "create";
-        if (isFileOperation) {
-          setTabs((prev) =>
-            prev.map((tab) => {
-              if (tab.id !== sessionId) return tab;
-              if (!tab.autoBranchingEnabled || tab.autoBranchingDone)
-                return tab;
-
-              // Mark as done immediately to prevent repeated attempts
-              const next = { ...tab, autoBranchingDone: true };
-
-              (async () => {
-                try {
-                  const branchRes = await window.electronAPI.git.getBranch(
-                    tab.cwd,
-                  );
-                  const current = branchRes.success
-                    ? branchRes.branch || ""
-                    : "";
-                  if (current && current !== "main" && current !== "master") {
-                    return;
-                  }
-
-                  const base =
-                    (tab.currentIntent || "changes")
-                      .toLowerCase()
-                      .replace(/[^a-z0-9]+/g, "-")
-                      .replace(/^-+|-+$/g, "")
-                      .slice(0, 40) || "changes";
-                  const stamp = new Date()
-                    .toISOString()
-                    .slice(0, 10)
-                    .replace(/-/g, "");
-                  const branchName = `auto/${base}-${stamp}`;
-
-                  const checkoutRes =
-                    await window.electronAPI.git.checkoutBranch(
-                      tab.cwd,
-                      branchName,
-                    );
-                  if (checkoutRes.success) {
-                    updateTab(sessionId, {
-                      gitBranchRefresh: (tab.gitBranchRefresh || 0) + 1,
-                    });
-                  } else {
-                    console.warn(
-                      "Auto-branch checkout failed:",
-                      checkoutRes.error,
-                    );
-                  }
-                } catch (err) {
-                  console.warn("Auto-branch checkout errored:", err);
-                }
-              })();
-
-              return next;
-            }),
-          );
-        }
 
         setTabs((prev) =>
           prev.map((tab) => {
@@ -692,6 +643,7 @@ const App: React.FC = () => {
                   id: generateId(),
                   role: "assistant" as const,
                   content: `⚠️ ${message}`,
+                  timestamp: Date.now(),
                 },
               ]
             : tab.messages;
@@ -713,12 +665,22 @@ const App: React.FC = () => {
   }, []);
 
   const handleSendMessage = useCallback(async () => {
-    if (!inputValue.trim() || !activeTab || activeTab.isProcessing) return;
+    if (!inputValue.trim() && !terminalAttachment) return;
+    if (!activeTab || activeTab.isProcessing) return;
+
+    // Build message content with terminal attachment if present
+    let messageContent = inputValue.trim();
+    if (terminalAttachment) {
+      const terminalBlock = `\`\`\`\n${terminalAttachment.output}\n\`\`\``;
+      messageContent = messageContent 
+        ? `${messageContent}\n\nTerminal output:\n${terminalBlock}`
+        : `Terminal output:\n${terminalBlock}`;
+    }
 
     const userMessage: Message = {
       id: generateId(),
       role: "user",
-      content: inputValue.trim(),
+      content: messageContent,
     };
 
     const tabId = activeTab.id;
@@ -747,6 +709,7 @@ const App: React.FC = () => {
           role: "assistant",
           content: "",
           isStreaming: true,
+          timestamp: Date.now(),
         },
       ],
       isProcessing: true,
@@ -754,6 +717,7 @@ const App: React.FC = () => {
       ralphConfig,
     });
     setInputValue("");
+    setTerminalAttachment(null);
     
     // Reset Ralph UI state after sending
     if (ralphEnabled) {
@@ -767,7 +731,16 @@ const App: React.FC = () => {
       console.error("Send error:", error);
       updateTab(tabId, { isProcessing: false, ralphConfig: undefined });
     }
-  }, [inputValue, activeTab, updateTab, ralphEnabled, ralphMaxIterations]);
+  }, [inputValue, activeTab, updateTab, ralphEnabled, ralphMaxIterations, terminalAttachment]);
+
+  // Handle sending terminal output to the agent
+  const handleSendTerminalOutput = useCallback((output: string, lineCount: number) => {
+    if (!output.trim()) return;
+    // Store the terminal output as an attachment to be included in next message
+    setTerminalAttachment({ output: output.trim(), lineCount });
+    // Focus the input field
+    inputRef.current?.focus();
+  }, []);
 
   const handleStop = useCallback(() => {
     if (!activeTab) return;
@@ -1040,6 +1013,20 @@ const App: React.FC = () => {
       );
 
       if (result.success) {
+        // If merge synced with main and brought in changes, notify user to test first
+        if (result.mainSyncedWithChanges && commitAction === 'merge') {
+          setPendingMergeInfo({ incomingFiles: result.incomingFiles || [] });
+          // Clear the edited files list and refresh git branch widget (commit was successful)
+          updateTab(activeTab.id, { 
+            editedFiles: [],
+            gitBranchRefresh: (activeTab.gitBranchRefresh || 0) + 1
+          });
+          setShowCommitModal(false);
+          setCommitMessage('');
+          setIsCommitting(false);
+          return;
+        }
+        
         // If creating PR, do that after commit
         if (commitAction === 'pr') {
           const prResult = await window.electronAPI.git.createPullRequest(activeTab.cwd, commitMessage.split('\n')[0]);
@@ -1123,8 +1110,7 @@ const App: React.FC = () => {
         alwaysAllowed: [],
         editedFiles: [],
         currentIntent: null,
-        autoBranchingEnabled: true,
-        autoBranchingDone: false,
+        currentIntentTimestamp: null,
         gitBranchRefresh: 0,
       };
       setTabs((prev) => [...prev, newTab]);
@@ -1197,8 +1183,7 @@ const App: React.FC = () => {
         alwaysAllowed: preApprovedCommands,
         editedFiles: [],
         currentIntent: null,
-        autoBranchingEnabled: false, // Already on the right branch
-        autoBranchingDone: true,
+        currentIntentTimestamp: null,
         gitBranchRefresh: 0,
       };
       setTabs((prev) => [...prev, newTab]);
@@ -1305,8 +1290,7 @@ Start by exploring the codebase to understand the current implementation, then m
           alwaysAllowed: [],
           editedFiles: [],
           currentIntent: null,
-          autoBranchingEnabled: true,
-          autoBranchingDone: false,
+          currentIntentTimestamp: null,
           gitBranchRefresh: 0,
         };
         setTabs([newTab]);
@@ -1352,6 +1336,7 @@ Start by exploring the codebase to understand the current implementation, then m
       setStatus("connecting");
       const result = await window.electronAPI.copilot.resumePreviousSession(
         prevSession.sessionId,
+        prevSession.cwd,
       );
 
       // Create new tab for this session
@@ -1369,8 +1354,7 @@ Start by exploring the codebase to understand the current implementation, then m
         alwaysAllowed: result.alwaysAllowed || [],
         editedFiles: result.editedFiles || [],
         currentIntent: null,
-        autoBranchingEnabled: true,
-        autoBranchingDone: false,
+        currentIntentTimestamp: null,
         gitBranchRefresh: 0,
       };
 
@@ -1446,8 +1430,7 @@ Start by exploring the codebase to understand the current implementation, then m
           alwaysAllowed: [],
           editedFiles: [],
           currentIntent: null,
-          autoBranchingEnabled: true,
-          autoBranchingDone: false,
+          currentIntentTimestamp: null,
           gitBranchRefresh: 0,
         };
         setTabs((prev) => [...prev, newTab]);
@@ -1480,6 +1463,8 @@ Start by exploring the codebase to understand the current implementation, then m
             alwaysAllowed: [],
             editedFiles: [],
             currentIntent: null,
+            currentIntentTimestamp: null,
+            gitBranchRefresh: 0,
           },
         ];
       });
@@ -1810,10 +1795,51 @@ Start by exploring the codebase to understand the current implementation, then m
               )}
             </div>
           )}
+
+          {/* Build Info */}
+          <div className="border-t border-copilot-border px-3 py-2 text-[10px] text-copilot-text-muted">
+            <div className="flex items-center gap-1" title={`Build: ${buildInfo.version}\nBranch: ${buildInfo.gitBranch}\nCommit: ${buildInfo.gitSha}\nBuilt: ${buildInfo.buildDate} ${buildInfo.buildTime}`}>
+              <span className="opacity-60">v{buildInfo.baseVersion}</span>
+              <span className="opacity-40">•</span>
+              <span className="opacity-60 truncate">{buildInfo.gitBranch === 'main' ? buildInfo.gitSha : buildInfo.gitBranch}</span>
+            </div>
+          </div>
         </div>
 
         {/* Main Content Area */}
         <div className="flex-1 flex flex-col min-h-0 min-w-0">
+          {/* Terminal Toggle Button */}
+          {activeTab && (
+            <button
+              onClick={() => setTerminalOpenForSession(
+                terminalOpenForSession === activeTab.id ? null : activeTab.id
+              )}
+              className={`shrink-0 flex items-center gap-2 px-4 py-2 text-xs border-b border-copilot-border transition-colors ${
+                terminalOpenForSession === activeTab.id
+                  ? "text-copilot-accent bg-copilot-surface" 
+                  : "text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface"
+              }`}
+            >
+              <TerminalIcon size={14} />
+              <span className="font-medium">Terminal</span>
+              <ChevronDownIcon
+                size={12}
+                className={`transition-transform ${terminalOpenForSession === activeTab.id ? "rotate-180" : ""}`}
+              />
+            </button>
+          )}
+
+          {/* Embedded Terminal Panel */}
+          {activeTab && (
+            <TerminalPanel
+              sessionId={activeTab.id}
+              cwd={activeTab.cwd}
+              isOpen={terminalOpenForSession === activeTab.id}
+              onClose={() => setTerminalOpenForSession(null)}
+              onSendToAgent={handleSendTerminalOutput}
+            />
+          )}
+
           {/* Messages Area - Conversation Only */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
             {activeTab?.messages.length === 0 && (
@@ -1832,13 +1858,24 @@ Start by exploring the codebase to understand the current implementation, then m
               </div>
             )}
 
-            {(activeTab?.messages || [])
-              .filter((m) => m.role !== "system")
-              .filter((m) => m.role === "user" || m.content.trim())
-              .map((message) => (
+            {(() => {
+              const filteredMessages = (activeTab?.messages || [])
+                .filter((m) => m.role !== "system")
+                .filter((m) => m.role === "user" || m.content.trim());
+              
+              // Find the last assistant message index
+              let lastAssistantIndex = -1;
+              for (let i = filteredMessages.length - 1; i >= 0; i--) {
+                if (filteredMessages[i].role === "assistant") {
+                  lastAssistantIndex = i;
+                  break;
+                }
+              }
+              
+              return filteredMessages.map((message, index) => (
                 <div
                   key={message.id}
-                  className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
+                  className={`flex flex-col ${message.role === "user" ? "items-end" : "items-start"}`}
                 >
                   <div
                     className={`max-w-[85%] rounded-lg px-4 py-2.5 overflow-hidden ${
@@ -1938,13 +1975,20 @@ Start by exploring the codebase to understand the current implementation, then m
                       )}
                     </div>
                   </div>
+                  {/* Show timestamp for the last assistant message */}
+                  {index === lastAssistantIndex && message.timestamp && (
+                    <span className="text-[10px] text-copilot-text-muted mt-1 ml-1">
+                      {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  )}
                 </div>
-              ))}
+              ));
+            })()}
 
             {/* Thinking indicator when processing but no streaming content yet */}
             {activeTab?.isProcessing &&
               !activeTab?.messages.some((m) => m.isStreaming && m.content) && (
-                <div className="flex justify-start">
+                <div className="flex flex-col items-start">
                   <div className="bg-copilot-surface text-copilot-text rounded-lg px-4 py-2.5">
                     <div className="flex items-center gap-2 text-sm">
                       <Spinner size="sm" />
@@ -1953,6 +1997,15 @@ Start by exploring the codebase to understand the current implementation, then m
                       </span>
                     </div>
                   </div>
+                  {(() => {
+                    // Show intent timestamp if available, otherwise fall back to streaming message timestamp
+                    const timestamp = activeTab?.currentIntentTimestamp || activeTab?.messages.find((m) => m.isStreaming)?.timestamp;
+                    return timestamp ? (
+                      <span className="text-[10px] text-copilot-text-muted mt-1 ml-1">
+                        {new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    ) : null;
+                  })()}
                 </div>
               )}
 
@@ -2135,8 +2188,25 @@ Start by exploring the codebase to understand the current implementation, then m
                 )}
               </div>
             )}
+
+            {/* Terminal Attachment Indicator */}
+            {terminalAttachment && (
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-copilot-surface rounded-t-lg border border-b-0 border-copilot-border">
+                <TerminalIcon size={12} className="text-copilot-accent shrink-0" />
+                <span className="text-xs text-copilot-text">
+                  Terminal output: {terminalAttachment.lineCount} lines
+                </span>
+                <button
+                  onClick={() => setTerminalAttachment(null)}
+                  className="ml-auto text-copilot-text-muted hover:text-copilot-text text-xs"
+                  title="Remove terminal output"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
             
-            <div className="flex items-center bg-copilot-bg rounded-lg border border-copilot-border focus-within:border-copilot-accent transition-colors">
+            <div className={`flex items-center bg-copilot-bg border border-copilot-border focus-within:border-copilot-accent transition-colors ${terminalAttachment ? 'rounded-b-lg' : 'rounded-lg'}`}>
               {/* Ralph Toggle Button */}
               {!activeTab?.isProcessing && (
                 <button
@@ -2184,7 +2254,7 @@ Start by exploring the codebase to understand the current implementation, then m
                 <button
                   onClick={handleSendMessage}
                   disabled={
-                    !inputValue.trim() ||
+                    (!inputValue.trim() && !terminalAttachment) ||
                     status !== "connected" ||
                     activeTab?.isProcessing
                   }
@@ -2454,29 +2524,6 @@ Start by exploring the codebase to understand the current implementation, then m
                   <div className="text-[10px] text-copilot-text-muted uppercase tracking-wide">
                     Git Branch
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!activeTab) return;
-                      updateTab(activeTab.id, {
-                        autoBranchingEnabled: !activeTab.autoBranchingEnabled,
-                      });
-                    }}
-                    className="text-[10px] uppercase tracking-wide shrink-0 text-copilot-text-muted hover:text-copilot-text transition-colors"
-                    aria-pressed={!!activeTab?.autoBranchingEnabled}
-                    title="Automatically checks out a new branch for the coding task"
-                  >
-                    Auto-checkout:{" "}
-                    <span
-                      className={
-                        activeTab?.autoBranchingEnabled
-                          ? "text-copilot-success"
-                          : "text-copilot-text-muted"
-                      }
-                    >
-                      {activeTab?.autoBranchingEnabled ? "ON" : "OFF"}
-                    </span>
-                  </button>
                 </div>
                 <GitBranchWidget
                   cwd={activeTab?.cwd}
@@ -2931,6 +2978,84 @@ Start by exploring the codebase to understand the current implementation, then m
               </Modal.Footer>
             </>
           )}
+        </Modal.Body>
+      </Modal>
+
+      {/* Incoming Changes Modal - shown when merge from main brought changes */}
+      <Modal
+        isOpen={!!pendingMergeInfo && !!activeTab}
+        onClose={() => setPendingMergeInfo(null)}
+        title="Main Branch Had Changes"
+        width="500px"
+      >
+        <Modal.Body>
+          <div className="mb-4">
+            <div className="text-sm text-copilot-text mb-2">
+              Your branch has been synced with the latest changes from main. The following files were updated:
+            </div>
+            {pendingMergeInfo && pendingMergeInfo.incomingFiles.length > 0 ? (
+              <div className="bg-copilot-bg rounded border border-copilot-surface max-h-40 overflow-y-auto">
+                {pendingMergeInfo.incomingFiles.map((filePath) => (
+                  <div
+                    key={filePath}
+                    className="px-3 py-1.5 text-xs text-copilot-warning font-mono truncate"
+                    title={filePath}
+                  >
+                    {filePath}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-xs text-copilot-text-muted italic">
+                (Unable to determine changed files)
+              </div>
+            )}
+          </div>
+          <div className="text-sm text-copilot-text-muted mb-4">
+            We recommend testing your changes before completing the merge to main.
+          </div>
+          <Modal.Footer>
+            <Button
+              variant="ghost"
+              onClick={() => setPendingMergeInfo(null)}
+            >
+              Test First
+            </Button>
+            <Button
+              variant="primary"
+              onClick={async () => {
+                if (!activeTab) return;
+                setIsCommitting(true);
+                try {
+                  const result = await window.electronAPI.git.mergeToMain(activeTab.cwd, removeWorktreeAfterMerge);
+                  if (result.success) {
+                    if (removeWorktreeAfterMerge && activeTab.cwd.includes('.copilot-sessions')) {
+                      const sessionId = activeTab.cwd.split('/').pop() || '';
+                      if (sessionId) {
+                        await window.electronAPI.worktree.removeSession({ sessionId, force: true });
+                        handleCloseTab(activeTab.id);
+                      }
+                    }
+                    updateTab(activeTab.id, { 
+                      gitBranchRefresh: (activeTab.gitBranchRefresh || 0) + 1
+                    });
+                  } else {
+                    setCommitError(result.error || 'Merge failed');
+                  }
+                } catch (error) {
+                  setCommitError(String(error));
+                } finally {
+                  setIsCommitting(false);
+                  setPendingMergeInfo(null);
+                  setCommitAction('push');
+                  setRemoveWorktreeAfterMerge(false);
+                }
+              }}
+              isLoading={isCommitting}
+            >
+              Merge to Main Now
+            </Button>
+          </Modal.Footer>
         </Modal.Body>
       </Modal>
 

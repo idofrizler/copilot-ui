@@ -29,3 +29,4 @@ npm-debug.log*
 # Release builds
 release/
 test-results/
+src/renderer/build-info.json
