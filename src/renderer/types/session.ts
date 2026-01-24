@@ -47,6 +47,7 @@ export interface PreviousSession {
   sessionId: string;
   name?: string;
   modifiedTime: string;
+  cwd?: string; // Original working directory for this session
 }
 
 // Ralph Wiggum loop configuration

@@ -44,12 +44,12 @@ const electronAPI = {
     renameSession: (sessionId: string, name: string): Promise<{ success: boolean }> => {
       return ipcRenderer.invoke('copilot:renameSession', { sessionId, name })
     },
-    resumePreviousSession: (sessionId: string): Promise<{ sessionId: string; model: string; cwd: string; alreadyOpen: boolean; editedFiles?: string[]; alwaysAllowed?: string[] }> => {
-      return ipcRenderer.invoke('copilot:resumePreviousSession', sessionId)
+    resumePreviousSession: (sessionId: string, cwd?: string): Promise<{ sessionId: string; model: string; cwd: string; alreadyOpen: boolean; editedFiles?: string[]; alwaysAllowed?: string[] }> => {
+      return ipcRenderer.invoke('copilot:resumePreviousSession', sessionId, cwd)
     },
     
-    onReady: (callback: (data: { sessions: { sessionId: string; model: string; cwd: string; name?: string; editedFiles?: string[]; alwaysAllowed?: string[] }[]; previousSessions: { sessionId: string; name?: string; modifiedTime: string }[]; models: { id: string; name: string; multiplier: number }[] }) => void): (() => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: { sessions: { sessionId: string; model: string; cwd: string; name?: string; editedFiles?: string[]; alwaysAllowed?: string[] }[]; previousSessions: { sessionId: string; name?: string; modifiedTime: string }[]; models: { id: string; name: string; multiplier: number }[] }): void => callback(data)
+    onReady: (callback: (data: { sessions: { sessionId: string; model: string; cwd: string; name?: string; editedFiles?: string[]; alwaysAllowed?: string[] }[]; previousSessions: { sessionId: string; name?: string; modifiedTime: string; cwd?: string }[]; models: { id: string; name: string; multiplier: number }[] }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { sessions: { sessionId: string; model: string; cwd: string; name?: string; editedFiles?: string[]; alwaysAllowed?: string[] }[]; previousSessions: { sessionId: string; name?: string; modifiedTime: string; cwd?: string }[]; models: { id: string; name: string; multiplier: number }[] }): void => callback(data)
       ipcRenderer.on('copilot:ready', handler)
       return () => ipcRenderer.removeListener('copilot:ready', handler)
     },

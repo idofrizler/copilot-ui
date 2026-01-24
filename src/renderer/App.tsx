@@ -1335,6 +1335,7 @@ Start by exploring the codebase to understand the current implementation, then m
       setStatus("connecting");
       const result = await window.electronAPI.copilot.resumePreviousSession(
         prevSession.sessionId,
+        prevSession.cwd,
       );
 
       // Create new tab for this session
