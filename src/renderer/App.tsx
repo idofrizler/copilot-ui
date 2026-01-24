@@ -27,8 +27,6 @@ import {
   TrashIcon,
   GlobeIcon,
   RalphIcon,
-  TerminalIcon,
-  TerminalPanel,
   WorktreeSessionsList,
   CreateWorktreeSession,
 } from "./components";
@@ -112,18 +110,6 @@ const App: React.FC = () => {
   const [showCreateWorktree, setShowCreateWorktree] = useState(false);
   const [worktreeRepoPath, setWorktreeRepoPath] = useState("");
 
-  // Resizable panel state
-  const [leftPanelWidth, setLeftPanelWidth] = useState(192); // default w-48
-  const [rightPanelWidth, setRightPanelWidth] = useState(288); // default w-72
-  const resizingPanel = useRef<'left' | 'right' | null>(null);
-  const resizeStartX = useRef(0);
-  const resizeStartWidth = useRef(0);
-
-  // Terminal panel state - track which session has terminal open
-  const [terminalOpenForSession, setTerminalOpenForSession] = useState<string | null>(null);
-  // Terminal output attachment state
-  const [terminalAttachment, setTerminalAttachment] = useState<{output: string; lineCount: number} | null>(null);
-
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const activeTabIdRef = useRef<string | null>(null);
@@ -161,51 +147,6 @@ const App: React.FC = () => {
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
-
-  // Resize handlers for side panels
-  const handleResizeMouseDown = useCallback((e: React.MouseEvent, panel: 'left' | 'right') => {
-    e.preventDefault();
-    resizingPanel.current = panel;
-    resizeStartX.current = e.clientX;
-    resizeStartWidth.current = panel === 'left' ? leftPanelWidth : rightPanelWidth;
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-  }, [leftPanelWidth, rightPanelWidth]);
-
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!resizingPanel.current) return;
-      
-      const delta = e.clientX - resizeStartX.current;
-      const minWidth = 120;
-      const maxWidth = 400;
-      
-      if (resizingPanel.current === 'left') {
-        const newWidth = Math.min(maxWidth, Math.max(minWidth, resizeStartWidth.current + delta));
-        setLeftPanelWidth(newWidth);
-      } else {
-        // For right panel, dragging right decreases width
-        const newWidth = Math.min(maxWidth, Math.max(minWidth, resizeStartWidth.current - delta));
-        setRightPanelWidth(newWidth);
-      }
-    };
-
-    const handleMouseUp = () => {
-      if (resizingPanel.current) {
-        resizingPanel.current = null;
-        document.body.style.cursor = '';
-        document.body.style.userSelect = '';
-      }
-    };
-
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, []);
 
   useEffect(() => {
     scrollToBottom();
@@ -285,6 +226,8 @@ const App: React.FC = () => {
               alwaysAllowed: [],
               editedFiles: [],
               currentIntent: null,
+              autoBranchingEnabled: true,
+              autoBranchingDone: false,
               gitBranchRefresh: 0,
             };
             setTabs([newTab]);
@@ -311,6 +254,8 @@ const App: React.FC = () => {
           alwaysAllowed: s.alwaysAllowed || [],
           editedFiles: s.editedFiles || [],
           currentIntent: null,
+          autoBranchingEnabled: true,
+          autoBranchingDone: false,
           gitBranchRefresh: 0,
         }));
 
@@ -556,8 +501,66 @@ const App: React.FC = () => {
         // Skip other internal tools
         if (name === "update_todo") return;
 
-        // Track edited/created files at start time (we have reliable input here)
+        // Auto-checkout branch on first file write (per session)
         const isFileOperation = name === "edit" || name === "create";
+        if (isFileOperation) {
+          setTabs((prev) =>
+            prev.map((tab) => {
+              if (tab.id !== sessionId) return tab;
+              if (!tab.autoBranchingEnabled || tab.autoBranchingDone)
+                return tab;
+
+              // Mark as done immediately to prevent repeated attempts
+              const next = { ...tab, autoBranchingDone: true };
+
+              (async () => {
+                try {
+                  const branchRes = await window.electronAPI.git.getBranch(
+                    tab.cwd,
+                  );
+                  const current = branchRes.success
+                    ? branchRes.branch || ""
+                    : "";
+                  if (current && current !== "main" && current !== "master") {
+                    return;
+                  }
+
+                  const base =
+                    (tab.currentIntent || "changes")
+                      .toLowerCase()
+                      .replace(/[^a-z0-9]+/g, "-")
+                      .replace(/^-+|-+$/g, "")
+                      .slice(0, 40) || "changes";
+                  const stamp = new Date()
+                    .toISOString()
+                    .slice(0, 10)
+                    .replace(/-/g, "");
+                  const branchName = `auto/${base}-${stamp}`;
+
+                  const checkoutRes =
+                    await window.electronAPI.git.checkoutBranch(
+                      tab.cwd,
+                      branchName,
+                    );
+                  if (checkoutRes.success) {
+                    updateTab(sessionId, {
+                      gitBranchRefresh: (tab.gitBranchRefresh || 0) + 1,
+                    });
+                  } else {
+                    console.warn(
+                      "Auto-branch checkout failed:",
+                      checkoutRes.error,
+                    );
+                  }
+                } catch (err) {
+                  console.warn("Auto-branch checkout errored:", err);
+                }
+              })();
+
+              return next;
+            }),
+          );
+        }
 
         setTabs((prev) =>
           prev.map((tab) => {
@@ -710,40 +713,30 @@ const App: React.FC = () => {
   }, []);
 
   const handleSendMessage = useCallback(async () => {
-    if (!inputValue.trim() && !terminalAttachment) return;
-    if (!activeTab || activeTab.isProcessing) return;
-
-    // Build message content with terminal attachment if present
-    let messageContent = inputValue.trim();
-    if (terminalAttachment) {
-      const terminalBlock = `\`\`\`\n${terminalAttachment.output}\n\`\`\``;
-      messageContent = messageContent 
-        ? `${messageContent}\n\nTerminal output:\n${terminalBlock}`
-        : `Terminal output:\n${terminalBlock}`;
-    }
+    if (!inputValue.trim() || !activeTab || activeTab.isProcessing) return;
 
     const userMessage: Message = {
       id: generateId(),
       role: "user",
-      content: messageContent,
+      content: inputValue.trim(),
     };
 
     const tabId = activeTab.id;
 
-    // If Ralph is enabled, append completion instruction to the prompt
-    const promptToSend = ralphEnabled
-      ? `${userMessage.content}\n\nWhen you have fully completed this task, output exactly: ${RALPH_COMPLETION_SIGNAL}`
-      : userMessage.content;
-
-    // Set up Ralph config if enabled - store full prompt with completion instruction
+    // Set up Ralph config if enabled - auto-inject completion instruction
     const ralphConfig: RalphConfig | undefined = ralphEnabled
       ? {
-          originalPrompt: promptToSend, // Store full prompt including completion instruction
+          originalPrompt: userMessage.content,
           maxIterations: ralphMaxIterations,
           currentIteration: 1,
           active: true,
         }
       : undefined;
+    
+    // If Ralph is enabled, append completion instruction to the prompt
+    const promptToSend = ralphEnabled
+      ? `${userMessage.content}\n\nWhen you have fully completed this task, output exactly: ${RALPH_COMPLETION_SIGNAL}`
+      : userMessage.content;
 
     updateTab(tabId, {
       messages: [
@@ -761,7 +754,6 @@ const App: React.FC = () => {
       ralphConfig,
     });
     setInputValue("");
-    setTerminalAttachment(null);
     
     // Reset Ralph UI state after sending
     if (ralphEnabled) {
@@ -775,16 +767,7 @@ const App: React.FC = () => {
       console.error("Send error:", error);
       updateTab(tabId, { isProcessing: false, ralphConfig: undefined });
     }
-  }, [inputValue, activeTab, updateTab, ralphEnabled, ralphMaxIterations, terminalAttachment]);
-
-  // Handle sending terminal output to the agent
-  const handleSendTerminalOutput = useCallback((output: string, lineCount: number) => {
-    if (!output.trim()) return;
-    // Store the terminal output as an attachment to be included in next message
-    setTerminalAttachment({ output: output.trim(), lineCount });
-    // Focus the input field
-    inputRef.current?.focus();
-  }, []);
+  }, [inputValue, activeTab, updateTab, ralphEnabled, ralphMaxIterations]);
 
   const handleStop = useCallback(() => {
     if (!activeTab) return;
@@ -1139,6 +1122,8 @@ const App: React.FC = () => {
         alwaysAllowed: [],
         editedFiles: [],
         currentIntent: null,
+        autoBranchingEnabled: true,
+        autoBranchingDone: false,
         gitBranchRefresh: 0,
       };
       setTabs((prev) => [...prev, newTab]);
@@ -1165,7 +1150,11 @@ const App: React.FC = () => {
   };
 
   // Handle when worktree session is created
-  const handleWorktreeSessionCreated = async (worktreePath: string, branch: string) => {
+  const handleWorktreeSessionCreated = async (
+    worktreePath: string,
+    branch: string,
+    autoStart?: { issueInfo: { url: string; title: string; body: string | null } }
+  ) => {
     try {
       // Check trust for the worktree directory
       const trustResult = await window.electronAPI.copilot.checkDirectoryTrust(worktreePath);
@@ -1180,10 +1169,19 @@ const App: React.FC = () => {
       const result = await window.electronAPI.copilot.createSession({
         cwd: worktreePath,
       });
+
+      // If autoStart is enabled, pre-approve GitHub web fetches and file writes
+      const preApprovedCommands = autoStart
+        ? ['write', 'url:github.com']
+        : [];
       
-      // Auto-allow file writes for worktree sessions (used for code editing)
-      await window.electronAPI.copilot.addAlwaysAllowed(result.sessionId, 'write');
-      
+      // Add pre-approved commands to the session
+      if (autoStart) {
+        for (const cmd of preApprovedCommands) {
+          await window.electronAPI.copilot.addAlwaysAllowed(result.sessionId, cmd);
+        }
+      }
+
       const newTab: TabState = {
         id: result.sessionId,
         name: `${branch} (worktree)`,
@@ -1195,14 +1193,73 @@ const App: React.FC = () => {
         hasUnreadCompletion: false,
         pendingConfirmations: [],
         needsTitle: false, // Already has a good name
-        alwaysAllowed: ['write'], // Pre-approved for worktree sessions
+        alwaysAllowed: preApprovedCommands,
         editedFiles: [],
         currentIntent: null,
+        autoBranchingEnabled: false, // Already on the right branch
+        autoBranchingDone: true,
         gitBranchRefresh: 0,
       };
       setTabs((prev) => [...prev, newTab]);
       setActiveTabId(result.sessionId);
       setStatus("connected");
+
+      // If autoStart is enabled, send the initial prompt with issue context
+      if (autoStart) {
+        const issueContext = autoStart.issueInfo.body
+          ? `## Issue Description\n\n${autoStart.issueInfo.body}`
+          : '';
+        
+        const initialPrompt = `Please implement the following GitHub issue:
+
+**Issue URL:** ${autoStart.issueInfo.url}
+**Title:** ${autoStart.issueInfo.title}
+
+${issueContext}
+
+Start by exploring the codebase to understand the current implementation, then make the necessary changes to address this issue.`;
+
+        const userMessage: Message = {
+          id: generateId(),
+          role: "user",
+          content: initialPrompt,
+        };
+
+        // Update tab with the initial message and start processing
+        setTabs((prev) =>
+          prev.map((tab) =>
+            tab.id === result.sessionId
+              ? {
+                  ...tab,
+                  messages: [
+                    userMessage,
+                    {
+                      id: generateId(),
+                      role: "assistant",
+                      content: "",
+                      isStreaming: true,
+                    },
+                  ],
+                  isProcessing: true,
+                }
+              : tab
+          )
+        );
+
+        // Send the prompt
+        try {
+          await window.electronAPI.copilot.send(result.sessionId, initialPrompt);
+        } catch (error) {
+          console.error("Failed to send initial prompt:", error);
+          setTabs((prev) =>
+            prev.map((tab) =>
+              tab.id === result.sessionId
+                ? { ...tab, isProcessing: false }
+                : tab
+            )
+          );
+        }
+      }
     } catch (error) {
       console.error("Failed to create worktree session tab:", error);
       setStatus("connected");
@@ -1247,6 +1304,8 @@ const App: React.FC = () => {
           alwaysAllowed: [],
           editedFiles: [],
           currentIntent: null,
+          autoBranchingEnabled: true,
+          autoBranchingDone: false,
           gitBranchRefresh: 0,
         };
         setTabs([newTab]);
@@ -1309,6 +1368,8 @@ const App: React.FC = () => {
         alwaysAllowed: result.alwaysAllowed || [],
         editedFiles: result.editedFiles || [],
         currentIntent: null,
+        autoBranchingEnabled: true,
+        autoBranchingDone: false,
         gitBranchRefresh: 0,
       };
 
@@ -1384,6 +1445,8 @@ const App: React.FC = () => {
           alwaysAllowed: [],
           editedFiles: [],
           currentIntent: null,
+          autoBranchingEnabled: true,
+          autoBranchingDone: false,
           gitBranchRefresh: 0,
         };
         setTabs((prev) => [...prev, newTab]);
@@ -1416,7 +1479,6 @@ const App: React.FC = () => {
             alwaysAllowed: [],
             editedFiles: [],
             currentIntent: null,
-            gitBranchRefresh: 0,
           },
         ];
       });
@@ -1539,10 +1601,7 @@ const App: React.FC = () => {
       {/* Tab Bar */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left Sidebar - Vertical Tabs */}
-        <div 
-          className="bg-copilot-bg border-r border-copilot-border flex flex-col shrink-0"
-          style={{ width: leftPanelWidth }}
-        >
+        <div className="w-48 bg-copilot-bg border-r border-copilot-border flex flex-col shrink-0">
           {/* New Tab Button */}
           <button
             onClick={() => handleNewTab()}
@@ -1752,46 +1811,8 @@ const App: React.FC = () => {
           )}
         </div>
 
-        {/* Left Resize Handle */}
-        <div
-          className="w-1 hover:w-1.5 bg-transparent hover:bg-copilot-accent/50 cursor-col-resize shrink-0 transition-all"
-          onMouseDown={(e) => handleResizeMouseDown(e, 'left')}
-        />
-
         {/* Main Content Area */}
         <div className="flex-1 flex flex-col min-h-0 min-w-0">
-          {/* Terminal Toggle Button */}
-          {activeTab && (
-            <button
-              onClick={() => setTerminalOpenForSession(
-                terminalOpenForSession === activeTab.id ? null : activeTab.id
-              )}
-              className={`shrink-0 flex items-center gap-2 px-4 py-2 text-xs border-b border-copilot-border transition-colors ${
-                terminalOpenForSession === activeTab.id
-                  ? "text-copilot-accent bg-copilot-surface" 
-                  : "text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface"
-              }`}
-            >
-              <TerminalIcon size={14} />
-              <span className="font-medium">Terminal</span>
-              <ChevronDownIcon
-                size={12}
-                className={`transition-transform ${terminalOpenForSession === activeTab.id ? "rotate-180" : ""}`}
-              />
-            </button>
-          )}
-
-          {/* Embedded Terminal Panel */}
-          {activeTab && (
-            <TerminalPanel
-              sessionId={activeTab.id}
-              cwd={activeTab.cwd}
-              isOpen={terminalOpenForSession === activeTab.id}
-              onClose={() => setTerminalOpenForSession(null)}
-              onSendToAgent={handleSendTerminalOutput}
-            />
-          )}
-
           {/* Messages Area - Conversation Only */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
             {activeTab?.messages.length === 0 && (
@@ -2113,25 +2134,8 @@ const App: React.FC = () => {
                 )}
               </div>
             )}
-
-            {/* Terminal Attachment Indicator */}
-            {terminalAttachment && (
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-copilot-surface rounded-t-lg border border-b-0 border-copilot-border">
-                <TerminalIcon size={12} className="text-copilot-accent shrink-0" />
-                <span className="text-xs text-copilot-text">
-                  Terminal output: {terminalAttachment.lineCount} lines
-                </span>
-                <button
-                  onClick={() => setTerminalAttachment(null)}
-                  className="ml-auto text-copilot-text-muted hover:text-copilot-text text-xs"
-                  title="Remove terminal output"
-                >
-                  ✕
-                </button>
-              </div>
-            )}
             
-            <div className={`flex items-center bg-copilot-bg border border-copilot-border focus-within:border-copilot-accent transition-colors ${terminalAttachment ? 'rounded-b-lg' : 'rounded-lg'}`}>
+            <div className="flex items-center bg-copilot-bg rounded-lg border border-copilot-border focus-within:border-copilot-accent transition-colors">
               {/* Ralph Toggle Button */}
               {!activeTab?.isProcessing && (
                 <button
@@ -2179,7 +2183,7 @@ const App: React.FC = () => {
                 <button
                   onClick={handleSendMessage}
                   disabled={
-                    (!inputValue.trim() && !terminalAttachment) ||
+                    !inputValue.trim() ||
                     status !== "connected" ||
                     activeTab?.isProcessing
                   }
@@ -2192,17 +2196,8 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        {/* Right Resize Handle */}
-        <div
-          className="w-1 hover:w-1.5 bg-transparent hover:bg-copilot-accent/50 cursor-col-resize shrink-0 transition-all"
-          onMouseDown={(e) => handleResizeMouseDown(e, 'right')}
-        />
-
         {/* Right Panel - Activity & Session Info */}
-        <div 
-          className="border-l border-copilot-border flex flex-col shrink-0 bg-copilot-bg"
-          style={{ width: rightPanelWidth }}
-        >
+        <div className="w-72 border-l border-copilot-border flex flex-col shrink-0 bg-copilot-bg">
           {/* Activity Header with Intent */}
           <div className="px-3 py-2 border-b border-copilot-border bg-copilot-surface">
             <div className="flex items-center gap-2">
@@ -2458,6 +2453,29 @@ const App: React.FC = () => {
                   <div className="text-[10px] text-copilot-text-muted uppercase tracking-wide">
                     Git Branch
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!activeTab) return;
+                      updateTab(activeTab.id, {
+                        autoBranchingEnabled: !activeTab.autoBranchingEnabled,
+                      });
+                    }}
+                    className="text-[10px] uppercase tracking-wide shrink-0 text-copilot-text-muted hover:text-copilot-text transition-colors"
+                    aria-pressed={!!activeTab?.autoBranchingEnabled}
+                    title="Automatically checks out a new branch for the coding task"
+                  >
+                    Auto-checkout:{" "}
+                    <span
+                      className={
+                        activeTab?.autoBranchingEnabled
+                          ? "text-copilot-success"
+                          : "text-copilot-text-muted"
+                      }
+                    >
+                      {activeTab?.autoBranchingEnabled ? "ON" : "OFF"}
+                    </span>
+                  </button>
                 </div>
                 <GitBranchWidget
                   cwd={activeTab?.cwd}
