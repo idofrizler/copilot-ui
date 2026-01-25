@@ -60,6 +60,16 @@ export interface RalphConfig {
   active: boolean;
 }
 
+// Context usage information from the SDK
+export interface ContextUsage {
+  tokenLimit: number;
+  currentTokens: number;
+  messagesLength: number;
+}
+
+// Compaction status
+export type CompactionStatus = "idle" | "compacting" | "completed";
+
 // Tab/Session state
 export interface TabState {
   id: string;
@@ -80,4 +90,6 @@ export interface TabState {
   isRenaming?: boolean;
   renameDraft?: string;
   ralphConfig?: RalphConfig; // Ralph Wiggum loop configuration
+  contextUsage?: ContextUsage; // Current context window usage
+  compactionStatus?: CompactionStatus; // Status of context compaction
 }

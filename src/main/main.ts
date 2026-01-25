@@ -348,6 +348,27 @@ async function resumeDisconnectedSession(sessionId: string, sessionState: Sessio
     } else if (event.type === 'session.error') {
       log.info(`[${sessionId}] Session error:`, event.data)
       mainWindow.webContents.send('copilot:error', { sessionId, message: event.data?.message || JSON.stringify(event.data) })
+    } else if (event.type === 'session.usage_info') {
+      mainWindow.webContents.send('copilot:usageInfo', { 
+        sessionId,
+        tokenLimit: event.data.tokenLimit,
+        currentTokens: event.data.currentTokens,
+        messagesLength: event.data.messagesLength
+      })
+    } else if (event.type === 'session.compaction_start') {
+      log.info(`[${sessionId}] Compaction started`)
+      mainWindow.webContents.send('copilot:compactionStart', { sessionId })
+    } else if (event.type === 'session.compaction_complete') {
+      log.info(`[${sessionId}] Compaction complete:`, event.data)
+      mainWindow.webContents.send('copilot:compactionComplete', { 
+        sessionId,
+        success: event.data.success,
+        preCompactionTokens: event.data.preCompactionTokens,
+        postCompactionTokens: event.data.postCompactionTokens,
+        tokensRemoved: event.data.tokensRemoved,
+        summaryContent: event.data.summaryContent,
+        error: event.data.error
+      })
     }
   })
   
@@ -776,6 +797,27 @@ async function createNewSession(model?: string, cwd?: string): Promise<string> {
     } else if (event.type === 'session.error') {
       console.log(`[${sessionId}] Session error:`, event.data)
       mainWindow.webContents.send('copilot:error', { sessionId, message: event.data?.message || JSON.stringify(event.data) })
+    } else if (event.type === 'session.usage_info') {
+      mainWindow.webContents.send('copilot:usageInfo', { 
+        sessionId,
+        tokenLimit: event.data.tokenLimit,
+        currentTokens: event.data.currentTokens,
+        messagesLength: event.data.messagesLength
+      })
+    } else if (event.type === 'session.compaction_start') {
+      console.log(`[${sessionId}] Compaction started`)
+      mainWindow.webContents.send('copilot:compactionStart', { sessionId })
+    } else if (event.type === 'session.compaction_complete') {
+      console.log(`[${sessionId}] Compaction complete:`, event.data)
+      mainWindow.webContents.send('copilot:compactionComplete', { 
+        sessionId,
+        success: event.data.success,
+        preCompactionTokens: event.data.preCompactionTokens,
+        postCompactionTokens: event.data.postCompactionTokens,
+        tokensRemoved: event.data.tokensRemoved,
+        summaryContent: event.data.summaryContent,
+        error: event.data.error
+      })
     }
   })
   
@@ -2194,6 +2236,27 @@ ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string
         toolName: event.data.toolName,
         input: event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
         output: event.data.output
+      })
+    } else if (event.type === 'session.usage_info') {
+      mainWindow.webContents.send('copilot:usageInfo', { 
+        sessionId,
+        tokenLimit: event.data.tokenLimit,
+        currentTokens: event.data.currentTokens,
+        messagesLength: event.data.messagesLength
+      })
+    } else if (event.type === 'session.compaction_start') {
+      console.log(`[${sessionId}] Compaction started`)
+      mainWindow.webContents.send('copilot:compactionStart', { sessionId })
+    } else if (event.type === 'session.compaction_complete') {
+      console.log(`[${sessionId}] Compaction complete:`, event.data)
+      mainWindow.webContents.send('copilot:compactionComplete', { 
+        sessionId,
+        success: event.data.success,
+        preCompactionTokens: event.data.preCompactionTokens,
+        postCompactionTokens: event.data.postCompactionTokens,
+        tokensRemoved: event.data.tokensRemoved,
+        summaryContent: event.data.summaryContent,
+        error: event.data.error
       })
     }
   })

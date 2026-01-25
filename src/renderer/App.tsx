@@ -769,6 +769,68 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       },
     );
 
+    // Listen for context usage info updates
+    const unsubscribeUsageInfo = window.electronAPI.copilot.onUsageInfo(
+      (data) => {
+        const { sessionId, tokenLimit, currentTokens, messagesLength } = data;
+        setTabs((prev) =>
+          prev.map((tab) =>
+            tab.id === sessionId
+              ? {
+                  ...tab,
+                  contextUsage: { tokenLimit, currentTokens, messagesLength },
+                }
+              : tab,
+          ),
+        );
+      },
+    );
+
+    // Listen for compaction start
+    const unsubscribeCompactionStart = window.electronAPI.copilot.onCompactionStart(
+      (data) => {
+        const { sessionId } = data;
+        setTabs((prev) =>
+          prev.map((tab) =>
+            tab.id === sessionId
+              ? {
+                  ...tab,
+                  compactionStatus: "compacting" as const,
+                }
+              : tab,
+          ),
+        );
+      },
+    );
+
+    // Listen for compaction complete
+    const unsubscribeCompactionComplete = window.electronAPI.copilot.onCompactionComplete(
+      (data) => {
+        const { sessionId, success, preCompactionTokens, postCompactionTokens, tokensRemoved, summaryContent, error } = data;
+        setTabs((prev) =>
+          prev.map((tab) => {
+            if (tab.id !== sessionId) return tab;
+            
+            // Add a system message about the compaction
+            const compactionMessage: Message = {
+              id: generateId(),
+              role: "system",
+              content: success
+                ? `📦 Context compacted: ${(tokensRemoved || 0).toLocaleString()} tokens removed (${((preCompactionTokens || 0) / 1000).toFixed(0)}K → ${((postCompactionTokens || 0) / 1000).toFixed(0)}K)${summaryContent ? `\n\n**Summary:**\n${summaryContent}` : ''}`
+                : `⚠️ Context compaction failed: ${error || 'Unknown error'}`,
+              timestamp: Date.now(),
+            };
+            
+            return {
+              ...tab,
+              compactionStatus: "idle" as const,
+              messages: [...tab.messages, compactionMessage],
+            };
+          }),
+        );
+      },
+    );
+
     return () => {
       unsubscribeReady();
       unsubscribeDelta();
@@ -779,6 +841,9 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       unsubscribePermission();
       unsubscribeError();
       unsubscribeModelsVerified();
+      unsubscribeUsageInfo();
+      unsubscribeCompactionStart();
+      unsubscribeCompactionComplete();
     };
   }, []);
 
@@ -2505,6 +2570,37 @@ Start by exploring the codebase to understand the current implementation, then m
                     </p>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Context Usage Indicator */}
+            {activeTab?.contextUsage && (
+              <div className="mb-2 flex items-center gap-2 px-1">
+                <div className="flex-1 h-1.5 bg-copilot-border rounded-full overflow-hidden">
+                  <div
+                    className={`h-full transition-all duration-300 ${
+                      (activeTab.contextUsage.currentTokens / activeTab.contextUsage.tokenLimit) >= 0.9
+                        ? "bg-copilot-error"
+                        : (activeTab.contextUsage.currentTokens / activeTab.contextUsage.tokenLimit) >= 0.7
+                          ? "bg-copilot-warning"
+                          : "bg-copilot-accent"
+                    }`}
+                    style={{
+                      width: `${Math.min(100, (activeTab.contextUsage.currentTokens / activeTab.contextUsage.tokenLimit) * 100)}%`,
+                    }}
+                  />
+                </div>
+                <span className={`text-[10px] shrink-0 ${
+                  (activeTab.contextUsage.currentTokens / activeTab.contextUsage.tokenLimit) >= 0.9
+                    ? "text-copilot-error"
+                    : (activeTab.contextUsage.currentTokens / activeTab.contextUsage.tokenLimit) >= 0.7
+                      ? "text-copilot-warning"
+                      : "text-copilot-text-muted"
+                }`}>
+                  {activeTab.compactionStatus === "compacting" 
+                    ? "📦 Compacting..."
+                    : `${((activeTab.contextUsage.currentTokens / activeTab.contextUsage.tokenLimit) * 100).toFixed(0)}% (${(activeTab.contextUsage.currentTokens / 1000).toFixed(0)}K/${(activeTab.contextUsage.tokenLimit / 1000).toFixed(0)}K)`}
+                </span>
               </div>
             )}
 

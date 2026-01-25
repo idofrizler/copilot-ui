@@ -124,6 +124,21 @@ const electronAPI = {
       const handler = (_event: Electron.IpcRendererEvent, data: { models: { id: string; name: string; multiplier: number }[] }): void => callback(data)
       ipcRenderer.on('copilot:modelsVerified', handler)
       return () => ipcRenderer.removeListener('copilot:modelsVerified', handler)
+    },
+    onUsageInfo: (callback: (data: { sessionId: string; tokenLimit: number; currentTokens: number; messagesLength: number }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; tokenLimit: number; currentTokens: number; messagesLength: number }): void => callback(data)
+      ipcRenderer.on('copilot:usageInfo', handler)
+      return () => ipcRenderer.removeListener('copilot:usageInfo', handler)
+    },
+    onCompactionStart: (callback: (data: { sessionId: string }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string }): void => callback(data)
+      ipcRenderer.on('copilot:compactionStart', handler)
+      return () => ipcRenderer.removeListener('copilot:compactionStart', handler)
+    },
+    onCompactionComplete: (callback: (data: { sessionId: string; success: boolean; preCompactionTokens?: number; postCompactionTokens?: number; tokensRemoved?: number; summaryContent?: string; error?: string }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string; success: boolean; preCompactionTokens?: number; postCompactionTokens?: number; tokensRemoved?: number; summaryContent?: string; error?: string }): void => callback(data)
+      ipcRenderer.on('copilot:compactionComplete', handler)
+      return () => ipcRenderer.removeListener('copilot:compactionComplete', handler)
     }
   },
 

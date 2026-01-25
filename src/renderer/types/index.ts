@@ -7,6 +7,8 @@ export type {
   TabState,
   PreviousSession,
   RalphConfig,
+  ContextUsage,
+  CompactionStatus,
 } from "./session";
 
 export { RALPH_COMPLETION_SIGNAL } from "./session";
