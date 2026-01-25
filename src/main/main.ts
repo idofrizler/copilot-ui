@@ -72,6 +72,9 @@ async function writeMcpConfig(config: MCPConfigFile): Promise<void> {
   console.log('Saved MCP config:', Object.keys(config.mcpServers))
 }
 
+// Agent Skills - imported from skills module
+import { getAllSkills } from './skills'
+
 // Set up file logging only - no IPC to renderer (causes errors)
 log.transports.file.level = 'info'
 log.transports.console.level = 'info'
@@ -2536,6 +2539,22 @@ ipcMain.handle('mcp:deleteServer', async (_event, name: string) => {
     return { success: true }
   }
   return { success: false, error: 'Server not found' }
+})
+
+// Agent Skills handlers
+ipcMain.handle('skills:getAll', async (_event, cwd?: string) => {
+  // Use provided cwd or try to get from active session
+  let projectCwd = cwd
+  if (!projectCwd && sessions.size > 0) {
+    // Get cwd from first active session
+    const firstSession = sessions.values().next().value
+    if (firstSession) {
+      projectCwd = firstSession.cwd
+    }
+  }
+  const result = await getAllSkills(projectCwd)
+  console.log(`Found ${result.skills.length} skills (${result.errors.length} errors)`)
+  return result
 })
 
 // Window control handlers

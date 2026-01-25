@@ -21,3 +21,5 @@ export type {
   MCPServerConfig,
   MCPConfigFile,
 } from "./mcp";
+
+export type { Skill, SkillsResult } from "./skills";

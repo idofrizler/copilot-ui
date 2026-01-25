@@ -260,6 +260,12 @@ const electronAPI = {
       return ipcRenderer.invoke('mcp:deleteServer', name)
     }
   },
+  // Agent Skills Management
+  skills: {
+    getAll: (cwd?: string): Promise<{ skills: Skill[]; errors: string[] }> => {
+      return ipcRenderer.invoke('skills:getAll', cwd)
+    }
+  },
   // Worktree Session Management
   worktree: {
     fetchGitHubIssue: (issueUrl: string): Promise<{
@@ -389,6 +395,16 @@ interface MCPRemoteServerConfig extends MCPServerConfigBase {
 }
 
 type MCPServerConfig = MCPLocalServerConfig | MCPRemoteServerConfig
+
+// Agent Skill types
+interface Skill {
+  name: string
+  description: string
+  license?: string
+  path: string
+  type: 'personal' | 'project'
+  source: 'copilot' | 'claude'
+}
 
 // Worktree Session types
 interface WorktreeSession {
