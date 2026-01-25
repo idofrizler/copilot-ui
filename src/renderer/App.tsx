@@ -1018,11 +1018,14 @@ const App: React.FC = () => {
         updateTab(activeTab.id, { editedFiles: actualChangedFiles });
       }
       
-      // If no files have changes, show error and close
+      // If no files have changes, allow merge/PR without commit
       if (actualChangedFiles.length === 0) {
         setCommitMessage("");
-        setCommitError("No files have changes to commit");
         setIsGeneratingMessage(false);
+        // Default to merge when no files, since "push" alone doesn't make sense
+        if (commitAction === 'push') {
+          setCommitAction('merge');
+        }
         return;
       }
 
@@ -1071,21 +1074,35 @@ const App: React.FC = () => {
   };
 
   const handleCommitAndPush = async () => {
-    if (!activeTab || !commitMessage.trim()) return;
+    if (!activeTab) return;
+
+    const hasFilesToCommit = activeTab.editedFiles.length > 0;
+    
+    // Require commit message only if there are files to commit
+    if (hasFilesToCommit && !commitMessage.trim()) return;
+    
+    // If no files and just "push" action, nothing to do
+    if (!hasFilesToCommit && commitAction === 'push') return;
 
     setIsCommitting(true);
     setCommitError(null);
 
     try {
-      // First commit and push
-      const result = await window.electronAPI.git.commitAndPush(
-        activeTab.cwd,
-        activeTab.editedFiles,
-        commitMessage.trim(),
-        commitAction === 'merge',
-      );
+      // Only commit and push if there are files to commit
+      if (hasFilesToCommit) {
+        const result = await window.electronAPI.git.commitAndPush(
+          activeTab.cwd,
+          activeTab.editedFiles,
+          commitMessage.trim(),
+          commitAction === 'merge',
+        );
 
-      if (result.success) {
+        if (!result.success) {
+          setCommitError(result.error || "Commit failed");
+          setIsCommitting(false);
+          return;
+        }
+
         // If merge synced with main and brought in changes, notify user to test first
         if (result.mainSyncedWithChanges && commitAction === 'merge') {
           setPendingMergeInfo({ incomingFiles: result.incomingFiles || [] });
@@ -1099,22 +1116,34 @@ const App: React.FC = () => {
           setIsCommitting(false);
           return;
         }
-        
-        // If creating PR, do that after commit
-        if (commitAction === 'pr') {
-          const prResult = await window.electronAPI.git.createPullRequest(activeTab.cwd, commitMessage.split('\n')[0]);
-          if (prResult.success && prResult.prUrl) {
-            window.open(prResult.prUrl, '_blank');
-          } else if (!prResult.success) {
-            setCommitError(prResult.error || 'Failed to create PR');
+      }
+      
+      // Handle merge/PR actions (whether or not there was a commit)
+      if (commitAction === 'pr') {
+        const prResult = await window.electronAPI.git.createPullRequest(activeTab.cwd, commitMessage.split('\n')[0] || undefined);
+        if (prResult.success && prResult.prUrl) {
+          window.open(prResult.prUrl, '_blank');
+        } else if (!prResult.success) {
+          setCommitError(prResult.error || 'Failed to create PR');
+          setIsCommitting(false);
+          return;
+        }
+      }
+      
+      // If merge was selected and removeWorktreeAfterMerge is checked, remove the worktree and close session
+      const isWorktreePath = activeTab.cwd.includes('.copilot-sessions')
+      if (commitAction === 'merge') {
+        // If no files were committed, we need to call mergeToMain directly
+        if (!hasFilesToCommit) {
+          const mergeResult = await window.electronAPI.git.mergeToMain(activeTab.cwd, false);
+          if (!mergeResult.success) {
+            setCommitError(mergeResult.error || 'Merge failed');
             setIsCommitting(false);
             return;
           }
         }
         
-        // If merge was selected and removeWorktreeAfterMerge is checked, remove the worktree and close session
-        const isWorktreePath = activeTab.cwd.includes('.copilot-sessions')
-        if (commitAction === 'merge' && removeWorktreeAfterMerge && isWorktreePath) {
+        if (removeWorktreeAfterMerge && isWorktreePath) {
           // Find the worktree session by path
           const sessionId = activeTab.cwd.split('/').pop() || ''
           if (sessionId) {
@@ -1129,19 +1158,17 @@ const App: React.FC = () => {
             return
           }
         }
-        
-        // Clear the edited files list and refresh git branch widget
-        updateTab(activeTab.id, { 
-          editedFiles: [],
-          gitBranchRefresh: (activeTab.gitBranchRefresh || 0) + 1
-        })
-        setShowCommitModal(false)
-        setCommitMessage('')
-        setCommitAction('push')
-        setRemoveWorktreeAfterMerge(false)
-      } else {
-        setCommitError(result.error || "Commit failed");
       }
+      
+      // Clear the edited files list and refresh git branch widget
+      updateTab(activeTab.id, { 
+        editedFiles: [],
+        gitBranchRefresh: (activeTab.gitBranchRefresh || 0) + 1
+      })
+      setShowCommitModal(false)
+      setCommitMessage('')
+      setCommitAction('push')
+      setRemoveWorktreeAfterMerge(false)
     } catch (error) {
       setCommitError(String(error));
     } finally {
@@ -2962,20 +2989,28 @@ Start by exploring the codebase to understand the current implementation, then m
             <>
               {/* Files to commit */}
               <div className="mb-3">
-                <div className="text-xs text-copilot-text-muted mb-2">
-                  Files to commit ({activeTab.editedFiles.length}):
-                </div>
-                <div className="bg-copilot-bg rounded border border-copilot-surface max-h-32 overflow-y-auto">
-                  {activeTab.editedFiles.map((filePath) => (
-                    <div
-                      key={filePath}
-                      className="px-3 py-1.5 text-xs text-copilot-success font-mono truncate"
-                      title={filePath}
-                    >
-                      {filePath}
+                {activeTab.editedFiles.length > 0 ? (
+                  <>
+                    <div className="text-xs text-copilot-text-muted mb-2">
+                      Files to commit ({activeTab.editedFiles.length}):
                     </div>
-                  ))}
-                </div>
+                    <div className="bg-copilot-bg rounded border border-copilot-surface max-h-32 overflow-y-auto">
+                      {activeTab.editedFiles.map((filePath) => (
+                        <div
+                          key={filePath}
+                          className="px-3 py-1.5 text-xs text-copilot-success font-mono truncate"
+                          title={filePath}
+                        >
+                          {filePath}
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-xs text-copilot-text-muted italic">
+                    No files to commit. You can still merge or create a PR for already committed changes.
+                  </div>
+                )}
               </div>
 
               {/* Warning if origin/main is ahead */}
@@ -3054,37 +3089,47 @@ Start by exploring the codebase to understand the current implementation, then m
                 </div>
               )}
 
-              {/* Commit message */}
-              <div className="mb-3 relative">
-                <label className="text-xs text-copilot-text-muted mb-2 block">
-                  Commit message:
-                </label>
-                <textarea
-                  value={commitMessage}
-                  onChange={(e) => setCommitMessage(e.target.value)}
-                  className={`w-full bg-copilot-bg border border-copilot-border rounded px-3 py-2 text-sm text-copilot-text placeholder-copilot-text-muted focus:border-copilot-accent outline-none resize-none ${isGeneratingMessage ? "opacity-50" : ""}`}
-                  rows={3}
-                  placeholder="Enter commit message..."
-                  autoFocus
-                  disabled={isGeneratingMessage}
-                />
-                {isGeneratingMessage && (
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="w-4 h-4 border-2 border-copilot-accent/30 border-t-copilot-accent rounded-full animate-spin"></span>
-                  </div>
-                )}
-              </div>
+              {/* Commit message - only show if there are files to commit */}
+              {activeTab.editedFiles.length > 0 && (
+                <div className="mb-3 relative">
+                  <label className="text-xs text-copilot-text-muted mb-2 block">
+                    Commit message:
+                  </label>
+                  <textarea
+                    value={commitMessage}
+                    onChange={(e) => setCommitMessage(e.target.value)}
+                    className={`w-full bg-copilot-bg border border-copilot-border rounded px-3 py-2 text-sm text-copilot-text placeholder-copilot-text-muted focus:border-copilot-accent outline-none resize-none ${isGeneratingMessage ? "opacity-50" : ""}`}
+                    rows={3}
+                    placeholder="Enter commit message..."
+                    autoFocus
+                    disabled={isGeneratingMessage}
+                  />
+                  {isGeneratingMessage && (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <span className="w-4 h-4 border-2 border-copilot-accent/30 border-t-copilot-accent rounded-full animate-spin"></span>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Options */}
               <div className="mb-4 flex items-center gap-2">
-                <span className="text-xs text-copilot-text-muted">After push:</span>
+                <span className="text-xs text-copilot-text-muted">
+                  {activeTab.editedFiles.length > 0 ? 'After push:' : 'Action:'}
+                </span>
                 <Dropdown
                   value={commitAction}
-                  options={[
-                    { id: 'push' as const, label: 'Nothing' },
-                    { id: 'merge' as const, label: 'Merge to main' },
-                    { id: 'pr' as const, label: 'Create PR' },
-                  ]}
+                  options={activeTab.editedFiles.length > 0 
+                    ? [
+                        { id: 'push' as const, label: 'Nothing' },
+                        { id: 'merge' as const, label: 'Merge to main' },
+                        { id: 'pr' as const, label: 'Create PR' },
+                      ]
+                    : [
+                        { id: 'merge' as const, label: 'Merge to main' },
+                        { id: 'pr' as const, label: 'Create PR' },
+                      ]
+                  }
                   onSelect={(id) => {
                     setCommitAction(id)
                     if (id !== 'merge') setRemoveWorktreeAfterMerge(false)
@@ -3131,7 +3176,10 @@ Start by exploring the codebase to understand the current implementation, then m
                   variant="primary"
                   onClick={handleCommitAndPush}
                   disabled={
-                    !commitMessage.trim() || isCommitting || isGeneratingMessage
+                    (activeTab.editedFiles.length > 0 && !commitMessage.trim()) || 
+                    isCommitting || 
+                    isGeneratingMessage ||
+                    (activeTab.editedFiles.length === 0 && commitAction === 'push')
                   }
                   isLoading={isCommitting}
                   leftIcon={
@@ -3139,12 +3187,14 @@ Start by exploring the codebase to understand the current implementation, then m
                   }
                 >
                   {isCommitting 
-                    ? "Pushing..." 
-                    : commitAction === 'pr' 
-                      ? "Commit & Create PR" 
-                      : commitAction === 'merge' 
-                        ? "Commit & Merge" 
-                        : "Commit & Push"}
+                    ? "Processing..." 
+                    : activeTab.editedFiles.length === 0
+                      ? (commitAction === 'pr' ? "Create PR" : "Merge to Main")
+                      : commitAction === 'pr' 
+                        ? "Commit & Create PR" 
+                        : commitAction === 'merge' 
+                          ? "Commit & Merge" 
+                          : "Commit & Push"}
                 </Button>
               </Modal.Footer>
             </>
