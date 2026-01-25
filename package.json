@@ -18,8 +18,8 @@
     "test:all": "npm run test && npm run test:e2e",
     "postinstall": "npx @electron/rebuild -f -w node-pty",
     "prebuild-info": "node scripts/build-info.js",
-    "clean": "rm -rf out release/mac-arm64",
-    "dist": "npm run clean && npm run prebuild-info && electron-vite build && electron-builder --mac --dir && node -e \"const pkg=require('./package.json'); const {execSync}=require('child_process'); const dmg='release/Copilot-Skins-'+pkg.version+'-arm64.dmg'; execSync('hdiutil create -volname \\'Copilot Skins\\' -srcfolder release/mac-arm64 -ov -format UDZO '+dmg, {stdio:'inherit'})\""
+    "clean": "rm -rf out release",
+    "dist": "npm install && npm run clean && npm run prebuild-info && electron-vite build && electron-builder --mac --dir && node -e \"const pkg=require('./package.json'); const {execSync}=require('child_process'); const dmg='release/Copilot-Skins-'+pkg.version+'-arm64.dmg'; execSync('hdiutil create -volname \\'Copilot Skins\\' -srcfolder release/mac-arm64 -ov -format UDZO '+dmg, {stdio:'inherit'})\""
   },
   "build": {
     "appId": "com.idofrizler.copilot-skins",
