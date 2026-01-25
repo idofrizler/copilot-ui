@@ -2128,7 +2128,7 @@ Start by exploring the codebase to understand the current implementation, then m
             <div className="flex items-center gap-1" title={`Build: ${buildInfo.version}\nBranch: ${buildInfo.gitBranch}\nCommit: ${buildInfo.gitSha}\nBuilt: ${buildInfo.buildDate} ${buildInfo.buildTime}`}>
               <span className="opacity-60">v{buildInfo.baseVersion}</span>
               <span className="opacity-40">•</span>
-              <span className="opacity-60 truncate">{buildInfo.gitBranch === 'main' ? buildInfo.gitSha : buildInfo.gitBranch}</span>
+              <span className="opacity-60 truncate">{buildInfo.gitBranch === 'main' || buildInfo.gitBranch === 'master' ? buildInfo.gitSha : buildInfo.gitBranch}</span>
             </div>
           </div>
         </div>
