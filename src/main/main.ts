@@ -1989,10 +1989,12 @@ ipcMain.handle('git:mergeToMain', async (_event, data: { cwd: string; deleteBran
         }
       }
       
-      // Merge the feature branch into main (from the main repo)
-      // After rebase, this should be a fast-forward merge
+      // Merge the feature branch into main (from the main repo) using squash
+      // This combines all commits into a single commit
       try {
-        await execAsync(`git merge ${currentBranch}`, { cwd: mainRepoPath })
+        await execAsync(`git merge --squash ${currentBranch}`, { cwd: mainRepoPath })
+        // Squash merge doesn't auto-commit, so we need to create the commit
+        await execAsync(`git commit -m "Merge branch '${currentBranch}'"`, { cwd: mainRepoPath })
       } catch (mergeError) {
         const errorMsg = String(mergeError)
         if (errorMsg.includes('CONFLICT')) {
@@ -2027,9 +2029,12 @@ ipcMain.handle('git:mergeToMain', async (_event, data: { cwd: string; deleteBran
         // Ignore other pull errors (might be a new repo)
       }
       
-      // Merge the feature branch
+      // Merge the feature branch using squash
+      // This combines all commits into a single commit
       try {
-        await execAsync(`git merge ${currentBranch}`, { cwd: data.cwd })
+        await execAsync(`git merge --squash ${currentBranch}`, { cwd: data.cwd })
+        // Squash merge doesn't auto-commit, so we need to create the commit
+        await execAsync(`git commit -m "Merge branch '${currentBranch}'"`, { cwd: data.cwd })
       } catch (mergeError) {
         const errorMsg = String(mergeError)
         if (errorMsg.includes('CONFLICT')) {
