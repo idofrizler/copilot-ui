@@ -1911,9 +1911,11 @@ Start by exploring the codebase to understand the current implementation, then m
 
         {/* Left Resize Handle */}
         <div
-          className="w-1 hover:w-1.5 bg-transparent hover:bg-copilot-accent/50 cursor-col-resize shrink-0 transition-all"
+          className="w-0 cursor-col-resize shrink-0 relative z-10"
           onMouseDown={(e) => handleResizeMouseDown(e, 'left')}
-        />
+        >
+          <div className="absolute inset-y-0 -left-1 w-2 hover:bg-copilot-accent/50 transition-colors" />
+        </div>
 
         {/* Main Content Area */}
         <div className="flex-1 flex flex-col min-h-0 min-w-0">
@@ -2378,9 +2380,11 @@ Start by exploring the codebase to understand the current implementation, then m
 
         {/* Right Resize Handle */}
         <div
-          className="w-1 hover:w-1.5 bg-transparent hover:bg-copilot-accent/50 cursor-col-resize shrink-0 transition-all"
+          className="w-0 cursor-col-resize shrink-0 relative z-10"
           onMouseDown={(e) => handleResizeMouseDown(e, 'right')}
-        />
+        >
+          <div className="absolute inset-y-0 -right-1 w-2 hover:bg-copilot-accent/50 transition-colors" />
+        </div>
 
         {/* Right Panel - Activity & Session Info */}
         <div 
