@@ -1,4 +1,7 @@
 import type { Theme } from './types'
+import nightowlTheme from './nightowl-theme.json'
+import icqTheme from './icq-theme.json'
+import githubDimmedTheme from './github-dimmed.json'
 
 /**
  * Dark theme - the original Copilot UI theme
@@ -109,4 +112,10 @@ export const lightTheme: Theme = {
 /**
  * All built-in themes
  */
-export const builtInThemes: Theme[] = [darkTheme, lightTheme]
+export const builtInThemes: Theme[] = [
+  darkTheme,
+  lightTheme,
+  nightowlTheme as Theme,
+  icqTheme as Theme,
+  githubDimmedTheme as Theme,
+]
