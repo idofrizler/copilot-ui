@@ -7,8 +7,8 @@
   "license": "MIT",
   "scripts": {
     "dev": "npm run prebuild-info && electron-vite dev",
-    "build": "electron-vite build",
-    "preview": "electron-vite preview",
+    "build": "npm run prebuild-info && electron-vite build",
+    "preview": "npm run prebuild-info && electron-vite preview",
     "start": "npm run prebuild-info && electron-vite dev",
     "test": "vitest run",
     "test:watch": "vitest",
