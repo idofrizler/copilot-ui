@@ -395,6 +395,35 @@ const AVAILABLE_MODELS: ModelInfo[] = [
   { id: 'claude-opus-4.5', name: 'Claude Opus 4.5', multiplier: 3 },
 ]
 
+// Preferred models for quick, simple AI tasks (in order of preference)
+// These are typically free/cheap models optimized for simple text generation
+const QUICK_TASKS_MODEL_PREFERENCES = ['gpt-4.1', 'gpt-5-mini', 'claude-haiku-4.5']
+
+// Get the best available model for quick tasks from the server's available models
+// Falls back to the session's configured model if none of the preferred models are available
+async function getQuickTasksModel(client: CopilotClient): Promise<string> {
+  const sessionModel = store.get('model') as string
+  
+  try {
+    const availableModels = await client.listModels()
+    const availableIds = new Set(availableModels.map(m => m.id))
+    
+    // Find the first preferred model that's available
+    for (const preferred of QUICK_TASKS_MODEL_PREFERENCES) {
+      if (availableIds.has(preferred)) {
+        return preferred
+      }
+    }
+    
+    // Fallback: use the session's configured model
+    console.warn(`No preferred quick tasks model available, using session model: ${sessionModel}`)
+    return sessionModel
+  } catch (error) {
+    console.warn('Failed to list models for quick tasks, using session model:', error)
+    return sessionModel
+  }
+}
+
 // Global allowlist of low-risk, read-only shell commands.
 // These are auto-approved for all sessions and intentionally NOT persisted/shown in the per-session "Always Allowed" UI.
 const GLOBAL_AUTO_APPROVED_SHELL_EXECUTABLES = new Set([
@@ -1030,9 +1059,12 @@ ipcMain.handle('copilot:generateTitle', async (_event, data: { conversation: str
   const defaultClient = await getClientForCwd(process.cwd())
   
   try {
+    // Get the best available model for quick tasks
+    const quickModel = await getQuickTasksModel(defaultClient)
+    
     // Create a temporary session with the cheapest model for title generation
     const tempSession = await defaultClient.createSession({
-      model: 'gpt-5-mini',
+      model: quickModel,
       systemMessage: {
         mode: 'append',
         content: 'You are a title generator. Respond with ONLY a short title (3-6 words, no quotes, no punctuation at end).'
@@ -1061,8 +1093,11 @@ ipcMain.handle('git:generateCommitMessage', async (_event, data: { diff: string 
   const defaultClient = await getClientForCwd(process.cwd())
   
   try {
+    // Get the best available model for quick tasks
+    const quickModel = await getQuickTasksModel(defaultClient)
+    
     const tempSession = await defaultClient.createSession({
-      model: 'gpt-5-mini',
+      model: quickModel,
       systemMessage: {
         mode: 'append',
         content: 'You are a git commit message generator. Write concise, conventional commit messages. Use format: type(scope): description. Types: feat, fix, refactor, style, docs, test, chore. Keep under 72 chars. No quotes around the message.'
