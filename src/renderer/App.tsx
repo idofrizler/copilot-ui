@@ -2057,8 +2057,8 @@ Start by exploring the codebase to understand the current implementation, then m
                       )}
                     </div>
                   </div>
-                  {/* Show timestamp for the last assistant message */}
-                  {index === lastAssistantIndex && message.timestamp && (
+                  {/* Show timestamp for the last assistant message (only when not processing) */}
+                  {index === lastAssistantIndex && message.timestamp && !activeTab?.isProcessing && (
                     <span className="text-[10px] text-copilot-text-muted mt-1 ml-1">
                       {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
