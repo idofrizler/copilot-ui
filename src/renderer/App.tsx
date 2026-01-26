@@ -1165,6 +1165,11 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
   const handleAddGlobalSafeCommand = async () => {
     if (!addCommandValue.trim()) return;
+    // Block "write" commands from being added as global (file changes should not have global option)
+    if (addCommandValue.trim().toLowerCase().startsWith("write")) {
+      console.warn("File change commands cannot be added as global");
+      return;
+    }
     try {
       await window.electronAPI.copilot.addGlobalSafeCommand(
         addCommandValue.trim(),
@@ -2634,18 +2639,21 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                               >
                                 {allowMode === "session" && "✓ "}Session
                               </button>
-                              <button
-                                onClick={() => {
-                                  setAllowMode("global");
-                                  setShowAllowDropdown(false);
-                                }}
-                                className={`w-full px-3 py-1.5 text-left text-xs hover:bg-copilot-surface-hover transition-colors ${
-                                  allowMode === "global" ? "text-copilot-accent" : "text-copilot-text"
-                                }`}
-                                title="Always allow globally (persists across sessions)"
-                              >
-                                {allowMode === "global" && "✓ "}Global
-                              </button>
+                              {/* Hide Global option for file changes (write kind) */}
+                              {pendingConfirmation.kind !== "write" && (
+                                <button
+                                  onClick={() => {
+                                    setAllowMode("global");
+                                    setShowAllowDropdown(false);
+                                  }}
+                                  className={`w-full px-3 py-1.5 text-left text-xs hover:bg-copilot-surface-hover transition-colors ${
+                                    allowMode === "global" ? "text-copilot-accent" : "text-copilot-text"
+                                  }`}
+                                  title="Always allow globally (persists across sessions)"
+                                >
+                                  {allowMode === "global" && "✓ "}Global
+                                </button>
+                              )}
                             </div>
                           )}
                         </div>
@@ -3204,12 +3212,18 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                         className="px-2 py-1 text-[10px] bg-copilot-surface border border-copilot-border rounded text-copilot-text focus:outline-none focus:border-copilot-accent"
                       >
                         <option value="session">Session</option>
-                        <option value="global">Global</option>
+                        <option value="global" disabled={addCommandValue.trim().toLowerCase().startsWith("write")}>Global</option>
                       </select>
                       <input
                         type="text"
                         value={addCommandValue}
-                        onChange={(e) => setAddCommandValue(e.target.value)}
+                        onChange={(e) => {
+                          setAddCommandValue(e.target.value);
+                          // Reset to session scope if user types a "write" command while global is selected
+                          if (addCommandScope === "global" && e.target.value.trim().toLowerCase().startsWith("write")) {
+                            setAddCommandScope("session");
+                          }
+                        }}
                         onKeyDown={(e) => {
                           if (e.key === "Enter") handleAddAllowedCommand();
                           if (e.key === "Escape") {
