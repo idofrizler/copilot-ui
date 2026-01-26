@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import logo from "./assets/logo.png";
 import { useTheme } from "./context/ThemeContext";
 import {
@@ -2389,6 +2390,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                         </span>
                       ) : message.content ? (
                         <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
                           components={{
                             p: ({ children }) => (
                               <p className="mb-2 last:mb-0">{children}</p>
@@ -2462,6 +2464,36 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                               <blockquote className="border-l-2 border-copilot-border pl-3 my-2 text-copilot-text-muted italic">
                                 {children}
                               </blockquote>
+                            ),
+                            table: ({ children }) => (
+                              <div className="overflow-x-auto my-2">
+                                <table className="min-w-full border-collapse border border-copilot-border text-sm">
+                                  {children}
+                                </table>
+                              </div>
+                            ),
+                            thead: ({ children }) => (
+                              <thead className="bg-copilot-bg">
+                                {children}
+                              </thead>
+                            ),
+                            tbody: ({ children }) => (
+                              <tbody>{children}</tbody>
+                            ),
+                            tr: ({ children }) => (
+                              <tr className="border-b border-copilot-border">
+                                {children}
+                              </tr>
+                            ),
+                            th: ({ children }) => (
+                              <th className="px-3 py-2 text-left font-semibold text-copilot-text border border-copilot-border">
+                                {children}
+                              </th>
+                            ),
+                            td: ({ children }) => (
+                              <td className="px-3 py-2 text-copilot-text border border-copilot-border">
+                                {children}
+                              </td>
                             ),
                           }}
                         >
