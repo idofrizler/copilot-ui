@@ -53,6 +53,50 @@ Click "Add to Message" and the terminal's output buffer gets attached to your ne
 - GitHub Copilot subscription
 - GitHub CLI authenticated (`gh auth login`)
 
+### Windows Additional Requirements
+
+Windows requires additional build tools for native modules:
+- **Python 3.x** (for node-gyp)
+- **Visual Studio Build Tools 2022** with C++ workload and Spectre libraries
+- **PowerShell 7+** (for running scripts)
+
+**Quick Setup:** Run our automated setup script (requires [winget](https://learn.microsoft.com/en-us/windows/package-manager/winget/)):
+
+```powershell
+# In PowerShell (run as Administrator recommended)
+cd copilot-ui
+.\scripts\setup-windows.ps1
+```
+
+This will install all Windows prerequisites automatically. After running, **restart your terminal** and proceed with `npm install`.
+
+<details>
+<summary><b>Manual Windows Setup (if automated script fails)</b></summary>
+
+1. **Install PowerShell 7+:**
+   ```powershell
+   winget install Microsoft.PowerShell
+   ```
+
+2. **Install Python:**
+   ```powershell
+   winget install Python.Python.3.12
+   ```
+
+3. **Install Visual Studio Build Tools:**
+   ```powershell
+   winget install Microsoft.VisualStudio.2022.BuildTools --silent --override "--wait --quiet --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.Runtimes.x86.x64.Spectre --includeRecommended"
+   ```
+
+4. **Set PowerShell execution policy:**
+   ```powershell
+   Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+   ```
+
+5. **Restart your terminal** for PATH changes to take effect
+
+</details>
+
 ## Installation
 
 ### Build the App (macOS)
@@ -64,6 +108,9 @@ Building locally avoids macOS Gatekeeper issues with unsigned apps:
 git clone https://github.com/idofrizler/copilot-ui.git
 cd copilot-ui
 
+# Install dependencies
+npm install
+
 # Build the DMG
 npm run dist
 
@@ -73,10 +120,35 @@ open release/Copilot-Skins-*-arm64.dmg
 
 Drag "Copilot Skins" to your Applications folder and you're ready to go!
 
-## Development (works on macOS/Windows)
+### Build the App (Windows)
+
+```powershell
+# Clone and install
+git clone https://github.com/idofrizler/copilot-ui.git
+cd copilot-ui
+
+# Run Windows setup script (first time only)
+.\scripts\setup-windows.ps1
+
+# Restart terminal, then install dependencies
+npm install
+
+# Build the installer
+npm run dist:win
+
+# The installer will be in release/
+```
+
+## Development
 
 ```bash
+npm install
 npm run dev
+```
+
+**Note for Windows users:** If you see `running scripts is disabled` error, run:
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```
 
 ## Build
