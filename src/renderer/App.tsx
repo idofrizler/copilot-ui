@@ -31,6 +31,7 @@ import {
   PaletteIcon,
   BookIcon,
   TerminalPanel,
+  TerminalOutputShrinkModal,
   WorktreeSessionsList,
   CreateWorktreeSession,
   ChoiceSelector,
@@ -58,6 +59,7 @@ import {
   setTabCounter,
 } from "./utils/session";
 import { playNotificationSound } from "./utils/sound";
+import { LONG_OUTPUT_LINE_THRESHOLD } from "./utils/cliOutputCompression";
 import { useClickOutside } from "./hooks";
 import buildInfo from "./build-info.json";
 
@@ -144,6 +146,8 @@ const App: React.FC = () => {
   const [terminalInitializedSessions, setTerminalInitializedSessions] = useState<Set<string>>(new Set());
   // Terminal output attachment state
   const [terminalAttachment, setTerminalAttachment] = useState<{output: string; lineCount: number} | null>(null);
+  // Terminal output shrink modal state (for long outputs)
+  const [pendingTerminalOutput, setPendingTerminalOutput] = useState<{output: string; lineCount: number} | null>(null);
 
   // Resizable panel state
   const [leftPanelWidth, setLeftPanelWidth] = useState(192); // default w-48
@@ -992,9 +996,23 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
   // Handle sending terminal output to the agent
   const handleSendTerminalOutput = useCallback((output: string, lineCount: number) => {
     if (!output.trim()) return;
-    // Store the terminal output as an attachment to be included in next message
-    setTerminalAttachment({ output: output.trim(), lineCount });
-    // Focus the input field
+    const trimmedOutput = output.trim();
+    
+    // If output exceeds threshold, show shrink modal
+    if (lineCount > LONG_OUTPUT_LINE_THRESHOLD) {
+      setPendingTerminalOutput({ output: trimmedOutput, lineCount });
+    } else {
+      // Store the terminal output as an attachment to be included in next message
+      setTerminalAttachment({ output: trimmedOutput, lineCount });
+      // Focus the input field
+      inputRef.current?.focus();
+    }
+  }, []);
+
+  // Handle confirmation from shrink modal
+  const handleShrinkModalConfirm = useCallback((output: string, lineCount: number) => {
+    setTerminalAttachment({ output, lineCount });
+    setPendingTerminalOutput(null);
     inputRef.current?.focus();
   }, []);
 
@@ -3959,6 +3977,17 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         repoPath={worktreeRepoPath}
         onSessionCreated={handleWorktreeSessionCreated}
       />
+
+      {/* Terminal Output Shrink Modal */}
+      {pendingTerminalOutput && (
+        <TerminalOutputShrinkModal
+          isOpen={!!pendingTerminalOutput}
+          onClose={() => setPendingTerminalOutput(null)}
+          onConfirm={handleShrinkModalConfirm}
+          output={pendingTerminalOutput.output}
+          lineCount={pendingTerminalOutput.lineCount}
+        />
+      )}
     </div>
   );
 };
