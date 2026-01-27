@@ -32,6 +32,9 @@
     "files": [
       "out/**/*"
     ],
+    "asarUnpack": [
+      "node_modules/@github/copilot-*/**/*"
+    ],
     "mac": {
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.icns"

@@ -381,7 +381,39 @@ async function getClientForCwd(cwd: string): Promise<CopilotClient> {
   
   console.log(`Creating new CopilotClient for cwd: ${cwd}`)
   const cliPath = getCliPath()
-  const client = new CopilotClient({ cwd, cliPath })
+  
+  // In packaged apps, process.env may not have the user's PATH
+  // which is needed for the CLI to find `gh` for authentication
+  const env = { ...process.env }
+  if (app.isPackaged) {
+    if (process.platform === 'win32') {
+      // Windows: gh CLI is typically in Program Files or user's AppData
+      const username = process.env.USERNAME || process.env.USER || ''
+      const additionalPaths = [
+        'C:\\Program Files\\GitHub CLI',
+        'C:\\Program Files (x86)\\GitHub CLI',
+        `C:\\Users\\${username}\\AppData\\Local\\GitHub CLI`,
+        `C:\\Users\\${username}\\scoop\\shims`,  // Scoop package manager
+        'C:\\ProgramData\\chocolatey\\bin',      // Chocolatey
+      ].filter(p => username || !p.includes('Users'))
+      const pathSep = ';'
+      const currentPath = env.PATH || env.Path || ''
+      env.PATH = [...additionalPaths, currentPath].filter(Boolean).join(pathSep)
+      log.info('Augmented PATH for packaged app (Windows)')
+    } else if (!env.PATH?.includes('/opt/homebrew/bin')) {
+      // macOS/Linux: Add common paths where gh CLI might be installed
+      const additionalPaths = [
+        '/opt/homebrew/bin',    // Apple Silicon Homebrew
+        '/usr/local/bin',       // Intel Homebrew / manual installs
+        '/usr/bin',
+        '/bin'
+      ]
+      env.PATH = [...additionalPaths, env.PATH].filter(Boolean).join(':')
+      log.info('Augmented PATH for packaged app (macOS/Linux)')
+    }
+  }
+  
+  const client = new CopilotClient({ cwd, cliPath, env })
   await client.start()
   copilotClients.set(cwd, client)
   return client
