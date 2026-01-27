@@ -30,3 +30,6 @@ npm-debug.log*
 release/
 test-results/
 src/renderer/build-info.json
+
+# Screenshots
+screenshot*.png
