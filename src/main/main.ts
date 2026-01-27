@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, dialog, nativeTheme, desktopCapturer } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, dialog, nativeTheme, desktopCapturer, systemPreferences } from 'electron'
 import { join, dirname } from 'path'
 import { existsSync, mkdirSync, readdirSync, readFileSync, copyFileSync, statSync, unlinkSync } from 'fs'
 import { exec } from 'child_process'
@@ -242,6 +242,7 @@ const store = new Store({
     theme: 'system' as string,  // Theme preference: 'system', 'light', 'dark', or custom theme id
     sessionCwds: {} as Record<string, string>,  // Persistent map of sessionId -> cwd (survives session close)
     globalSafeCommands: [] as string[],  // Globally safe commands that are auto-approved for all sessions
+    permissionsModalDismissed: false as boolean,  // Whether user dismissed the permissions modal
     // URL allowlist - domains that are auto-approved for web_fetch (similar to --allow-url in Copilot CLI)
     allowedUrls: [
       'github.com',
@@ -3202,5 +3203,107 @@ ipcMain.handle('pty:close', async (_event, sessionId: string) => {
 
 ipcMain.handle('pty:exists', async (_event, sessionId: string) => {
   return { exists: ptyManager.hasPty(sessionId) }
+})
+
+// Permissions handlers (macOS only)
+ipcMain.handle('permissions:getStatus', async () => {
+  const isDev = !!process.env.ELECTRON_RENDERER_URL
+  
+  if (process.platform !== 'darwin') {
+    return {
+      platform: process.platform,
+      screenRecording: 'granted' as const,
+      accessibility: 'granted' as const,
+      modalDismissed: true, // Non-macOS doesn't need permissions modal
+      appName: app.getName(),
+      appPath: '',
+      appBundlePath: '',
+      isDev
+    }
+  }
+
+  // Check screen recording permission
+  const screenStatus = systemPreferences.getMediaAccessStatus('screen')
+  
+  // Check accessibility permission
+  // Note: In dev mode, this may return true if ANY Electron app has been granted accessibility,
+  // since macOS trusts the Electron framework binary, not individual apps
+  const accessibilityGranted = systemPreferences.isTrustedAccessibilityClient(false)
+  
+  // Get the app name and path that needs permissions
+  // In dev mode it's "Electron" at a specific path, in production it's the app name
+  const appName = isDev ? 'Electron' : app.getName()
+  // Get the executable path - this helps users identify which instance in System Settings
+  const appPath = process.execPath
+  
+  // Get the .app bundle path (what users need to drag into System Settings)
+  // In production: /path/to/Copilot Skins.app/Contents/MacOS/Copilot Skins -> /path/to/Copilot Skins.app
+  // In dev: /path/to/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron -> /path/to/node_modules/electron/dist/Electron.app
+  let appBundlePath = ''
+  const appMatch = appPath.match(/^(.+\.app)\/Contents\/MacOS\//)
+  if (appMatch) {
+    appBundlePath = appMatch[1]
+  }
+  
+  return {
+    platform: process.platform,
+    screenRecording: screenStatus as 'not-determined' | 'granted' | 'denied' | 'restricted' | 'unknown',
+    accessibility: accessibilityGranted ? 'granted' as const : 'denied' as const,
+    modalDismissed: store.get('permissionsModalDismissed') as boolean,
+    appName,
+    appPath,
+    appBundlePath,
+    isDev
+  }
+})
+
+ipcMain.handle('permissions:revealInFinder', async () => {
+  if (process.platform === 'darwin') {
+    // Get the .app bundle path
+    const appPath = process.execPath
+    const appMatch = appPath.match(/^(.+\.app)\/Contents\/MacOS\//)
+    if (appMatch) {
+      shell.showItemInFolder(appMatch[1])
+      return { success: true, path: appMatch[1] }
+    }
+  }
+  return { success: false, error: 'Could not find app bundle' }
+})
+
+ipcMain.handle('permissions:openScreenRecordingSettings', async () => {
+  if (process.platform === 'darwin') {
+    // Open System Settings > Privacy & Security > Screen Recording
+    await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture')
+    return { success: true }
+  }
+  return { success: false, error: 'Not supported on this platform' }
+})
+
+ipcMain.handle('permissions:openAccessibilitySettings', async () => {
+  if (process.platform === 'darwin') {
+    // Open System Settings > Privacy & Security > Accessibility
+    await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility')
+    return { success: true }
+  }
+  return { success: false, error: 'Not supported on this platform' }
+})
+
+ipcMain.handle('permissions:requestAccessibility', async () => {
+  if (process.platform === 'darwin') {
+    // This will prompt the user if not already trusted
+    const isTrusted = systemPreferences.isTrustedAccessibilityClient(true)
+    return { granted: isTrusted }
+  }
+  return { granted: true }
+})
+
+ipcMain.handle('permissions:dismissModal', async () => {
+  store.set('permissionsModalDismissed', true)
+  return { success: true }
+})
+
+ipcMain.handle('permissions:resetModalDismissed', async () => {
+  store.set('permissionsModalDismissed', false)
+  return { success: true }
 })
 

@@ -37,6 +37,7 @@ import {
   WorktreeSessionsList,
   CreateWorktreeSession,
   ChoiceSelector,
+  PermissionsModal,
 } from "./components";
 import {
   Status,
@@ -160,6 +161,10 @@ const App: React.FC = () => {
   const [isDraggingImage, setIsDraggingImage] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
 
+  // Permissions modal state (macOS only)
+  const [showPermissionsModal, setShowPermissionsModal] = useState(false);
+  const [permissionsChecked, setPermissionsChecked] = useState(false);
+
   // Resizable panel state
   const [leftPanelWidth, setLeftPanelWidth] = useState(192); // default w-48
   const [rightPanelWidth, setRightPanelWidth] = useState(288); // default w-72
@@ -274,12 +279,35 @@ const App: React.FC = () => {
     };
   }, []);
 
-  // Reset textarea height when input is cleared
+   // Reset textarea height when input is cleared
   useEffect(() => {
     if (!inputValue && inputRef.current) {
       inputRef.current.style.height = "auto";
     }
   }, [inputValue]);
+
+  // Check permissions on startup (macOS only)
+  useEffect(() => {
+    const checkPermissions = async () => {
+      try {
+        const status = await window.electronAPI.permissions.getStatus();
+        setPermissionsChecked(true);
+        
+        // Only show modal on macOS, when not already dismissed, and when some permissions are missing
+        if (
+          status.platform === 'darwin' &&
+          !status.modalDismissed &&
+          (status.screenRecording !== 'granted' || status.accessibility !== 'granted')
+        ) {
+          setShowPermissionsModal(true);
+        }
+      } catch (error) {
+        console.error('Failed to check permissions:', error);
+        setPermissionsChecked(true);
+      }
+    };
+    checkPermissions();
+  }, []);
 
   // Load MCP servers on startup
   useEffect(() => {
@@ -4365,6 +4393,13 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           lineCount={pendingTerminalOutput.lineCount}
         />
       )}
+
+      {/* Permissions Modal (macOS) */}
+      <PermissionsModal
+        isOpen={showPermissionsModal}
+        onClose={() => setShowPermissionsModal(false)}
+        onDismiss={() => setShowPermissionsModal(false)}
+      />
     </div>
   );
 };
