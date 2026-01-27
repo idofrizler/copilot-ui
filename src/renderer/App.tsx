@@ -3127,7 +3127,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
             )}
             
             <div 
-              className={`flex items-center bg-copilot-bg border border-copilot-border focus-within:border-copilot-accent transition-colors ${(terminalAttachment || imageAttachments.length > 0 || (imageAttachments.length > 0 && activeTab && modelCapabilities[activeTab.model] && !modelCapabilities[activeTab.model].supportsVision)) ? 'rounded-b-lg' : 'rounded-lg'} ${isDraggingImage ? 'border-copilot-accent border-dashed bg-copilot-accent/5' : ''}`}
+              className={`relative flex items-center bg-copilot-bg border border-copilot-border focus-within:border-copilot-accent transition-colors ${(terminalAttachment || imageAttachments.length > 0 || (imageAttachments.length > 0 && activeTab && modelCapabilities[activeTab.model] && !modelCapabilities[activeTab.model].supportsVision)) ? 'rounded-b-lg' : 'rounded-lg'} ${isDraggingImage ? 'border-copilot-accent border-dashed bg-copilot-accent/5' : ''}`}
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
@@ -3142,23 +3142,45 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 className="hidden"
               />
               
-              {/* Ralph Toggle Button */}
+              {/* Modes Chevron - directly toggles Ralph settings */}
               {!activeTab?.isProcessing && (
                 <button
                   onClick={() => setShowRalphSettings(!showRalphSettings)}
-                  className={`shrink-0 p-1.5 pl-2.5 pr-0 transition-colors ${
-                    ralphEnabled 
-                      ? "text-copilot-warning" 
-                      : showRalphSettings 
-                        ? "text-copilot-accent" 
+                  className={`shrink-0 p-2 pl-2.5 pr-0 transition-colors ${
+                    ralphEnabled
+                      ? "text-copilot-warning"
+                      : showRalphSettings
+                        ? "text-copilot-accent"
                         : "text-copilot-text-muted hover:text-copilot-text"
                   }`}
                   title="Ralph Wiggum Loop - Iterative agent mode"
                 >
-                  <RalphIcon size={22} />
+                  <ChevronRightIcon 
+                    size={14} 
+                    className={`transition-transform ${showRalphSettings ? "rotate-90" : ""}`} 
+                  />
                 </button>
               )}
               
+              <textarea
+                ref={inputRef}
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={handleKeyPress}
+                onPaste={handlePaste}
+                placeholder={isDraggingImage ? "Drop image here..." : (ralphEnabled ? "Describe task with clear completion criteria..." : "Ask Copilot... (Shift+Enter for new line)")}
+                className="flex-1 bg-transparent py-2.5 pl-3 pr-2 text-copilot-text placeholder-copilot-text-muted outline-none text-sm resize-none min-h-[40px] max-h-[200px]"
+                disabled={status !== "connected" || activeTab?.isProcessing}
+                autoFocus
+                rows={1}
+                style={{ height: "auto" }}
+                onInput={(e) => {
+                  const target = e.target as HTMLTextAreaElement;
+                  target.style.height = "auto";
+                  target.style.height =
+                    Math.min(target.scrollHeight, 200) + "px";
+                }}
+              />
               {/* Image Attach Button */}
               {!activeTab?.isProcessing && (
                 <button
@@ -3173,26 +3195,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   <ImageIcon size={18} />
                 </button>
               )}
-              
-              <textarea
-                ref={inputRef}
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                onKeyDown={handleKeyPress}
-                onPaste={handlePaste}
-                placeholder={isDraggingImage ? "Drop image here..." : (ralphEnabled ? "Describe task with clear completion criteria..." : "Ask Copilot... (Shift+Enter for new line)")}
-                className={`flex-1 bg-transparent py-2.5 ${activeTab?.isProcessing ? 'pl-3' : 'pl-1.5'} pr-2 text-copilot-text placeholder-copilot-text-muted outline-none text-sm resize-none min-h-[40px] max-h-[200px]`}
-                disabled={status !== "connected" || activeTab?.isProcessing}
-                autoFocus
-                rows={1}
-                style={{ height: "auto" }}
-                onInput={(e) => {
-                  const target = e.target as HTMLTextAreaElement;
-                  target.style.height = "auto";
-                  target.style.height =
-                    Math.min(target.scrollHeight, 200) + "px";
-                }}
-              />
               {activeTab?.isProcessing ? (
                 <button
                   onClick={handleStop}
