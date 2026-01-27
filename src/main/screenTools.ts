@@ -147,6 +147,128 @@ async function getFocusedApp(): Promise<AppInfo> {
 }
 
 /**
+ * Get information about the currently focused UI element
+ */
+async function getFocusedElement(): Promise<{ 
+  role: string
+  name: string
+  value?: string
+  description?: string
+  position?: { x: number; y: number }
+  size?: { width: number; height: number }
+  app: string
+}> {
+  if (process.platform === 'darwin') {
+    const script = `
+      tell application "System Events"
+        set frontApp to first application process whose frontmost is true
+        set appName to name of frontApp
+        
+        try
+          set focusedUI to value of attribute "AXFocusedUIElement" of frontApp
+          set elemRole to role of focusedUI
+          set elemName to ""
+          set elemValue to ""
+          set elemDesc to ""
+          set elemPos to {0, 0}
+          set elemSize to {0, 0}
+          
+          try
+            set elemName to name of focusedUI
+          end try
+          try
+            set elemValue to value of focusedUI
+          end try
+          try
+            set elemDesc to description of focusedUI
+          end try
+          try
+            set elemPos to position of focusedUI
+          end try
+          try
+            set elemSize to size of focusedUI
+          end try
+          
+          return "APP:" & appName & "|ROLE:" & elemRole & "|NAME:" & elemName & "|VALUE:" & elemValue & "|DESC:" & elemDesc & "|POS:" & (item 1 of elemPos) & "," & (item 2 of elemPos) & "|SIZE:" & (item 1 of elemSize) & "," & (item 2 of elemSize)
+        on error errMsg
+          return "APP:" & appName & "|ERROR:" & errMsg
+        end try
+      end tell
+    `
+    try {
+      const result = await runAppleScript(script)
+      
+      // Parse the result
+      const parts: Record<string, string> = {}
+      result.split('|').forEach(part => {
+        const [key, ...valueParts] = part.split(':')
+        parts[key] = valueParts.join(':')
+      })
+      
+      if (parts.ERROR) {
+        throw new Error(parts.ERROR)
+      }
+      
+      const pos = parts.POS?.split(',').map(Number) || [0, 0]
+      const size = parts.SIZE?.split(',').map(Number) || [0, 0]
+      
+      return {
+        app: parts.APP || 'Unknown',
+        role: parts.ROLE || 'Unknown',
+        name: parts.NAME || '',
+        value: parts.VALUE || undefined,
+        description: parts.DESC || undefined,
+        position: { x: pos[0], y: pos[1] },
+        size: { width: size[0], height: size[1] }
+      }
+    } catch (error) {
+      log.error('[ScreenTools] Failed to get focused element (macOS):', error)
+      throw new Error(`Failed to get focused element: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  } else if (process.platform === 'win32') {
+    const script = `
+      Add-Type -AssemblyName UIAutomationClient
+      $automation = [System.Windows.Automation.AutomationElement]
+      $focused = $automation::FocusedElement
+      if ($focused) {
+        $rect = $focused.Current.BoundingRectangle
+        @{
+          Role = $focused.Current.ControlType.ProgrammaticName
+          Name = $focused.Current.Name
+          Value = try { ($focused.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)).Current.Value } catch { "" }
+          X = [int]$rect.X
+          Y = [int]$rect.Y
+          Width = [int]$rect.Width
+          Height = [int]$rect.Height
+        } | ConvertTo-Json
+      } else {
+        @{ Error = "No focused element" } | ConvertTo-Json
+      }
+    `
+    try {
+      const result = await runPowerShell(script)
+      const parsed = JSON.parse(result)
+      if (parsed.Error) {
+        throw new Error(parsed.Error)
+      }
+      return {
+        app: 'Unknown', // Windows doesn't easily give us this from focused element
+        role: parsed.Role || 'Unknown',
+        name: parsed.Name || '',
+        value: parsed.Value || undefined,
+        position: { x: parsed.X, y: parsed.Y },
+        size: { width: parsed.Width, height: parsed.Height }
+      }
+    } catch (error) {
+      log.error('[ScreenTools] Failed to get focused element (Windows):', error)
+      throw new Error(`Failed to get focused element: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  } else {
+    throw new Error(`Unsupported platform: ${process.platform}`)
+  }
+}
+
+/**
  * Focus/activate an application by name
  */
 async function focusApp(appName: string): Promise<void> {
@@ -652,6 +774,26 @@ export function createScreenTools(): Tool<unknown>[] {
             hint: process.platform === 'darwin' 
               ? 'Make sure Accessibility permissions are granted in System Settings > Privacy & Security > Accessibility for this app.'
               : 'This feature requires Windows accessibility APIs to be available.'
+          }
+        }
+      }
+    }),
+
+    // Get currently focused UI element
+    defineTool('screen_get_focused_element', {
+      description: 'Get information about the currently focused UI element (the element that has keyboard focus). Returns the element\'s role, name, value, and position. Use this after pressing Tab to know which field you\'re in, or to verify focus before typing.',
+      parameters: z.object({}),
+      handler: async () => {
+        try {
+          const element = await getFocusedElement()
+          return {
+            success: true,
+            element
+          }
+        } catch (error) {
+          return {
+            error: error instanceof Error ? error.message : String(error),
+            hint: 'The focused element could not be determined. Try clicking on an element first or check Accessibility permissions.'
           }
         }
       }

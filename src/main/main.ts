@@ -1067,38 +1067,101 @@ You have access to browser automation tools (browser_navigate, browser_click, br
 The browser window will be visible to the user. Login sessions persist between runs, so users won't need to re-login each time.
 Browser tools available: browser_navigate, browser_click, browser_fill, browser_type, browser_press_key, browser_screenshot, browser_get_text, browser_get_html, browser_wait_for_element, browser_get_page_info, browser_select_option, browser_checkbox, browser_scroll, browser_go_back, browser_reload, browser_get_links, browser_get_form_inputs, browser_close.
 
-## Screen Accessibility Tools
+## Screen/Desktop Automation (Computer Use)
 
-You have access to screen accessibility tools that let you interact with any application's UI, not just browsers.
-These tools use native accessibility APIs (AppleScript/System Events on macOS, UI Automation on Windows).
+You have tools to interact with ANY desktop application, not just browsers. Use these for:
+- Opening and controlling native apps (email clients, IDEs, calculators, etc.)
+- Filling forms in desktop applications
+- Automating repetitive desktop tasks
+- Reading content from application windows
 
-**Important:** On macOS, these tools require Accessibility permissions. Users should grant access in System Settings > Privacy & Security > Accessibility.
+### Available Tools
+- \`screen_focus_app\` - Focus/activate an app by name (ALWAYS do this first)
+- \`take_screenshot\` - Capture screen/window to see the UI
+- \`screen_click\` - Click at specific (x, y) coordinates
+- \`screen_type\` - Type text at cursor position
+- \`screen_press_key\` - Press keys with modifiers (Cmd+N, Tab, Enter, etc.)
+- \`screen_double_click\` - Double-click at coordinates
+- \`screen_get_elements\` - Get UI elements (limited - many apps don't expose elements)
+- \`screen_get_focused_element\` - Get the currently focused UI element
 
-Available screen tools:
-- \`screen_get_focused_app\` - Get info about the currently focused application
-- \`screen_get_elements\` - Get UI elements (buttons, text fields, labels) with their names, positions, and sizes
-- \`screen_click\` - Click at specific screen coordinates (x, y)
-- \`screen_click_element\` - Click on an element by name (e.g., "Save", "OK")
-- \`screen_type\` - Type text at the current cursor position
-- \`screen_press_key\` - Press keyboard keys with optional modifiers (e.g., Cmd+S, Ctrl+C)
-- \`screen_double_click\` - Double-click at screen coordinates
+### Primary Workflow: Vision-Based Clicking
 
-**Preferred workflow (accessibility-first):**
-1. FIRST try \`screen_click_element\` with the element name - this is faster, cheaper, and more reliable
-2. If element not found, use \`screen_get_elements\` to discover available element names
-3. ONLY if accessibility fails (element not exposed), fall back to vision: use \`take_screenshot\`, analyze visually to estimate coordinates, then use \`screen_click(x, y)\`
+Most apps don't expose their UI elements via accessibility APIs. Use this approach:
 
-The accessibility approach is preferred because it's instant and precise. Vision-based clicking should be a last resort.
+**1. Focus the app:**
+\`\`\`
+screen_focus_app("Calculator")
+\`\`\`
 
-## Screenshot Tool
+**2. Take a screenshot to see the UI:**
+\`\`\`
+take_screenshot(window: "Calculator")
+\`\`\`
 
-You have access to the \`take_screenshot\` tool. Use it to capture visual evidence of UI features or application state.
-- Call with \`list_windows: true\` to see available windows
-- Call with \`window: "Window Name"\` to capture a specific window
-- Call with \`screen: 2\` to capture a specific monitor (1=primary, 2=secondary, etc.)
-- Call with no arguments to capture the primary screen
+**3. Analyze the screenshot visually to find element coordinates:**
+- Note the window position from \`screen_get_elements\` (e.g., x:843, y:294, size 230x408)
+- Estimate button/field positions within the window
+- Calculate absolute screen coordinates
 
-**Note:** Due to macOS security restrictions, capturing other apps' windows may return empty images. If screenshot capture fails, rely on accessibility APIs (\`screen_get_elements\`) or ask the user to describe what they see.
+**4. Click at the calculated coordinates:**
+\`\`\`
+screen_click(x: 929, y: 579)  // Click the "5" button
+\`\`\`
+
+**5. Verify with another screenshot:**
+\`\`\`
+take_screenshot(window: "Calculator")  // Confirm the click worked
+\`\`\`
+
+### Keyboard Shortcuts (When Applicable)
+
+For apps with standard shortcuts, keyboard is often faster:
+- \`screen_press_key("n", ["cmd"])\` - New item (Cmd+N)
+- \`screen_press_key("s", ["cmd"])\` - Save (Cmd+S)
+- \`screen_press_key("Tab")\` - Move to next field
+- \`screen_press_key("Enter")\` - Confirm/submit
+
+Use \`screen_get_focused_element\` after Tab to check which field has focus (works well in native apps, less so in Electron apps).
+
+### Window Names
+
+Window names often differ from app names:
+- Outlook: "1. Personal • user@example.com"
+- Use \`take_screenshot(list_windows: true)\` to see actual window names
+
+### Example: Calculator (5 × 3 =)
+
+\`\`\`
+1. screen_focus_app("Calculator")
+2. screen_get_elements()                    // Get window position: {x:843, y:294, size:230x408}
+3. take_screenshot(window: "Calculator")    // See button layout
+4. screen_click(x: 929, y: 579)             // Click "5" (calculated from window pos + button grid)
+5. screen_click(x: 1010, y: 510)            // Click "×"
+6. screen_click(x: 895, y: 645)             // Click "3"
+7. screen_click(x: 1010, y: 778)            // Click "="
+8. take_screenshot(window: "Calculator")    // Verify result shows "15"
+\`\`\`
+
+### Example: Email (Outlook with keyboard)
+
+\`\`\`
+1. screen_focus_app("Microsoft Outlook")
+2. screen_press_key("n", ["cmd"])           // New email
+3. take_screenshot()                        // See compose window
+4. screen_type("recipient@example.com")     // Type in To field (usually focused by default)
+5. screen_press_key("Tab")                  // Move to Subject
+6. screen_type("Hello World")
+7. screen_press_key("Tab")                  // Move to Body
+8. screen_type("Email content here")
+9. take_screenshot()                        // Verify before sending
+\`\`\`
+
+### Notes
+
+- **cliclick required:** Install with \`brew install cliclick\` for reliable clicking
+- **Screen Recording permission:** Required for screenshots on macOS
+- **Coordinate calculation:** Use window position from \`screen_get_elements\` + visual estimation from screenshot
 `
     },
   })
