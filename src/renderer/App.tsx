@@ -705,6 +705,18 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
               ),
           };
         });
+
+        // Focus textarea when response completes for the active tab
+        // (but not if there are pending confirmations requiring user action)
+        if (sessionId === activeTabIdRef.current) {
+          setTabs(currentTabs => {
+            const tab = currentTabs.find(t => t.id === sessionId);
+            if (tab && tab.pendingConfirmations.length === 0) {
+              inputRef.current?.focus();
+            }
+            return currentTabs;
+          });
+        }
       });
     });
 
@@ -1379,6 +1391,57 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
       // Remove this confirmation from the queue
       const remainingConfirmations = activeTab.pendingConfirmations.slice(1);
+
+      // If denied, add a system message showing what was denied
+      if (decision === "denied") {
+        let deniedContent = "🚫 **Denied:** ";
+        if (pendingConfirmation.kind === "command" || pendingConfirmation.kind === "bash") {
+          deniedContent += `Command execution`;
+          if (pendingConfirmation.fullCommandText) {
+            deniedContent += `\n\`\`\`\n${pendingConfirmation.fullCommandText}\n\`\`\``;
+          } else if (pendingConfirmation.executable) {
+            deniedContent += ` \`${pendingConfirmation.executable}\``;
+          }
+        } else if (pendingConfirmation.kind === "mcp") {
+          deniedContent += `MCP tool \`${pendingConfirmation.toolName || pendingConfirmation.toolTitle || "unknown"}\``;
+          if (pendingConfirmation.serverName) {
+            deniedContent += ` from server \`${pendingConfirmation.serverName}\``;
+          }
+        } else if (pendingConfirmation.kind === "url") {
+          deniedContent += `URL fetch`;
+          if (pendingConfirmation.url) {
+            deniedContent += `: ${pendingConfirmation.url}`;
+          }
+        } else if (pendingConfirmation.kind === "write" || pendingConfirmation.kind === "edit") {
+          deniedContent += `File ${pendingConfirmation.kind}`;
+          if (pendingConfirmation.path) {
+            deniedContent += `: \`${pendingConfirmation.path}\``;
+          }
+        } else if (pendingConfirmation.kind === "read") {
+          deniedContent += `File read`;
+          if (pendingConfirmation.path) {
+            deniedContent += `: \`${pendingConfirmation.path}\``;
+          }
+        } else {
+          deniedContent += `${pendingConfirmation.kind}`;
+          if (pendingConfirmation.path) {
+            deniedContent += `: \`${pendingConfirmation.path}\``;
+          }
+        }
+
+        const deniedMessage: Message = {
+          id: generateId(),
+          role: "system",
+          content: deniedContent,
+          timestamp: Date.now(),
+        };
+
+        updateTab(activeTab.id, {
+          pendingConfirmations: remainingConfirmations,
+          messages: [...activeTab.messages, deniedMessage],
+        });
+        return;
+      }
 
       // If "global" was selected, update the global safe commands list
       if (decision === "global" && pendingConfirmation.executable) {
