@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, dialog, nativeTheme, desktopCapturer, systemPreferences } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, dialog, nativeTheme, desktopCapturer, systemPreferences, screen } from 'electron'
 import { join, dirname } from 'path'
 import { existsSync, mkdirSync, readdirSync, readFileSync, copyFileSync, statSync, unlinkSync } from 'fs'
 import { exec } from 'child_process'
@@ -100,9 +100,13 @@ function createScreenshotTool(sessionCwd: string): Tool {
         const captureType = args.window ? 'window' : 'screen'
         log.info(`[Screenshot] Capturing ${captureType}${args.window ? `: ${args.window}` : ''}...`)
         
+        // Get actual screen size for 1:1 coordinate mapping
+        const primaryDisplay = screen.getPrimaryDisplay()
+        const { width: screenWidth, height: screenHeight } = primaryDisplay.size
+        
         const sources = await desktopCapturer.getSources({
           types: [captureType],
-          thumbnailSize: { width: 1920, height: 1080 },
+          thumbnailSize: { width: screenWidth, height: screenHeight },
           fetchWindowIcons: false
         })
         
@@ -162,14 +166,21 @@ function createScreenshotTool(sessionCwd: string): Tool {
         
         await writeFile(filepath, pngBuffer)
         
-        log.info(`[Screenshot] Saved to: ${filepath} (${pngBuffer.length} bytes)`)
+        const scaleFactor = primaryDisplay.scaleFactor
+        const imgWidth = thumbnail.getSize().width
+        const imgHeight = thumbnail.getSize().height
+        
+        log.info(`[Screenshot] Saved to: ${filepath} (${pngBuffer.length} bytes, ${imgWidth}x${imgHeight})`)
         return {
           success: true,
           path: filepath,
           filename: filename,
           captured: args.window ? `window: ${source.name}` : 'entire screen',
           size: `${pngBuffer.length} bytes`,
-          dimensions: `${thumbnail.getSize().width}x${thumbnail.getSize().height}`
+          dimensions: `${imgWidth}x${imgHeight}`,
+          screenSize: { width: screenWidth, height: screenHeight },
+          scaleFactor,
+          coordinateInfo: 'Screenshot coordinates map 1:1 to click coordinates (no scaling needed)'
         }
         
       } catch (error) {
@@ -1077,52 +1088,58 @@ You have tools to interact with ANY desktop application, not just browsers. Use 
 
 ### Available Tools
 - \`screen_focus_app\` - Focus/activate an app by name (ALWAYS do this first)
-- \`take_screenshot\` - Capture screen/window to see the UI
-- \`screen_click\` - Click at specific (x, y) coordinates
+- \`screen_get_elements\` - Get UI elements with EXACT screen coordinates (use this for clicking!)
+- \`screen_click\` - Click at specific (x, y) screen coordinates
 - \`screen_type\` - Type text at cursor position
 - \`screen_press_key\` - Press keys with modifiers (Cmd+N, Tab, Enter, etc.)
 - \`screen_double_click\` - Double-click at coordinates
-- \`screen_get_elements\` - Get UI elements (limited - many apps don't expose elements)
 - \`screen_get_focused_element\` - Get the currently focused UI element
+- \`take_screenshot\` - Capture screen/window for visual verification
 
-### Primary Workflow: Vision-Based Clicking
-
-Most apps don't expose their UI elements via accessibility APIs. Use this approach:
+### Primary Workflow: Use screen_get_elements for Coordinates
 
 **1. Focus the app:**
 \`\`\`
-screen_focus_app("Calculator")
+screen_focus_app("Finder")
 \`\`\`
 
-**2. Take a screenshot to see the UI:**
+**2. Get exact element positions:**
 \`\`\`
-take_screenshot(window: "Calculator")
+screen_get_elements(maxDepth: 5)
+\`\`\`
+This returns elements with **exact screen coordinates** - no calculation needed!
+Example output: \`{role: "AXButton", name: "Save", position: {x: 450, y: 320}, size: {width: 80, height: 24}}\`
+
+**3. Click at the element's position:**
+\`\`\`
+screen_click(x: 490, y: 332)  // Center of the button (450+40, 320+12)
 \`\`\`
 
-**3. Analyze the screenshot visually to find element coordinates:**
-- Note the window position from \`screen_get_elements\` (e.g., x:843, y:294, size 230x408)
-- Estimate button/field positions within the window
-- Calculate absolute screen coordinates
+**4. Verify with a screenshot if needed**
 
-**4. Click at the calculated coordinates:**
-\`\`\`
-screen_click(x: 929, y: 579)  // Click the "5" button
-\`\`\`
+### Fallback: Screenshot-Based Coordinates
 
-**5. Verify with another screenshot:**
-\`\`\`
-take_screenshot(window: "Calculator")  // Confirm the click worked
-\`\`\`
+If screen_get_elements doesn't expose the element you need:
 
-### Keyboard Shortcuts (When Applicable)
+1. Take a screenshot: \`take_screenshot()\`
+2. Note the \`dimensions\` (e.g., 1920x1080) and \`screenSize\` (e.g., 2560x1440)
+3. Find element position in screenshot pixels
+4. Scale: \`click_x = screenshot_x × (screenSize.width / dimensions.width)\`
+5. Example: Element at (300, 200) in 1920x1080 screenshot, screen is 2560x1440
+   - click_x = 300 × (2560/1920) = 400
+   - click_y = 200 × (1440/1080) = 267
 
-For apps with standard shortcuts, keyboard is often faster:
+### More Reliable Alternatives
+
+**Keyboard navigation** is often more reliable than clicking:
 - \`screen_press_key("n", ["cmd"])\` - New item (Cmd+N)
-- \`screen_press_key("s", ["cmd"])\` - Save (Cmd+S)
-- \`screen_press_key("Tab")\` - Move to next field
-- \`screen_press_key("Enter")\` - Confirm/submit
+- \`screen_press_key("Tab")\` - Move between fields
+- Use menus via System Events for precise control
 
-Use \`screen_get_focused_element\` after Tab to check which field has focus (works well in native apps, less so in Electron apps).
+**AppleScript for native apps** (via bash tool):
+\`\`\`bash
+osascript -e 'tell application "System Events" to tell process "Finder" to click menu item "Size" of menu 1 of menu item "Sort By" of menu 1 of menu bar item "View" of menu bar 1'
+\`\`\`
 
 ### Window Names
 
