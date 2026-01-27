@@ -677,6 +677,18 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
               ),
           };
         });
+
+        // Focus textarea when response completes for the active tab
+        // (but not if there are pending confirmations requiring user action)
+        if (sessionId === activeTabIdRef.current) {
+          setTabs(currentTabs => {
+            const tab = currentTabs.find(t => t.id === sessionId);
+            if (tab && tab.pendingConfirmations.length === 0) {
+              inputRef.current?.focus();
+            }
+            return currentTabs;
+          });
+        }
       });
     });
 
