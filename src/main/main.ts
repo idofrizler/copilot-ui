@@ -3332,6 +3332,8 @@ ipcMain.handle('pty:exists', async (_event, sessionId: string) => {
 // Permissions handlers (macOS only)
 ipcMain.handle('permissions:getStatus', async () => {
   const isDev = !!process.env.ELECTRON_RENDERER_URL
+  const isTest = process.env.NODE_ENV === 'test'
+  const forceShowModal = process.env.FORCE_PERMISSIONS_MODAL === 'true'
   
   if (process.platform !== 'darwin') {
     return {
@@ -3371,9 +3373,10 @@ ipcMain.handle('permissions:getStatus', async () => {
   
   return {
     platform: process.platform,
-    screenRecording: screenStatus as 'not-determined' | 'granted' | 'denied' | 'restricted' | 'unknown',
-    accessibility: accessibilityGranted ? 'granted' as const : 'denied' as const,
-    modalDismissed: store.get('permissionsModalDismissed') as boolean,
+    // In test mode with FORCE_PERMISSIONS_MODAL, pretend permissions are not granted
+    screenRecording: forceShowModal ? 'denied' as const : screenStatus as 'not-determined' | 'granted' | 'denied' | 'restricted' | 'unknown',
+    accessibility: forceShowModal ? 'denied' as const : (accessibilityGranted ? 'granted' as const : 'denied' as const),
+    modalDismissed: forceShowModal ? false : store.get('permissionsModalDismissed') as boolean,
     appName,
     appPath,
     appBundlePath,

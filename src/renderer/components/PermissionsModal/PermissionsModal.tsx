@@ -227,12 +227,13 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({ isOpen, onCl
 
       <Modal.Body className="pt-0">
         <Modal.Footer className="border-t border-copilot-border pt-4 mt-2">
-          <Button variant="ghost" onClick={handleDismiss}>
+          <Button variant="ghost" onClick={handleDismiss} data-testid="permissions-dont-show-again">
             Don't show again
           </Button>
           <Button 
             variant={allPermissionsGranted ? 'primary' : 'secondary'} 
             onClick={onClose}
+            data-testid="permissions-continue"
           >
             {allPermissionsGranted ? 'Continue' : 'Continue anyway'}
           </Button>
