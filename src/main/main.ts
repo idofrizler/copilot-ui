@@ -14,6 +14,7 @@ import * as worktree from './worktree'
 import * as ptyManager from './pty'
 import * as browserManager from './browser'
 import { createBrowserTools } from './browserTools'
+import { createScreenTools } from './screenTools'
 
 // MCP Server Configuration types (matching SDK)
 interface MCPServerConfigBase {
@@ -59,13 +60,17 @@ function createScreenshotTool(sessionCwd: string): Tool {
           type: 'string',
           description: 'Optional window name to capture (e.g., "Chrome", "VS Code", "Terminal"). If not provided, captures the entire screen. Use list_windows first to see available windows.'
         },
+        screen: {
+          type: 'number',
+          description: 'Optional screen number to capture (1 for primary, 2 for secondary, etc.). If not provided, captures the primary screen. Use list_windows to see available screens.'
+        },
         list_windows: {
           type: 'boolean',
-          description: 'If true, returns a list of available window names instead of taking a screenshot. Useful to discover what windows can be captured.'
+          description: 'If true, returns a list of available window names and screens instead of taking a screenshot. Useful to discover what windows can be captured.'
         }
       }
     },
-    handler: async (args: { filename?: string; window?: string; list_windows?: boolean }) => {
+    handler: async (args: { filename?: string; window?: string; screen?: number; list_windows?: boolean }) => {
       try {
         // Generate filename
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
@@ -118,6 +123,17 @@ function createScreenshotTool(sessionCwd: string): Tool {
               error: `Window "${args.window}" not found`,
               available_windows: sources.map(s => s.name),
               hint: 'Try one of the available window names listed above.'
+            }
+          }
+        } else if (args.screen && args.screen > 1) {
+          // Find specific screen by number (Screen 1, Screen 2, etc.)
+          const screenName = `Screen ${args.screen}`
+          source = sources.find(s => s.name === screenName)
+          if (!source) {
+            return {
+              error: `Screen ${args.screen} not found`,
+              available_screens: sources.map(s => s.name),
+              hint: 'Try a different screen number.'
             }
           }
         } else {
@@ -485,12 +501,13 @@ async function resumeDisconnectedSession(sessionId: string, sessionState: Sessio
   
   // Create browser tools and screenshot tool for resumed session
   const browserTools = createBrowserTools(sessionId)
+  const screenTools = createScreenTools()
   const screenshotTool = createScreenshotTool(sessionState.cwd)
-  log.info(`[${sessionId}] Resuming with ${browserTools.length + 1} tools:`, [...browserTools.map(t => t.name), screenshotTool.name].join(', '))
+  log.info(`[${sessionId}] Resuming with ${browserTools.length + screenTools.length + 1} tools:`, [...browserTools.map(t => t.name), ...screenTools.map(t => t.name), screenshotTool.name].join(', '))
   
   const resumedSession = await client.resumeSession(sessionId, {
     mcpServers: mcpConfig.mcpServers,
-    tools: [...browserTools, screenshotTool],
+    tools: [...browserTools, ...screenTools, screenshotTool],
     onPermissionRequest: (request, invocation) => handlePermissionRequest(request, invocation, sessionId)
   })
   
@@ -1015,14 +1032,15 @@ async function createNewSession(model?: string, cwd?: string): Promise<string> {
   
   // Create browser tools and screenshot tool for this session
   const browserTools = createBrowserTools(generatedSessionId)
+  const screenTools = createScreenTools()
   const screenshotTool = createScreenshotTool(sessionCwd)
-  console.log(`[${generatedSessionId}] Registering ${browserTools.length + 1} tools:`, [...browserTools.map(t => t.name), screenshotTool.name])
+  console.log(`[${generatedSessionId}] Registering ${browserTools.length + screenTools.length + 1} tools:`, [...browserTools.map(t => t.name), ...screenTools.map(t => t.name), screenshotTool.name])
   
   const newSession = await client.createSession({
     sessionId: generatedSessionId,
     model: sessionModel,
     mcpServers: mcpConfig.mcpServers,
-    tools: [...browserTools, screenshotTool],
+    tools: [...browserTools, ...screenTools, screenshotTool],
     onPermissionRequest: (request, invocation) => handlePermissionRequest(request, invocation, newSession.sessionId),
     systemMessage: {
       mode: 'append',
@@ -1049,12 +1067,38 @@ You have access to browser automation tools (browser_navigate, browser_click, br
 The browser window will be visible to the user. Login sessions persist between runs, so users won't need to re-login each time.
 Browser tools available: browser_navigate, browser_click, browser_fill, browser_type, browser_press_key, browser_screenshot, browser_get_text, browser_get_html, browser_wait_for_element, browser_get_page_info, browser_select_option, browser_checkbox, browser_scroll, browser_go_back, browser_reload, browser_get_links, browser_get_form_inputs, browser_close.
 
+## Screen Accessibility Tools
+
+You have access to screen accessibility tools that let you interact with any application's UI, not just browsers.
+These tools use native accessibility APIs (AppleScript/System Events on macOS, UI Automation on Windows).
+
+**Important:** On macOS, these tools require Accessibility permissions. Users should grant access in System Settings > Privacy & Security > Accessibility.
+
+Available screen tools:
+- \`screen_get_focused_app\` - Get info about the currently focused application
+- \`screen_get_elements\` - Get UI elements (buttons, text fields, labels) with their names, positions, and sizes
+- \`screen_click\` - Click at specific screen coordinates (x, y)
+- \`screen_click_element\` - Click on an element by name (e.g., "Save", "OK")
+- \`screen_type\` - Type text at the current cursor position
+- \`screen_press_key\` - Press keyboard keys with optional modifiers (e.g., Cmd+S, Ctrl+C)
+- \`screen_double_click\` - Double-click at screen coordinates
+
+**Preferred workflow (accessibility-first):**
+1. FIRST try \`screen_click_element\` with the element name - this is faster, cheaper, and more reliable
+2. If element not found, use \`screen_get_elements\` to discover available element names
+3. ONLY if accessibility fails (element not exposed), fall back to vision: use \`take_screenshot\`, analyze visually to estimate coordinates, then use \`screen_click(x, y)\`
+
+The accessibility approach is preferred because it's instant and precise. Vision-based clicking should be a last resort.
+
 ## Screenshot Tool
 
 You have access to the \`take_screenshot\` tool. Use it to capture visual evidence of UI features or application state.
 - Call with \`list_windows: true\` to see available windows
 - Call with \`window: "Window Name"\` to capture a specific window
-- Call with no arguments to capture the entire screen
+- Call with \`screen: 2\` to capture a specific monitor (1=primary, 2=secondary, etc.)
+- Call with no arguments to capture the primary screen
+
+**Note:** Due to macOS security restrictions, capturing other apps' windows may return empty images. If screenshot capture fails, rely on accessibility APIs (\`screen_get_elements\`) or ask the user to describe what they see.
 `
     },
   })
@@ -1189,7 +1233,7 @@ async function initCopilot(): Promise<void> {
         
         const session = await client.resumeSession(sessionId, {
           mcpServers: mcpConfig.mcpServers,
-          tools: [...createBrowserTools(sessionId), screenshotTool],
+          tools: [...createBrowserTools(sessionId), ...createScreenTools(), screenshotTool],
           onPermissionRequest: (request, invocation) => handlePermissionRequest(request, invocation, sessionId)
         })
         
@@ -2770,7 +2814,7 @@ ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string
   
   const session = await client.resumeSession(sessionId, {
     mcpServers: mcpConfig.mcpServers,
-    tools: [...createBrowserTools(sessionId), screenshotTool],
+    tools: [...createBrowserTools(sessionId), ...createScreenTools(), screenshotTool],
     onPermissionRequest: (request, invocation) => handlePermissionRequest(request, invocation, sessionId)
   })
   
