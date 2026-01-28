@@ -32,6 +32,7 @@ import {
   PaletteIcon,
   BookIcon,
   ImageIcon,
+  HistoryIcon,
   TerminalPanel,
   TerminalOutputShrinkModal,
   WorktreeSessionsList,
@@ -39,6 +40,7 @@ import {
   ChoiceSelector,
   PermissionsModal,
   PaperclipIcon,
+  SessionHistory,
 } from "./components";
 import {
   Status,
@@ -79,7 +81,7 @@ const App: React.FC = () => {
   const [previousSessions, setPreviousSessions] = useState<PreviousSession[]>(
     [],
   );
-  const [showPreviousSessions, setShowPreviousSessions] = useState(false);
+  const [showSessionHistory, setShowSessionHistory] = useState(false);
   const [showAllowedCommands, setShowAllowedCommands] = useState(false);
   const [globalSafeCommands, setGlobalSafeCommands] = useState<string[]>([]);
   const [showAddAllowedCommand, setShowAddAllowedCommand] = useState(false);
@@ -2776,49 +2778,31 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
             ))}
           </div>
 
-          {/* Previous Sessions Expander */}
-          {previousSessions.length > 0 && (
-            <div className="border-t border-copilot-border">
+          {/* Bottom section - aligned with input area */}
+          <div className="mt-auto">
+            {/* Session History Button */}
+            <div className="border-t border-copilot-border h-[32px] flex items-center">
               <button
-                onClick={() => setShowPreviousSessions(!showPreviousSessions)}
-                className="w-full flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                onClick={() => setShowSessionHistory(true)}
+                className="w-full h-full flex items-center gap-2 px-3 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
               >
-                <ChevronRightIcon
-                  size={10}
-                  className={`transition-transform ${showPreviousSessions ? "rotate-90" : ""}`}
-                />
-                <span>Previous ({previousSessions.length})</span>
+                <HistoryIcon size={14} strokeWidth={1.5} />
+                <span>Session History</span>
+                {previousSessions.length > 0 && (
+                  <span className="ml-auto text-[10px] bg-copilot-bg px-1.5 py-0.5 rounded">
+                    {previousSessions.length}
+                  </span>
+                )}
               </button>
-
-              {showPreviousSessions && (
-                <div className="max-h-48 overflow-y-auto">
-                  {previousSessions.slice(0, 50).map((prevSession) => (
-                    <button
-                      key={prevSession.sessionId}
-                      onClick={() => handleResumePreviousSession(prevSession)}
-                      className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors text-left border-l-2 border-l-transparent"
-                    >
-                      <ClockIcon
-                        size={10}
-                        className="shrink-0 opacity-50"
-                        strokeWidth={1.5}
-                      />
-                      <span className="flex-1 truncate">
-                        {prevSession.name ||
-                          prevSession.sessionId.slice(0, 12) + "..."}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
             </div>
-          )}
 
-          {/* Build Info */}
-          <div className="border-t border-copilot-border px-3 py-2 text-[10px] text-copilot-text-muted">
-            <div className="flex items-center gap-1" title={`Build: ${buildInfo.version}\nBranch: ${buildInfo.gitBranch}\nCommit: ${buildInfo.gitSha}\nBuilt: ${buildInfo.buildDate} ${buildInfo.buildTime}`}>
+            {/* Build Info */}
+            <div 
+              className="border-t border-copilot-border h-[24px] flex items-center px-3 text-[10px] text-copilot-text-muted"
+              title={`Build: ${buildInfo.version}\nBranch: ${buildInfo.gitBranch}\nCommit: ${buildInfo.gitSha}\nBuilt: ${buildInfo.buildDate} ${buildInfo.buildTime}`}
+            >
               <span className="opacity-60">v{buildInfo.baseVersion}</span>
-              <span className="opacity-40">•</span>
+              <span className="opacity-40 mx-1">•</span>
               <span className="opacity-60 truncate">{buildInfo.gitBranch === 'main' || buildInfo.gitBranch === 'master' ? buildInfo.gitSha : buildInfo.gitBranch}</span>
             </div>
           </div>
@@ -4685,6 +4669,14 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           </Modal.Footer>
         </Modal.Body>
       </Modal>
+
+      {/* Session History Modal */}
+      <SessionHistory
+        isOpen={showSessionHistory}
+        onClose={() => setShowSessionHistory(false)}
+        sessions={previousSessions}
+        onResumeSession={handleResumePreviousSession}
+      />
 
       {/* Worktree Sessions List Modal */}
       <WorktreeSessionsList

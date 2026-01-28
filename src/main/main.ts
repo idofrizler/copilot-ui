@@ -1266,11 +1266,62 @@ async function initCopilot(): Promise<void> {
     const defaultCwd = app.isPackaged ? app.getPath('home') : process.cwd()
     const defaultClient = await getClientForCwd(defaultCwd)
     
+    // Check if we should use mock sessions for testing
+    const useMockSessions = process.env.USE_MOCK_SESSIONS === 'true'
+    
     // Get all available sessions and our stored open sessions with models
-    const allSessions = await defaultClient.listSessions()
+    let allSessions = await defaultClient.listSessions()
     const openSessions = store.get('openSessions') as StoredSession[] || []
     const openSessionIds = openSessions.map(s => s.sessionId)
     const openSessionMap = new Map(openSessions.map(s => [s.sessionId, s]))
+    
+    // Mock sessions for E2E testing - deterministic data
+    let mockSessionCwds: Record<string, string> = {}
+    if (useMockSessions) {
+      const now = new Date()
+      const createMockDate = (daysAgo: number, hoursAgo = 0) => {
+        const d = new Date(now)
+        d.setDate(d.getDate() - daysAgo)
+        d.setHours(d.getHours() - hoursAgo)
+        return d
+      }
+      
+      allSessions = [
+        // Today
+        { sessionId: 'mock-today-1', summary: 'Fix authentication bug', modifiedTime: createMockDate(0, 2) },
+        { sessionId: 'mock-today-2', summary: 'Add user dashboard', modifiedTime: createMockDate(0, 5) },
+        // Yesterday
+        { sessionId: 'mock-yesterday-1', summary: 'Refactor API endpoints', modifiedTime: createMockDate(1, 3) },
+        { sessionId: 'mock-yesterday-2', summary: 'Update unit tests', modifiedTime: createMockDate(1, 8) },
+        // Last 7 days
+        { sessionId: 'mock-week-1', summary: 'Feature: Dark mode support', modifiedTime: createMockDate(3) },
+        { sessionId: 'mock-week-2', summary: 'Performance optimization', modifiedTime: createMockDate(5) },
+        { sessionId: 'mock-week-3', summary: 'Database migration script', modifiedTime: createMockDate(6) },
+        // Last 30 days  
+        { sessionId: 'mock-month-1', summary: 'Initial project setup', modifiedTime: createMockDate(12) },
+        { sessionId: 'mock-month-2', summary: 'Documentation updates', modifiedTime: createMockDate(20) },
+        { sessionId: 'mock-month-3', summary: 'CI/CD pipeline config', modifiedTime: createMockDate(25) },
+        // Older
+        { sessionId: 'mock-old-1', summary: 'Legacy code cleanup', modifiedTime: createMockDate(45) },
+        { sessionId: 'mock-old-2', summary: 'Archive migration', modifiedTime: createMockDate(60) },
+      ] as typeof allSessions
+      
+      mockSessionCwds = {
+        'mock-today-1': '/Users/dev/projects/webapp',
+        'mock-today-2': '/Users/dev/projects/webapp',
+        'mock-yesterday-1': '/Users/dev/projects/api-server',
+        'mock-yesterday-2': '/Users/dev/projects/webapp',
+        'mock-week-1': '/Users/dev/projects/desktop-app',
+        'mock-week-2': '/Users/dev/projects/webapp',
+        'mock-week-3': '/Users/dev/projects/api-server',
+        'mock-month-1': '/Users/dev/projects/new-project',
+        'mock-month-2': '/Users/dev/docs',
+        'mock-month-3': '/Users/dev/projects/webapp',
+        'mock-old-1': '/Users/dev/legacy',
+        'mock-old-2': '/Users/dev/archive',
+      }
+      console.log('Using mock sessions for testing')
+    }
     
     console.log(`Found ${allSessions.length} total sessions, ${openSessions.length} were open in our app`)
     console.log('Open session IDs:', openSessionIds)
@@ -1280,11 +1331,11 @@ async function initCopilot(): Promise<void> {
     const sessionMetaMap = new Map(allSessions.map(s => [s.sessionId, s]))
     
     // Filter to only sessions that exist and were open in our app
-    const sessionsToResume = openSessionIds.filter(id => sessionMetaMap.has(id))
+    const sessionsToResume = useMockSessions ? [] : openSessionIds.filter(id => sessionMetaMap.has(id))
     console.log('Sessions to resume:', sessionsToResume)
     
-    // Get stored session cwds for previous sessions
-    const sessionCwds = store.get('sessionCwds') as Record<string, string> || {}
+    // Get stored session cwds for previous sessions (use mock cwds if in test mode)
+    const sessionCwds = useMockSessions ? mockSessionCwds : (store.get('sessionCwds') as Record<string, string> || {})
     
     // Build list of previous sessions (all sessions not in our open list)
     const previousSessions = allSessions

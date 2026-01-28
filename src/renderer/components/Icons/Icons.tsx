@@ -177,6 +177,21 @@ export const PaperclipIcon: React.FC<IconProps> = ({ size = 24, className, strok
   </svg>
 )
 
+export const HistoryIcon: React.FC<IconProps> = ({ size = 24, className, strokeWidth = 2 }) => (
+  <svg width={size} height={size} className={className} {...defaultProps} strokeWidth={strokeWidth}>
+    <path d="M3 3v5h5" />
+    <path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" />
+    <path d="M12 7v5l4 2" />
+  </svg>
+)
+
+export const SearchIcon: React.FC<IconProps> = ({ size = 24, className, strokeWidth = 2 }) => (
+  <svg width={size} height={size} className={className} {...defaultProps} strokeWidth={strokeWidth}>
+    <circle cx="11" cy="11" r="8" />
+    <path d="M21 21l-4.35-4.35" />
+  </svg>
+)
+
 // Ralph Wiggum icon - uses the Ralph Wiggum image
 export const RalphIcon: React.FC<IconProps> = ({ size = 24, className }) => (
   <img 
@@ -214,6 +229,8 @@ export const Icons = {
   Palette: PaletteIcon,
   Image: ImageIcon,
   Paperclip: PaperclipIcon,
+  History: HistoryIcon,
+  Search: SearchIcon,
   Ralph: RalphIcon,
 }
 
