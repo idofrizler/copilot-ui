@@ -38,7 +38,6 @@ import {
   WorktreeSessionsList,
   CreateWorktreeSession,
   ChoiceSelector,
-  PermissionsModal,
   PaperclipIcon,
   SessionHistory,
 } from "./components";
@@ -164,10 +163,6 @@ const App: React.FC = () => {
   const [modelCapabilities, setModelCapabilities] = useState<Record<string, ModelCapabilities>>({});
   const [isDraggingImage, setIsDraggingImage] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
-
-  // Permissions modal state (macOS only)
-  const [showPermissionsModal, setShowPermissionsModal] = useState(false);
-  const [permissionsChecked, setPermissionsChecked] = useState(false);
 
   // Image lightbox state (for viewing enlarged images)
   const [lightboxImage, setLightboxImage] = useState<{ src: string; alt: string } | null>(null);
@@ -318,29 +313,6 @@ const App: React.FC = () => {
       inputRef.current.style.height = "auto";
     }
   }, [inputValue]);
-
-  // Check permissions on startup (macOS only)
-  useEffect(() => {
-    const checkPermissions = async () => {
-      try {
-        const status = await window.electronAPI.permissions.getStatus();
-        setPermissionsChecked(true);
-        
-        // Only show modal on macOS, when not already dismissed, and when some permissions are missing
-        if (
-          status.platform === 'darwin' &&
-          !status.modalDismissed &&
-          (status.screenRecording !== 'granted' || status.accessibility !== 'granted')
-        ) {
-          setShowPermissionsModal(true);
-        }
-      } catch (error) {
-        console.error('Failed to check permissions:', error);
-        setPermissionsChecked(true);
-      }
-    };
-    checkPermissions();
-  }, []);
 
   // Load MCP servers on startup
   useEffect(() => {
@@ -4710,13 +4682,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           lineCount={pendingTerminalOutput.lineCount}
         />
       )}
-
-      {/* Permissions Modal (macOS) */}
-      <PermissionsModal
-        isOpen={showPermissionsModal}
-        onClose={() => setShowPermissionsModal(false)}
-        onDismiss={() => setShowPermissionsModal(false)}
-      />
 
       {/* Image Lightbox Modal */}
       {lightboxImage && (

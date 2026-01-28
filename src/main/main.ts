@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, dialog, nativeTheme, desktopCapturer, systemPreferences, screen } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, dialog, nativeTheme, desktopCapturer, screen } from 'electron'
 import { join, dirname } from 'path'
 import { existsSync, mkdirSync, readdirSync, readFileSync, copyFileSync, statSync, unlinkSync } from 'fs'
 import { exec } from 'child_process'
@@ -14,7 +14,6 @@ import * as worktree from './worktree'
 import * as ptyManager from './pty'
 import * as browserManager from './browser'
 import { createBrowserTools } from './browserTools'
-import { createScreenTools } from './screenTools'
 
 // MCP Server Configuration types (matching SDK)
 interface MCPServerConfigBase {
@@ -269,7 +268,6 @@ const store = new Store({
     theme: 'system' as string,  // Theme preference: 'system', 'light', 'dark', or custom theme id
     sessionCwds: {} as Record<string, string>,  // Persistent map of sessionId -> cwd (survives session close)
     globalSafeCommands: [] as string[],  // Globally safe commands that are auto-approved for all sessions
-    permissionsModalDismissed: false as boolean,  // Whether user dismissed the permissions modal
     // URL allowlist - domains that are auto-approved for web_fetch (similar to --allow-url in Copilot CLI)
     allowedUrls: [
       'github.com',
@@ -512,13 +510,12 @@ async function resumeDisconnectedSession(sessionId: string, sessionState: Sessio
   
   // Create browser tools and screenshot tool for resumed session
   const browserTools = createBrowserTools(sessionId)
-  const screenTools = createScreenTools()
   const screenshotTool = createScreenshotTool(sessionState.cwd)
-  log.info(`[${sessionId}] Resuming with ${browserTools.length + screenTools.length + 1} tools:`, [...browserTools.map(t => t.name), ...screenTools.map(t => t.name), screenshotTool.name].join(', '))
+  log.info(`[${sessionId}] Resuming with ${browserTools.length + 1} tools:`, [...browserTools.map(t => t.name), screenshotTool.name].join(', '))
   
   const resumedSession = await client.resumeSession(sessionId, {
     mcpServers: mcpConfig.mcpServers,
-    tools: [...browserTools, ...screenTools, screenshotTool],
+    tools: [...browserTools, screenshotTool],
     onPermissionRequest: (request, invocation) => handlePermissionRequest(request, invocation, sessionId)
   })
   
@@ -1043,15 +1040,14 @@ async function createNewSession(model?: string, cwd?: string): Promise<string> {
   
   // Create browser tools and screenshot tool for this session
   const browserTools = createBrowserTools(generatedSessionId)
-  const screenTools = createScreenTools()
   const screenshotTool = createScreenshotTool(sessionCwd)
-  console.log(`[${generatedSessionId}] Registering ${browserTools.length + screenTools.length + 1} tools:`, [...browserTools.map(t => t.name), ...screenTools.map(t => t.name), screenshotTool.name])
+  console.log(`[${generatedSessionId}] Registering ${browserTools.length + 1} tools:`, [...browserTools.map(t => t.name), screenshotTool.name])
   
   const newSession = await client.createSession({
     sessionId: generatedSessionId,
     model: sessionModel,
     mcpServers: mcpConfig.mcpServers,
-    tools: [...browserTools, ...screenTools, screenshotTool],
+    tools: [...browserTools, screenshotTool],
     onPermissionRequest: (request, invocation) => handlePermissionRequest(request, invocation, newSession.sessionId),
     systemMessage: {
       mode: 'append',
@@ -1077,108 +1073,6 @@ You have access to browser automation tools (browser_navigate, browser_click, br
 
 The browser window will be visible to the user. Login sessions persist between runs, so users won't need to re-login each time.
 Browser tools available: browser_navigate, browser_click, browser_fill, browser_type, browser_press_key, browser_screenshot, browser_get_text, browser_get_html, browser_wait_for_element, browser_get_page_info, browser_select_option, browser_checkbox, browser_scroll, browser_go_back, browser_reload, browser_get_links, browser_get_form_inputs, browser_close.
-
-## Screen/Desktop Automation (Computer Use)
-
-You have tools to interact with ANY desktop application, not just browsers. Use these for:
-- Opening and controlling native apps (email clients, IDEs, calculators, etc.)
-- Filling forms in desktop applications
-- Automating repetitive desktop tasks
-- Reading content from application windows
-
-### Available Tools
-- \`screen_focus_app\` - Focus/activate an app by name (ALWAYS do this first)
-- \`screen_get_elements\` - Get UI elements with EXACT screen coordinates (use this for clicking!)
-- \`screen_click\` - Click at specific (x, y) screen coordinates
-- \`screen_type\` - Type text at cursor position
-- \`screen_press_key\` - Press keys with modifiers (Cmd+N, Tab, Enter, etc.)
-- \`screen_double_click\` - Double-click at coordinates
-- \`screen_get_focused_element\` - Get the currently focused UI element
-- \`take_screenshot\` - Capture screen/window for visual verification
-
-### Primary Workflow: Use screen_get_elements for Coordinates
-
-**1. Focus the app:**
-\`\`\`
-screen_focus_app("Finder")
-\`\`\`
-
-**2. Get exact element positions:**
-\`\`\`
-screen_get_elements(maxDepth: 5)
-\`\`\`
-This returns elements with **exact screen coordinates** - no calculation needed!
-Example output: \`{role: "AXButton", name: "Save", position: {x: 450, y: 320}, size: {width: 80, height: 24}}\`
-
-**3. Click at the element's position:**
-\`\`\`
-screen_click(x: 490, y: 332)  // Center of the button (450+40, 320+12)
-\`\`\`
-
-**4. Verify with a screenshot if needed**
-
-### Fallback: Screenshot-Based Coordinates
-
-If screen_get_elements doesn't expose the element you need:
-
-1. Take a screenshot: \`take_screenshot()\`
-2. Note the \`dimensions\` (e.g., 1920x1080) and \`screenSize\` (e.g., 2560x1440)
-3. Find element position in screenshot pixels
-4. Scale: \`click_x = screenshot_x × (screenSize.width / dimensions.width)\`
-5. Example: Element at (300, 200) in 1920x1080 screenshot, screen is 2560x1440
-   - click_x = 300 × (2560/1920) = 400
-   - click_y = 200 × (1440/1080) = 267
-
-### More Reliable Alternatives
-
-**Keyboard navigation** is often more reliable than clicking:
-- \`screen_press_key("n", ["cmd"])\` - New item (Cmd+N)
-- \`screen_press_key("Tab")\` - Move between fields
-- Use menus via System Events for precise control
-
-**AppleScript for native apps** (via bash tool):
-\`\`\`bash
-osascript -e 'tell application "System Events" to tell process "Finder" to click menu item "Size" of menu 1 of menu item "Sort By" of menu 1 of menu bar item "View" of menu bar 1'
-\`\`\`
-
-### Window Names
-
-Window names often differ from app names:
-- Outlook: "1. Personal • user@example.com"
-- Use \`take_screenshot(list_windows: true)\` to see actual window names
-
-### Example: Calculator (5 × 3 =)
-
-\`\`\`
-1. screen_focus_app("Calculator")
-2. screen_get_elements()                    // Get window position: {x:843, y:294, size:230x408}
-3. take_screenshot(window: "Calculator")    // See button layout
-4. screen_click(x: 929, y: 579)             // Click "5" (calculated from window pos + button grid)
-5. screen_click(x: 1010, y: 510)            // Click "×"
-6. screen_click(x: 895, y: 645)             // Click "3"
-7. screen_click(x: 1010, y: 778)            // Click "="
-8. take_screenshot(window: "Calculator")    // Verify result shows "15"
-\`\`\`
-
-### Example: Email (Outlook with keyboard)
-
-\`\`\`
-1. screen_focus_app("Microsoft Outlook")
-2. screen_press_key("n", ["cmd"])           // New email
-3. take_screenshot()                        // See compose window
-4. screen_type("recipient@example.com")     // Type in To field (usually focused by default)
-5. screen_press_key("Tab")                  // Move to Subject
-6. screen_type("Hello World")
-7. screen_press_key("Tab")                  // Move to Body
-8. screen_type("Email content here")
-9. take_screenshot()                        // Verify before sending
-\`\`\`
-
-### Notes
-
-- **cliclick required:** Install with \`brew install cliclick\` for reliable clicking
-- **Screen Recording permission:** Required for screenshots on macOS
-- **Coordinate calculation:** Use window position from \`screen_get_elements\` + visual estimation from screenshot
 `
     },
   })
@@ -3440,110 +3334,5 @@ ipcMain.handle('pty:close', async (_event, sessionId: string) => {
 
 ipcMain.handle('pty:exists', async (_event, sessionId: string) => {
   return { exists: ptyManager.hasPty(sessionId) }
-})
-
-// Permissions handlers (macOS only)
-ipcMain.handle('permissions:getStatus', async () => {
-  const isDev = !!process.env.ELECTRON_RENDERER_URL
-  const isTest = process.env.NODE_ENV === 'test'
-  const forceShowModal = process.env.FORCE_PERMISSIONS_MODAL === 'true'
-  
-  if (process.platform !== 'darwin') {
-    return {
-      platform: process.platform,
-      screenRecording: 'granted' as const,
-      accessibility: 'granted' as const,
-      modalDismissed: true, // Non-macOS doesn't need permissions modal
-      appName: app.getName(),
-      appPath: '',
-      appBundlePath: '',
-      isDev
-    }
-  }
-
-  // Check screen recording permission
-  const screenStatus = systemPreferences.getMediaAccessStatus('screen')
-  
-  // Check accessibility permission
-  // Note: In dev mode, this may return true if ANY Electron app has been granted accessibility,
-  // since macOS trusts the Electron framework binary, not individual apps
-  const accessibilityGranted = systemPreferences.isTrustedAccessibilityClient(false)
-  
-  // Get the app name and path that needs permissions
-  // In dev mode it's "Electron" at a specific path, in production it's the app name
-  const appName = isDev ? 'Electron' : app.getName()
-  // Get the executable path - this helps users identify which instance in System Settings
-  const appPath = process.execPath
-  
-  // Get the .app bundle path (what users need to drag into System Settings)
-  // In production: /path/to/Copilot Skins.app/Contents/MacOS/Copilot Skins -> /path/to/Copilot Skins.app
-  // In dev: /path/to/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron -> /path/to/node_modules/electron/dist/Electron.app
-  let appBundlePath = ''
-  const appMatch = appPath.match(/^(.+\.app)\/Contents\/MacOS\//)
-  if (appMatch) {
-    appBundlePath = appMatch[1]
-  }
-  
-  return {
-    platform: process.platform,
-    // In test mode with FORCE_PERMISSIONS_MODAL, pretend permissions are not granted
-    screenRecording: forceShowModal ? 'denied' as const : screenStatus as 'not-determined' | 'granted' | 'denied' | 'restricted' | 'unknown',
-    accessibility: forceShowModal ? 'denied' as const : (accessibilityGranted ? 'granted' as const : 'denied' as const),
-    modalDismissed: forceShowModal ? false : store.get('permissionsModalDismissed') as boolean,
-    appName,
-    appPath,
-    appBundlePath,
-    isDev
-  }
-})
-
-ipcMain.handle('permissions:revealInFinder', async () => {
-  if (process.platform === 'darwin') {
-    // Get the .app bundle path
-    const appPath = process.execPath
-    const appMatch = appPath.match(/^(.+\.app)\/Contents\/MacOS\//)
-    if (appMatch) {
-      shell.showItemInFolder(appMatch[1])
-      return { success: true, path: appMatch[1] }
-    }
-  }
-  return { success: false, error: 'Could not find app bundle' }
-})
-
-ipcMain.handle('permissions:openScreenRecordingSettings', async () => {
-  if (process.platform === 'darwin') {
-    // Open System Settings > Privacy & Security > Screen Recording
-    await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture')
-    return { success: true }
-  }
-  return { success: false, error: 'Not supported on this platform' }
-})
-
-ipcMain.handle('permissions:openAccessibilitySettings', async () => {
-  if (process.platform === 'darwin') {
-    // Open System Settings > Privacy & Security > Accessibility
-    await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility')
-    return { success: true }
-  }
-  return { success: false, error: 'Not supported on this platform' }
-})
-
-ipcMain.handle('permissions:requestAccessibility', async () => {
-  if (process.platform === 'darwin') {
-    // This will prompt the user if not already trusted
-    const isTrusted = systemPreferences.isTrustedAccessibilityClient(true)
-    return { granted: isTrusted }
-  }
-  return { granted: true }
-})
-
-ipcMain.handle('permissions:dismissModal', async () => {
-  store.set('permissionsModalDismissed', true)
-  return { success: true }
-})
-
-ipcMain.handle('permissions:resetModalDismissed', async () => {
-  store.set('permissionsModalDismissed', false)
-  return { success: true }
 })
 

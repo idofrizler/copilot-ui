@@ -403,39 +403,6 @@ const electronAPI = {
       ipcRenderer.on('pty:exit', handler)
       return () => ipcRenderer.removeListener('pty:exit', handler)
     }
-  },
-  // Permissions management (macOS)
-  permissions: {
-    getStatus: (): Promise<{
-      platform: string
-      screenRecording: 'not-determined' | 'granted' | 'denied' | 'restricted' | 'unknown'
-      accessibility: 'granted' | 'denied'
-      modalDismissed: boolean
-      appName: string
-      appPath: string
-      appBundlePath: string
-      isDev: boolean
-    }> => {
-      return ipcRenderer.invoke('permissions:getStatus')
-    },
-    openScreenRecordingSettings: (): Promise<{ success: boolean; error?: string }> => {
-      return ipcRenderer.invoke('permissions:openScreenRecordingSettings')
-    },
-    openAccessibilitySettings: (): Promise<{ success: boolean; error?: string }> => {
-      return ipcRenderer.invoke('permissions:openAccessibilitySettings')
-    },
-    requestAccessibility: (): Promise<{ granted: boolean }> => {
-      return ipcRenderer.invoke('permissions:requestAccessibility')
-    },
-    dismissModal: (): Promise<{ success: boolean }> => {
-      return ipcRenderer.invoke('permissions:dismissModal')
-    },
-    resetModalDismissed: (): Promise<{ success: boolean }> => {
-      return ipcRenderer.invoke('permissions:resetModalDismissed')
-    },
-    revealInFinder: (): Promise<{ success: boolean; path?: string; error?: string }> => {
-      return ipcRenderer.invoke('permissions:revealInFinder')
-    }
   }
 }
 
