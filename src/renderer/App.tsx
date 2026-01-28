@@ -2235,12 +2235,24 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       return;
     }
     
+    // Check if there's a previous session for this worktree path
+    const existingPreviousSession = previousSessions.find(s => s.cwd === session.worktreePath);
+    if (existingPreviousSession) {
+      // Resume the existing session instead of creating a new one
+      setShowWorktreeList(false);
+      await handleResumePreviousSession(existingPreviousSession);
+      return;
+    }
+    
     setShowWorktreeList(false);
     await handleWorktreeSessionCreated(session.worktreePath, session.branch);
   };
 
   const handleCloseTab = async (tabId: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
+
+    // Get the tab info before closing (for adding to previous sessions)
+    const closingTab = tabs.find((t) => t.id === tabId);
 
     // Clean up terminal state for this tab
     setTerminalInitializedSessions(prev => {
@@ -2257,6 +2269,20 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       try {
         setStatus("connecting");
         await window.electronAPI.copilot.closeSession(tabId);
+        
+        // Add closed session to previous sessions
+        if (closingTab) {
+          setPreviousSessions((prev) => [
+            {
+              sessionId: closingTab.id,
+              name: closingTab.name,
+              modifiedTime: new Date().toISOString(),
+              cwd: closingTab.cwd,
+            },
+            ...prev,
+          ]);
+        }
+        
         const result = await window.electronAPI.copilot.createSession();
         const newTab: TabState = {
           id: result.sessionId,
@@ -2287,6 +2313,19 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
     try {
       await window.electronAPI.copilot.closeSession(tabId);
+
+      // Add closed session to previous sessions
+      if (closingTab) {
+        setPreviousSessions((prev) => [
+          {
+            sessionId: closingTab.id,
+            name: closingTab.name,
+            modifiedTime: new Date().toISOString(),
+            cwd: closingTab.cwd,
+          },
+          ...prev,
+        ]);
+      }
 
       // If closing the active tab, switch to another one
       if (activeTabId === tabId) {
@@ -2388,6 +2427,22 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     } catch (error) {
       console.error("Failed to resume previous session:", error);
       setStatus("connected");
+    }
+  };
+
+  const handleDeleteSessionFromHistory = async (sessionId: string) => {
+    try {
+      const result = await window.electronAPI.copilot.deleteSessionFromHistory(sessionId);
+      if (result.success) {
+        // Remove from previous sessions list
+        setPreviousSessions((prev) =>
+          prev.filter((s) => s.sessionId !== sessionId),
+        );
+      } else {
+        console.error("Failed to delete session:", result.error);
+      }
+    } catch (error) {
+      console.error("Failed to delete session from history:", error);
     }
   };
 
@@ -2760,9 +2815,9 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               >
                 <HistoryIcon size={14} strokeWidth={1.5} />
                 <span>Session History</span>
-                {previousSessions.length > 0 && (
+                {(tabs.length + previousSessions.length) > 0 && (
                   <span className="ml-auto text-[10px] bg-copilot-bg px-1.5 py-0.5 rounded">
-                    {previousSessions.length}
+                    {tabs.length + previousSessions.length}
                   </span>
                 )}
               </button>
@@ -4647,7 +4702,11 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         isOpen={showSessionHistory}
         onClose={() => setShowSessionHistory(false)}
         sessions={previousSessions}
+        activeSessions={tabs}
+        activeSessionId={activeTabId}
         onResumeSession={handleResumePreviousSession}
+        onSwitchToSession={handleSwitchTab}
+        onDeleteSession={handleDeleteSessionFromHistory}
       />
 
       {/* Worktree Sessions List Modal */}
@@ -4686,7 +4745,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       {/* Image Lightbox Modal */}
       {lightboxImage && (
         <div 
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 cursor-pointer"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm cursor-pointer"
           onClick={() => setLightboxImage(null)}
         >
           <div className="relative max-w-[90vw] max-h-[90vh]">

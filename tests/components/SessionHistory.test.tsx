@@ -52,6 +52,8 @@ const createMockSessions = (): PreviousSession[] => [
 describe('SessionHistory Component', () => {
   const mockOnClose = vi.fn()
   const mockOnResumeSession = vi.fn()
+  const mockOnSwitchToSession = vi.fn()
+  const mockOnDeleteSession = vi.fn()
   
   beforeEach(() => {
     vi.clearAllMocks()
@@ -65,6 +67,10 @@ describe('SessionHistory Component', () => {
           onClose={mockOnClose}
           sessions={createMockSessions()}
           onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
         />
       )
       
@@ -78,6 +84,10 @@ describe('SessionHistory Component', () => {
           onClose={mockOnClose}
           sessions={createMockSessions()}
           onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
         />
       )
       
@@ -91,6 +101,10 @@ describe('SessionHistory Component', () => {
           onClose={mockOnClose}
           sessions={createMockSessions()}
           onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
         />
       )
       
@@ -105,10 +119,14 @@ describe('SessionHistory Component', () => {
           onClose={mockOnClose}
           sessions={sessions}
           onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
         />
       )
       
-      expect(screen.getByText(`${sessions.length} sessions in history`)).toBeInTheDocument()
+      expect(screen.getByText(`${sessions.length} sessions (0 active)`)).toBeInTheDocument()
     })
   })
 
@@ -120,10 +138,14 @@ describe('SessionHistory Component', () => {
           onClose={mockOnClose}
           sessions={[]}
           onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
         />
       )
       
-      expect(screen.getByText('No previous sessions')).toBeInTheDocument()
+      expect(screen.getByText('No sessions')).toBeInTheDocument()
       expect(screen.getByText('Your session history will appear here')).toBeInTheDocument()
     })
 
@@ -134,10 +156,14 @@ describe('SessionHistory Component', () => {
           onClose={mockOnClose}
           sessions={[]}
           onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
         />
       )
       
-      expect(screen.getByText('0 sessions in history')).toBeInTheDocument()
+      expect(screen.getByText('0 sessions (0 active)')).toBeInTheDocument()
     })
   })
 
@@ -150,6 +176,10 @@ describe('SessionHistory Component', () => {
           onClose={mockOnClose}
           sessions={todaySessions}
           onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
         />
       )
       
@@ -164,6 +194,10 @@ describe('SessionHistory Component', () => {
           onClose={mockOnClose}
           sessions={yesterdaySessions}
           onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
         />
       )
       
@@ -178,6 +212,10 @@ describe('SessionHistory Component', () => {
           onClose={mockOnClose}
           sessions={weekSessions}
           onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
         />
       )
       
@@ -192,6 +230,10 @@ describe('SessionHistory Component', () => {
           onClose={mockOnClose}
           sessions={monthSessions}
           onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
         />
       )
       
@@ -206,6 +248,10 @@ describe('SessionHistory Component', () => {
           onClose={mockOnClose}
           sessions={oldSessions}
           onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
         />
       )
       
@@ -219,6 +265,10 @@ describe('SessionHistory Component', () => {
           onClose={mockOnClose}
           sessions={createMockSessions()}
           onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
         />
       )
       
@@ -238,6 +288,10 @@ describe('SessionHistory Component', () => {
           onClose={mockOnClose}
           sessions={createMockSessions()}
           onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
         />
       )
       
@@ -255,6 +309,10 @@ describe('SessionHistory Component', () => {
           onClose={mockOnClose}
           sessions={sessionsWithoutNames}
           onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
         />
       )
       
@@ -268,6 +326,10 @@ describe('SessionHistory Component', () => {
           onClose={mockOnClose}
           sessions={createMockSessions()}
           onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
         />
       )
       
@@ -286,6 +348,10 @@ describe('SessionHistory Component', () => {
           onClose={mockOnClose}
           sessions={createMockSessions()}
           onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
         />
       )
       
@@ -307,6 +373,10 @@ describe('SessionHistory Component', () => {
           onClose={mockOnClose}
           sessions={createMockSessions()}
           onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
         />
       )
       
@@ -328,6 +398,10 @@ describe('SessionHistory Component', () => {
           onClose={mockOnClose}
           sessions={createMockSessions()}
           onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
         />
       )
       
@@ -346,6 +420,10 @@ describe('SessionHistory Component', () => {
           onClose={mockOnClose}
           sessions={createMockSessions()}
           onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
         />
       )
       
@@ -363,6 +441,10 @@ describe('SessionHistory Component', () => {
           onClose={mockOnClose}
           sessions={createMockSessions()}
           onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
         />
       )
       
@@ -382,6 +464,10 @@ describe('SessionHistory Component', () => {
           onClose={mockOnClose}
           sessions={sessions}
           onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
         />
       )
       
@@ -401,6 +487,10 @@ describe('SessionHistory Component', () => {
           onClose={mockOnClose}
           sessions={sessions}
           onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
         />
       )
       
@@ -415,7 +505,7 @@ describe('SessionHistory Component', () => {
       
       // All sessions should be visible again
       expect(screen.getByText('Refactor database layer')).toBeInTheDocument()
-      expect(screen.getByText(`${sessions.length} sessions in history`)).toBeInTheDocument()
+      expect(screen.getByText(`${sessions.length} sessions (0 active)`)).toBeInTheDocument()
     })
   })
 
@@ -429,6 +519,10 @@ describe('SessionHistory Component', () => {
           onClose={mockOnClose}
           sessions={sessions}
           onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
         />
       )
       
@@ -451,6 +545,10 @@ describe('SessionHistory Component', () => {
           onClose={mockOnClose}
           sessions={createMockSessions()}
           onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
         />
       )
       
@@ -469,6 +567,10 @@ describe('SessionHistory Component', () => {
           onClose={mockOnClose}
           sessions={createMockSessions()}
           onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
         />
       )
       
@@ -486,6 +588,10 @@ describe('SessionHistory Component', () => {
           onClose={mockOnClose}
           sessions={createMockSessions()}
           onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
         />
       )
       
@@ -496,6 +602,10 @@ describe('SessionHistory Component', () => {
           onClose={mockOnClose}
           sessions={createMockSessions()}
           onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
         />
       )
       

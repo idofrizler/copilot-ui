@@ -72,7 +72,7 @@ export const Modal: React.FC<ModalProps> & {
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 bg-black flex items-center justify-center z-50" data-testid={testId}>
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50" data-testid={testId}>
       <div
         className="bg-copilot-surface border border-copilot-border rounded-lg shadow-xl max-w-[90%]"
         style={{ width }}

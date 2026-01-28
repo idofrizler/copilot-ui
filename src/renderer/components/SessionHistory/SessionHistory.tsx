@@ -1,17 +1,26 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { Modal } from '../Modal'
-import { ClockIcon, FolderIcon } from '../Icons'
-import { PreviousSession } from '../../types'
+import { ClockIcon, ZapIcon } from '../Icons'
+import { PreviousSession, TabState } from '../../types'
+
+// Extended session type that includes active flag
+interface DisplaySession extends PreviousSession {
+  isActive?: boolean
+}
 
 interface SessionHistoryProps {
   isOpen: boolean
   onClose: () => void
   sessions: PreviousSession[]
+  activeSessions: TabState[]
+  activeSessionId: string | null
   onResumeSession: (session: PreviousSession) => void
+  onSwitchToSession: (sessionId: string) => void
+  onDeleteSession: (sessionId: string) => void
 }
 
 // Helper to categorize sessions by time period
-const categorizeByTime = (sessions: PreviousSession[]) => {
+const categorizeByTime = (sessions: DisplaySession[]) => {
   const now = new Date()
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   const yesterday = new Date(today)
@@ -21,7 +30,7 @@ const categorizeByTime = (sessions: PreviousSession[]) => {
   const lastMonth = new Date(today)
   lastMonth.setDate(lastMonth.getDate() - 30)
 
-  const categories: { label: string; sessions: PreviousSession[] }[] = [
+  const categories: { label: string; sessions: DisplaySession[] }[] = [
     { label: 'Today', sessions: [] },
     { label: 'Yesterday', sessions: [] },
     { label: 'Last 7 Days', sessions: [] },
@@ -63,19 +72,30 @@ const formatRelativeTime = (isoDate: string) => {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
-// Get shortened path for display
+// Get shortened path for display - replaces home directory with ~
 const shortenPath = (path: string | undefined) => {
   if (!path) return ''
-  const parts = path.split('/')
-  if (parts.length <= 3) return path
-  return '.../' + parts.slice(-2).join('/')
+  // Replace home directory with ~
+  const homeDir = '/Users/'
+  if (path.startsWith(homeDir)) {
+    const afterUsers = path.slice(homeDir.length)
+    const slashIndex = afterUsers.indexOf('/')
+    if (slashIndex !== -1) {
+      return '~' + afterUsers.slice(slashIndex)
+    }
+  }
+  return path
 }
 
 export const SessionHistory: React.FC<SessionHistoryProps> = ({
   isOpen,
   onClose,
   sessions,
+  activeSessions,
+  activeSessionId,
   onResumeSession,
+  onSwitchToSession,
+  onDeleteSession,
 }) => {
   const [searchQuery, setSearchQuery] = useState('')
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -91,27 +111,61 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
     }
   }, [isOpen])
 
+  // Combine active sessions and previous sessions
+  const allSessions: DisplaySession[] = useMemo(() => {
+    // Convert active tabs to DisplaySession format
+    const activeDisplaySessions: DisplaySession[] = activeSessions.map(tab => ({
+      sessionId: tab.id,
+      name: tab.name,
+      modifiedTime: new Date().toISOString(), // Active sessions are "now"
+      cwd: tab.cwd,
+      isActive: true,
+    }))
+    
+    // Filter out any previous sessions that are now active (shouldn't happen but just in case)
+    const activeIds = new Set(activeSessions.map(t => t.id))
+    const filteredPrevious: DisplaySession[] = sessions
+      .filter(s => !activeIds.has(s.sessionId))
+      .map(s => ({ ...s, isActive: false }))
+    
+    // Combine: active sessions first (they're "today"), then previous
+    return [...activeDisplaySessions, ...filteredPrevious]
+  }, [activeSessions, sessions])
+
   // Filter sessions based on search query
   const filteredSessions = useMemo(() => {
-    if (!searchQuery.trim()) return sessions
+    if (!searchQuery.trim()) return allSessions
 
     const query = searchQuery.toLowerCase()
-    return sessions.filter(session => {
+    return allSessions.filter(session => {
       const name = (session.name || '').toLowerCase()
       const sessionId = session.sessionId.toLowerCase()
       const cwd = (session.cwd || '').toLowerCase()
       return name.includes(query) || sessionId.includes(query) || cwd.includes(query)
     })
-  }, [sessions, searchQuery])
+  }, [allSessions, searchQuery])
 
   // Categorize filtered sessions
   const categorizedSessions = useMemo(() => {
     return categorizeByTime(filteredSessions)
   }, [filteredSessions])
 
-  const handleSessionClick = (session: PreviousSession) => {
-    onResumeSession(session)
+  const handleSessionClick = (session: DisplaySession) => {
+    if (session.isActive) {
+      // Switch to the active session
+      onSwitchToSession(session.sessionId)
+    } else {
+      // Resume a previous session
+      onResumeSession(session)
+    }
     onClose()
+  }
+
+  const handleDeleteClick = (e: React.MouseEvent, session: DisplaySession) => {
+    e.stopPropagation() // Prevent triggering session click
+    if (!session.isActive) {
+      onDeleteSession(session.sessionId)
+    }
   }
 
   return (
@@ -156,7 +210,7 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
               ) : (
                 <>
                   <ClockIcon size={32} className="mx-auto mb-2 opacity-50" />
-                  <p className="text-sm">No previous sessions</p>
+                  <p className="text-sm">No sessions</p>
                   <p className="text-xs mt-1 opacity-70">Your session history will appear here</p>
                 </>
               )}
@@ -171,42 +225,72 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
                   </div>
                   
                   {/* Sessions in Category */}
-                  {category.sessions.map((session) => (
-                    <button
-                      key={session.sessionId}
-                      onClick={() => handleSessionClick(session)}
-                      className="w-full px-3 py-2.5 flex items-start gap-3 hover:bg-copilot-surface transition-colors text-left group"
-                    >
-                      {/* Clock Icon */}
-                      <ClockIcon
-                        size={16}
-                        className="shrink-0 mt-0.5 text-copilot-text-muted group-hover:text-copilot-accent transition-colors"
-                        strokeWidth={1.5}
-                      />
-                      
-                      {/* Session Info */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm text-copilot-text truncate font-medium">
-                            {session.name || `Session ${session.sessionId.slice(0, 8)}...`}
-                          </span>
-                          <span className="text-xs text-copilot-text-muted shrink-0">
-                            {formatRelativeTime(session.modifiedTime)}
-                          </span>
-                        </div>
+                  {category.sessions.map((session) => {
+                    const isCurrentSession = session.sessionId === activeSessionId
+                    return (
+                      <div
+                        key={session.sessionId}
+                        onClick={() => handleSessionClick(session)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => e.key === 'Enter' && handleSessionClick(session)}
+                        className={`w-full px-3 py-2.5 flex items-start gap-3 hover:bg-copilot-surface transition-colors text-left group cursor-pointer ${isCurrentSession ? 'bg-copilot-surface/50' : ''}`}
+                      >
+                        {/* Status Icon */}
+                        {session.isActive ? (
+                          <ZapIcon
+                            size={16}
+                            className="shrink-0 mt-0.5 text-copilot-text-muted group-hover:text-copilot-accent transition-colors"
+                            strokeWidth={1.5}
+                          />
+                        ) : (
+                          <ClockIcon
+                            size={16}
+                            className="shrink-0 mt-0.5 text-copilot-text-muted group-hover:text-copilot-accent transition-colors"
+                            strokeWidth={1.5}
+                          />
+                        )}
                         
-                        {/* Working Directory */}
-                        {session.cwd && (
-                          <div className="flex items-center gap-1.5 mt-0.5">
-                            <FolderIcon size={12} className="text-copilot-text-muted opacity-60" strokeWidth={1.5} />
-                            <span className="text-xs text-copilot-text-muted truncate">
+                        {/* Session Info */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-copilot-text truncate font-medium">
+                              {session.name || `Session ${session.sessionId.slice(0, 8)}...`}
+                            </span>
+                            {session.isActive ? (
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${isCurrentSession ? 'bg-copilot-accent/20 text-copilot-accent' : 'bg-copilot-success/20 text-copilot-success'}`}>
+                                {isCurrentSession ? 'current' : 'active'}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-copilot-text-muted shrink-0">
+                                {formatRelativeTime(session.modifiedTime)}
+                              </span>
+                            )}
+                          </div>
+                          
+                          {/* Working Directory */}
+                          {session.cwd && (
+                            <span className="text-xs text-copilot-text-muted truncate mt-0.5 block">
                               {shortenPath(session.cwd)}
                             </span>
-                          </div>
+                          )}
+                        </div>
+
+                        {/* Delete Button - only for non-active sessions */}
+                        {!session.isActive && (
+                          <button
+                            onClick={(e) => handleDeleteClick(e, session)}
+                            className="shrink-0 p-1 text-copilot-text-muted hover:text-copilot-error opacity-0 group-hover:opacity-100 transition-all"
+                            title="Delete session from history"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
                         )}
                       </div>
-                    </button>
-                  ))}
+                    )
+                  })}
                 </div>
               ))}
             </div>
@@ -216,9 +300,9 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
         {/* Footer with count */}
         <div className="px-3 py-2 border-t border-copilot-border text-xs text-copilot-text-muted">
           {searchQuery ? (
-            <span>{filteredSessions.length} of {sessions.length} sessions</span>
+            <span>{filteredSessions.length} of {allSessions.length} sessions</span>
           ) : (
-            <span>{sessions.length} sessions in history</span>
+            <span>{allSessions.length} sessions ({activeSessions.length} active)</span>
           )}
         </div>
       </Modal.Body>

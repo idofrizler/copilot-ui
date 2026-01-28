@@ -192,6 +192,13 @@ export const SearchIcon: React.FC<IconProps> = ({ size = 24, className, strokeWi
   </svg>
 )
 
+// Zap/Bolt icon for active state
+export const ZapIcon: React.FC<IconProps> = ({ size = 24, className, strokeWidth = 2 }) => (
+  <svg width={size} height={size} className={className} {...defaultProps} strokeWidth={strokeWidth}>
+    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+  </svg>
+)
+
 // Ralph Wiggum icon - uses the Ralph Wiggum image
 export const RalphIcon: React.FC<IconProps> = ({ size = 24, className }) => (
   <img 
@@ -231,6 +238,7 @@ export const Icons = {
   Paperclip: PaperclipIcon,
   History: HistoryIcon,
   Search: SearchIcon,
+  Zap: ZapIcon,
   Ralph: RalphIcon,
 }
 

@@ -195,6 +195,17 @@ function createScreenshotTool(sessionCwd: string): Tool {
 // Path to MCP config file
 const getMcpConfigPath = (): string => join(app.getPath('home'), '.copilot', 'mcp-config.json')
 
+// Copilot folders that are safe to read from without permission (Issue #87)
+// These contain session state data (plans, configs) and are low-risk for read-only access
+const getSafeCopilotReadPaths = (): string[] => {
+  const home = app.getPath('home')
+  return [
+    join(home, '.copilot-sessions'),      // Worktree sessions directory
+    join(home, '.copilot', 'session-state'), // Session state (plan.md files)
+    join(home, '.copilot', 'skills'),     // Personal skills directory
+  ]
+}
+
 // Read MCP config from file
 async function readMcpConfig(): Promise<MCPConfigFile> {
   const configPath = getMcpConfigPath()
@@ -926,6 +937,16 @@ async function handlePermissionRequest(
         if (isAllowedPath) {
           console.log(`[${ourSessionId}] Auto-approved out-of-scope read (allowed path):`, requestPath)
           return { kind: 'approved' }
+        }
+        
+        // Check if path is in safe Copilot directories (Issue #87)
+        // These are low-risk paths containing session state and plans
+        const safeCopilotPaths = getSafeCopilotReadPaths()
+        for (const safePath of safeCopilotPaths) {
+          if (requestPath.startsWith(safePath + '/') || requestPath.startsWith(safePath + '\\') || requestPath === safePath) {
+            console.log(`[${ourSessionId}] Auto-approved read (safe Copilot path):`, requestPath)
+            return { kind: 'approved' }
+          }
         }
         
         isOutOfScope = true
@@ -1989,6 +2010,19 @@ ipcMain.handle('copilot:closeSession', async (_event, sessionId: string) => {
   }
   
   return { success: true, remainingSessions: sessions.size }
+})
+
+// Delete a session from history (permanently removes session files)
+ipcMain.handle('copilot:deleteSessionFromHistory', async (_event, sessionId: string) => {
+  try {
+    const client = await getClientForCwd(process.cwd())
+    await client.deleteSession(sessionId)
+    console.log(`Deleted session ${sessionId} from history`)
+    return { success: true }
+  } catch (error) {
+    console.error(`Failed to delete session ${sessionId}:`, error)
+    return { success: false, error: String(error) }
+  }
 })
 
 // Switch active session
