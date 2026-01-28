@@ -3423,3 +3423,19 @@ ipcMain.handle('file:revealInFinder', async (_event, filePath: string) => {
   }
 })
 
+ipcMain.handle('file:openFile', async (_event, filePath: string) => {
+  try {
+    if (!existsSync(filePath)) {
+      return { success: false, error: 'File not found' }
+    }
+    const result = await shell.openPath(filePath)
+    if (result) {
+      return { success: false, error: result }
+    }
+    return { success: true }
+  } catch (error) {
+    console.error('Failed to open file:', error)
+    return { success: false, error: String(error) }
+  }
+})
+
