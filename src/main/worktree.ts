@@ -42,6 +42,7 @@ interface WorktreeSession {
   lastAccessedAt: string        // ISO timestamp
   status: 'active' | 'idle' | 'orphaned'
   pid?: number                  // Process ID if active
+  copilotSessionIds?: string[]  // Associated Copilot CLI session IDs for cleanup
 }
 
 interface SessionRegistry {
@@ -380,6 +381,22 @@ export async function removeWorktreeSession(
     }
   }
   
+  // Clean up associated Copilot session-state folders
+  if (session.copilotSessionIds && session.copilotSessionIds.length > 0) {
+    const sessionStateBase = join(app.getPath('home'), '.copilot', 'session-state')
+    for (const copilotSessionId of session.copilotSessionIds) {
+      const sessionStateDir = join(sessionStateBase, copilotSessionId)
+      if (existsSync(sessionStateDir)) {
+        try {
+          rmSync(sessionStateDir, { recursive: true, force: true })
+          console.log(`Deleted session-state folder for ${copilotSessionId}`)
+        } catch (err) {
+          console.warn(`Failed to delete session-state folder ${copilotSessionId}:`, err)
+        }
+      }
+    }
+  }
+  
   // Update registry
   registry.sessions = registry.sessions.filter(s => s.id !== sessionId)
   saveRegistry(registry)
@@ -442,6 +459,31 @@ export function touchWorktreeSession(sessionId: string): void {
 export function findWorktreeSession(repoPath: string, branch: string): WorktreeSession | null {
   const sessionId = generateSessionId(repoPath, branch)
   return getWorktreeSession(sessionId)
+}
+
+/**
+ * Find session by worktree path
+ */
+export function findWorktreeSessionByPath(worktreePath: string): WorktreeSession | null {
+  const registry = loadRegistry()
+  return registry.sessions.find(s => s.worktreePath === worktreePath) || null
+}
+
+/**
+ * Track a Copilot CLI session ID with a worktree session
+ */
+export function trackCopilotSession(worktreeSessionId: string, copilotSessionId: string): void {
+  const registry = loadRegistry()
+  const session = registry.sessions.find(s => s.id === worktreeSessionId)
+  if (session) {
+    if (!session.copilotSessionIds) {
+      session.copilotSessionIds = []
+    }
+    if (!session.copilotSessionIds.includes(copilotSessionId)) {
+      session.copilotSessionIds.push(copilotSessionId)
+      saveRegistry(registry)
+    }
+  }
 }
 
 /**

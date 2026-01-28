@@ -1019,6 +1019,12 @@ Browser tools available: browser_navigate, browser_click, browser_fill, browser_
   sessionCwds[sessionId] = sessionCwd
   store.set('sessionCwds', sessionCwds)
   
+  // If this session is in a worktree, track the copilot session ID for cleanup
+  const worktreeSession = worktree.findWorktreeSessionByPath(sessionCwd)
+  if (worktreeSession) {
+    worktree.trackCopilotSession(worktreeSession.id, sessionId)
+  }
+  
   console.log(`Created session ${sessionId} with model ${sessionModel} in ${sessionCwd}`)
   return sessionId
 }
@@ -1862,6 +1868,15 @@ ipcMain.handle('copilot:deleteSessionFromHistory', async (_event, sessionId: str
   try {
     const client = await getClientForCwd(process.cwd())
     await client.deleteSession(sessionId)
+    
+    // Also clean up the session-state folder if it exists
+    const sessionStateDir = join(app.getPath('home'), '.copilot', 'session-state', sessionId)
+    if (existsSync(sessionStateDir)) {
+      const { rm } = await import('fs/promises')
+      await rm(sessionStateDir, { recursive: true, force: true })
+      console.log(`Deleted session-state folder for ${sessionId}`)
+    }
+    
     console.log(`Deleted session ${sessionId} from history`)
     return { success: true }
   } catch (error) {
