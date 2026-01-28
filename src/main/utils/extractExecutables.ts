@@ -52,6 +52,10 @@ export function extractExecutables(command: string): string[] {
     .replace(/'[^']*'/g, "''")
     .replace(/`[^`]*`/g, '``')
   
+  // Remove shell comments (# to end of line)
+  // This prevents words in comments from being detected as commands
+  cleaned = cleaned.replace(/#[^\n]*/g, '')
+  
   // Remove shell redirections like 2>&1, >&2, 2>/dev/null, etc.
   cleaned = cleaned.replace(/\d*>&?\d+/g, '')      // 2>&1, >&1, 1>&2
   cleaned = cleaned.replace(/\d+>>\S+/g, '')       // 2>>/dev/null

@@ -209,6 +209,45 @@ echo done`
     })
   })
 
+  describe('shell comments - Issue #82', () => {
+    it('ignores words in comments', () => {
+      const command = `# Get the position of the window and calculate = button position
+# Standard calculator layout: = is bottom right
+osascript -e 'tell application "System Events" to tell process "Calculator" to get position of window 1'
+osascript -e 'tell application "System Events" to tell process "Calculator" to get size of window 1'`
+      const result = extractExecutables(command)
+      expect(result).toEqual(['osascript'])
+      expect(result).not.toContain('Get')
+      expect(result).not.toContain('Standard')
+    })
+
+    it('ignores inline comments', () => {
+      expect(extractExecutables('ls -la # list files')).toEqual(['ls'])
+    })
+
+    it('handles comment at end of line', () => {
+      expect(extractExecutables('echo hello # print greeting')).toEqual(['echo'])
+    })
+
+    it('handles comment-only lines mixed with commands', () => {
+      const command = `# first comment
+ls -la
+# second comment
+pwd`
+      const result = extractExecutables(command)
+      expect(result).toEqual(['ls', 'pwd'])
+    })
+
+    it('does not treat # inside double quotes as comment', () => {
+      expect(extractExecutables('echo "test #123"')).toEqual(['echo'])
+      expect(extractExecutables('git commit -m "fix #456"')).toEqual(['git commit'])
+    })
+
+    it('does not treat # inside single quotes as comment', () => {
+      expect(extractExecutables("echo '#hashtag'")).toEqual(['echo'])
+    })
+  })
+
   describe('string literals', () => {
     it('ignores content in double quotes', () => {
       expect(extractExecutables('echo "hello world"')).toEqual(['echo'])

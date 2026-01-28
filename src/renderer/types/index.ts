@@ -5,6 +5,7 @@ export type {
   ModelInfo,
   ModelCapabilities,
   ImageAttachment,
+  FileAttachment,
   PendingConfirmation,
   TabState,
   PreviousSession,

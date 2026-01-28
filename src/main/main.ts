@@ -1938,6 +1938,31 @@ ipcMain.handle('copilot:fetchImageFromUrl', async (_event, url: string) => {
   }
 })
 
+// Save file data URL to temp file for SDK attachment
+ipcMain.handle('copilot:saveFileToTemp', async (_event, data: { dataUrl: string, filename: string, mimeType: string }) => {
+  try {
+    const filesDir = join(app.getPath('home'), '.copilot', 'files')
+    if (!existsSync(filesDir)) {
+      mkdirSync(filesDir, { recursive: true })
+    }
+    
+    // Parse data URL
+    const matches = data.dataUrl.match(/^data:([^;]+);base64,(.+)$/)
+    if (!matches) {
+      return { success: false, error: 'Invalid data URL format' }
+    }
+    
+    const buffer = Buffer.from(matches[2], 'base64')
+    const filePath = join(filesDir, data.filename)
+    
+    await writeFile(filePath, buffer)
+    return { success: true, path: filePath, size: buffer.length }
+  } catch (error) {
+    log.error('Failed to save file to temp:', error)
+    return { success: false, error: error instanceof Error ? error.message : String(error) }
+  }
+})
+
 // Get current working directory
 ipcMain.handle('copilot:getCwd', async () => {
   // Use home dir for packaged app since process.cwd() can be '/'
@@ -2165,6 +2190,43 @@ ipcMain.handle('copilot:renameSession', async (_event, data: { sessionId: string
   store.set('openSessions', updated)
   console.log(`Renamed session ${data.sessionId} to ${data.name}`)
   return { success: true }
+})
+
+// Message attachment types for persistence
+interface StoredAttachment {
+  messageIndex: number
+  imageAttachments?: Array<{
+    id: string
+    path: string
+    previewUrl: string
+    name: string
+    size: number
+    mimeType: string
+  }>
+  fileAttachments?: Array<{
+    id: string
+    path: string
+    name: string
+    size: number
+    mimeType: string
+  }>
+}
+
+// Save message attachments for a session
+ipcMain.handle('copilot:saveMessageAttachments', async (_event, data: { sessionId: string; attachments: StoredAttachment[] }) => {
+  const allAttachments = store.get('messageAttachments') as Record<string, StoredAttachment[]> || {}
+  allAttachments[data.sessionId] = data.attachments
+  store.set('messageAttachments', allAttachments)
+  console.log(`Saved ${data.attachments.length} attachment records for session ${data.sessionId}`)
+  return { success: true }
+})
+
+// Load message attachments for a session
+ipcMain.handle('copilot:loadMessageAttachments', async (_event, sessionId: string) => {
+  const allAttachments = store.get('messageAttachments') as Record<string, StoredAttachment[]> || {}
+  const result = allAttachments[sessionId] || []
+  console.log(`Loaded ${result.length} attachment records for session ${sessionId}`)
+  return { attachments: result }
 })
 
 // Git operations - get actual changed files

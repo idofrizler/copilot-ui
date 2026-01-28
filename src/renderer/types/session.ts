@@ -9,6 +9,7 @@ export interface Message {
   toolCallId?: string;
   timestamp?: number; // Unix timestamp in milliseconds for when the message was finalized
   imageAttachments?: ImageAttachment[]; // Images attached to this message
+  fileAttachments?: FileAttachment[]; // Files attached to this message
 }
 
 export interface ActiveTool {
@@ -40,6 +41,15 @@ export interface ImageAttachment {
   id: string;
   path: string; // File path for SDK
   previewUrl: string; // Data URL for preview
+  name: string;
+  size: number;
+  mimeType: string;
+}
+
+// File attachment for messages (non-image files)
+export interface FileAttachment {
+  id: string;
+  path: string; // File path for SDK
   name: string;
   size: number;
   mimeType: string;

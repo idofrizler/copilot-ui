@@ -38,6 +38,7 @@ import {
   CreateWorktreeSession,
   ChoiceSelector,
   PermissionsModal,
+  PaperclipIcon,
 } from "./components";
 import {
   Status,
@@ -46,6 +47,7 @@ import {
   ModelInfo,
   ModelCapabilities,
   ImageAttachment,
+  FileAttachment,
   PendingConfirmation,
   TabState,
   PreviousSession,
@@ -165,6 +167,17 @@ const App: React.FC = () => {
   const [showPermissionsModal, setShowPermissionsModal] = useState(false);
   const [permissionsChecked, setPermissionsChecked] = useState(false);
 
+  // Image lightbox state (for viewing enlarged images)
+  const [lightboxImage, setLightboxImage] = useState<{ src: string; alt: string } | null>(null);
+
+  // File attachment state
+  const [fileAttachments, setFileAttachments] = useState<FileAttachment[]>([]);
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Track user-attached file paths per session for auto-approval
+  const userAttachedPathsRef = useRef<Map<string, Set<string>>>(new Map());
+
   // Resizable panel state
   const [leftPanelWidth, setLeftPanelWidth] = useState(192); // default w-48
   const [rightPanelWidth, setRightPanelWidth] = useState(288); // default w-72
@@ -206,9 +219,10 @@ const App: React.FC = () => {
     }
   }, [activeTab?.model]);
 
-  // Clear image attachments when tab changes
+  // Clear image and file attachments when tab changes
   useEffect(() => {
     setImageAttachments([]);
+    setFileAttachments([]);
   }, [activeTabId]);
 
   // Save open sessions with models and cwd whenever tabs change
@@ -224,6 +238,23 @@ const App: React.FC = () => {
       }));
       window.electronAPI.copilot.saveOpenSessions(openSessions);
     }
+  }, [tabs]);
+
+  // Save message attachments whenever tabs/messages change
+  useEffect(() => {
+    tabs.forEach(tab => {
+      const attachments = tab.messages
+        .map((msg, index) => ({
+          messageIndex: index,
+          imageAttachments: msg.imageAttachments,
+          fileAttachments: msg.fileAttachments,
+        }))
+        .filter(a => (a.imageAttachments && a.imageAttachments.length > 0) || (a.fileAttachments && a.fileAttachments.length > 0));
+      
+      if (attachments.length > 0) {
+        window.electronAPI.copilot.saveMessageAttachments(tab.id, attachments);
+      }
+    });
   }, [tabs]);
 
   const scrollToBottom = () => {
@@ -439,22 +470,33 @@ const App: React.FC = () => {
         setTabs(initialTabs);
         setActiveTabId(data.sessions[0]?.sessionId || null);
 
-        // Load message history for each session
+        // Load message history and attachments for each session
         for (const s of data.sessions) {
-          window.electronAPI.copilot
-            .getMessages(s.sessionId)
-            .then((messages) => {
+          Promise.all([
+            window.electronAPI.copilot.getMessages(s.sessionId),
+            window.electronAPI.copilot.loadMessageAttachments(s.sessionId),
+          ])
+            .then(([messages, attachmentsResult]) => {
               if (messages.length > 0) {
+                const attachmentMap = new Map(
+                  attachmentsResult.attachments.map(a => [a.messageIndex, a])
+                );
+                
                 setTabs((prev) =>
                   prev.map((tab) =>
                     tab.id === s.sessionId
                       ? {
                           ...tab,
-                          messages: messages.map((m, i) => ({
-                            id: `hist-${i}`,
-                            ...m,
-                            isStreaming: false,
-                          })),
+                          messages: messages.map((m, i) => {
+                            const att = attachmentMap.get(i);
+                            return {
+                              id: `hist-${i}`,
+                              ...m,
+                              isStreaming: false,
+                              imageAttachments: att?.imageAttachments,
+                              fileAttachments: att?.fileAttachments,
+                            };
+                          }),
                           needsTitle: false,
                         }
                       : tab,
@@ -823,14 +865,29 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
     // Listen for permission requests
     const unsubscribePermission = window.electronAPI.copilot.onPermission(
       (data) => {
-        // Play notification sound when permission is needed
-        playNotificationSound();
-
         console.log(
           "Permission requested (full data):",
           JSON.stringify(data, null, 2),
         );
         const sessionId = data.sessionId as string;
+        const requestPath = data.path as string | undefined;
+        
+        // Auto-approve reads for user-attached files (files user explicitly uploaded)
+        if (requestPath && (data.kind === 'read' || data.kind === 'file-read')) {
+          const sessionPaths = userAttachedPathsRef.current.get(sessionId);
+          if (sessionPaths?.has(requestPath)) {
+            console.log('Auto-approving read for user-attached file:', requestPath);
+            window.electronAPI.copilot.respondPermission({
+              requestId: data.requestId,
+              decision: 'approved'
+            });
+            return;
+          }
+        }
+        
+        // Play notification sound when permission is needed
+        playNotificationSound();
+
         // Spread all data to preserve any extra fields from SDK
         const confirmation: PendingConfirmation = {
           ...data,
@@ -976,7 +1033,7 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
   }, []);
 
   const handleSendMessage = useCallback(async () => {
-    if (!inputValue.trim() && !terminalAttachment && imageAttachments.length === 0) return;
+    if (!inputValue.trim() && !terminalAttachment && imageAttachments.length === 0 && fileAttachments.length === 0) return;
     if (!activeTab || activeTab.isProcessing) return;
 
     // Build message content with terminal attachment if present
@@ -993,6 +1050,7 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       role: "user",
       content: messageContent,
       imageAttachments: imageAttachments.length > 0 ? [...imageAttachments] : undefined,
+      fileAttachments: fileAttachments.length > 0 ? [...fileAttachments] : undefined,
     };
 
     const tabId = activeTab.id;
@@ -1045,12 +1103,26 @@ You are running in an autonomous loop. Before signaling completion, you MUST ver
 Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETION_SIGNAL}`
       : userMessage.content;
 
-    // Build SDK attachments from image attachments
-    const sdkAttachments = imageAttachments.map(img => ({
-      type: 'file' as const,
-      path: img.path,
-      displayName: img.name
-    }));
+    // Build SDK attachments from image and file attachments
+    const sdkAttachments = [
+      ...imageAttachments.map(img => ({
+        type: 'file' as const,
+        path: img.path,
+        displayName: img.name
+      })),
+      ...fileAttachments.map(file => ({
+        type: 'file' as const,
+        path: file.path,
+        displayName: file.name
+      }))
+    ];
+
+    // Track attached paths for auto-approval of permission requests
+    if (sdkAttachments.length > 0) {
+      const sessionPaths = userAttachedPathsRef.current.get(tabId) || new Set();
+      sdkAttachments.forEach(att => sessionPaths.add(att.path));
+      userAttachedPathsRef.current.set(tabId, sessionPaths);
+    }
 
     updateTab(tabId, {
       messages: [
@@ -1072,6 +1144,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     setInputValue("");
     setTerminalAttachment(null);
     setImageAttachments([]);
+    setFileAttachments([]);
     
     // Reset Ralph UI state after sending
     if (ralphEnabled) {
@@ -1086,7 +1159,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       console.error("Send error:", error);
       updateTab(tabId, { isProcessing: false, ralphConfig: undefined });
     }
-  }, [inputValue, activeTab, updateTab, ralphEnabled, ralphMaxIterations, ralphRequireScreenshot, terminalAttachment, imageAttachments]);
+  }, [inputValue, activeTab, updateTab, ralphEnabled, ralphMaxIterations, ralphRequireScreenshot, terminalAttachment, imageAttachments, fileAttachments]);
 
   // Handle sending terminal output to the agent
   const handleSendTerminalOutput = useCallback((output: string, lineCount: number) => {
@@ -1189,29 +1262,110 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     setImageAttachments(prev => prev.filter(img => img.id !== id));
   }, []);
 
-  // Handle paste event for images
+  // Handle file selection (non-image files)
+  const handleFileSelect = useCallback(async (files: FileList | null) => {
+    console.log('handleFileSelect called with files:', files?.length);
+    if (!files || files.length === 0) return;
+    
+    const newAttachments: FileAttachment[] = [];
+    
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      console.log('Processing file:', file.name, 'type:', file.type);
+      // Note: We allow all files including images - users can attach images as files if they prefer
+      
+      // In Electron, File objects from file picker have a path property
+      // Use it directly to avoid copying and trust issues
+      const electronFile = file as File & { path?: string };
+      if (electronFile.path) {
+        console.log('Using original file path:', electronFile.path);
+        newAttachments.push({
+          id: generateId(),
+          path: electronFile.path,
+          name: file.name,
+          size: file.size,
+          mimeType: file.type || 'application/octet-stream'
+        });
+        continue;
+      }
+      
+      // Fallback: Read file as data URL and save to temp (for pasted/dropped files without path)
+      const reader = new FileReader();
+      const dataUrl = await new Promise<string>((resolve) => {
+        reader.onload = (e) => resolve(e.target?.result as string);
+        reader.readAsDataURL(file);
+      });
+      console.log('Read dataUrl, length:', dataUrl.length);
+      
+      // Save to temp file for SDK
+      const ext = file.name.includes('.') ? file.name.substring(file.name.lastIndexOf('.')) : '';
+      const filename = `file-${Date.now()}-${i}${ext}`;
+      const mimeType = file.type || 'application/octet-stream';
+      const result = await window.electronAPI.copilot.saveFileToTemp(dataUrl, filename, mimeType);
+      console.log('saveFileToTemp result:', result);
+      
+      if (result.success && result.path) {
+        newAttachments.push({
+          id: generateId(),
+          path: result.path,
+          name: file.name,
+          size: result.size || file.size,
+          mimeType: mimeType
+        });
+      }
+    }
+    
+    console.log('newAttachments:', newAttachments.length);
+    if (newAttachments.length > 0) {
+      setFileAttachments(prev => [...prev, ...newAttachments]);
+      inputRef.current?.focus();
+    }
+  }, []);
+
+  // Handle removing a file attachment
+  const handleRemoveFile = useCallback((id: string) => {
+    setFileAttachments(prev => prev.filter(f => f.id !== id));
+  }, []);
+
+  // Handle paste event for images and files
   const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
     const items = e.clipboardData?.items;
     if (!items) return;
     
     const imageFiles: File[] = [];
+    const otherFiles: File[] = [];
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
-      if (item.type.startsWith('image/')) {
+      if (item.kind === 'file') {
         const file = item.getAsFile();
-        if (file) imageFiles.push(file);
+        if (file) {
+          if (item.type.startsWith('image/')) {
+            imageFiles.push(file);
+          } else {
+            otherFiles.push(file);
+          }
+        }
       }
     }
     
-    if (imageFiles.length > 0) {
+    if (imageFiles.length > 0 || otherFiles.length > 0) {
       e.preventDefault();
-      const dataTransfer = new DataTransfer();
-      imageFiles.forEach(f => dataTransfer.items.add(f));
-      await handleImageSelect(dataTransfer.files);
+      
+      if (imageFiles.length > 0) {
+        const dataTransfer = new DataTransfer();
+        imageFiles.forEach(f => dataTransfer.items.add(f));
+        await handleImageSelect(dataTransfer.files);
+      }
+      
+      if (otherFiles.length > 0) {
+        const dataTransfer = new DataTransfer();
+        otherFiles.forEach(f => dataTransfer.items.add(f));
+        await handleFileSelect(dataTransfer.files);
+      }
     }
-  }, [handleImageSelect]);
+  }, [handleImageSelect, handleFileSelect]);
 
-  // Handle drag events for images
+  // Handle drag events for images and files
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -1219,9 +1373,15 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     const hasImages = Array.from(e.dataTransfer.items).some(
       item => item.kind === 'file' && item.type.startsWith('image/')
     );
+    const hasFiles = Array.from(e.dataTransfer.items).some(
+      item => item.kind === 'file' && !item.type.startsWith('image/')
+    );
     
     if (hasImages) {
       setIsDraggingImage(true);
+    }
+    if (hasFiles) {
+      setIsDraggingFile(true);
     }
   }, []);
 
@@ -1229,20 +1389,41 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     e.preventDefault();
     e.stopPropagation();
     setIsDraggingImage(false);
+    setIsDraggingFile(false);
   }, []);
 
   const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDraggingImage(false);
+    setIsDraggingFile(false);
     
     // In Electron, we need to get file paths differently
     const files = e.dataTransfer.files;
     
-    // Try to get files from dataTransfer.files first
+    // Try to get files from dataTransfer.files first - separate images and other files
     if (files.length > 0) {
       console.log('Drop event - using files:', files.length);
-      await handleImageSelect(files);
+      const imageFiles: File[] = [];
+      const otherFiles: File[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (file.type.startsWith('image/') || file.name.match(/\.(png|jpg|jpeg|gif|webp|bmp)$/i)) {
+          imageFiles.push(file);
+        } else {
+          otherFiles.push(file);
+        }
+      }
+      if (imageFiles.length > 0) {
+        const dataTransfer = new DataTransfer();
+        imageFiles.forEach(f => dataTransfer.items.add(f));
+        await handleImageSelect(dataTransfer.files);
+      }
+      if (otherFiles.length > 0) {
+        const dataTransfer = new DataTransfer();
+        otherFiles.forEach(f => dataTransfer.items.add(f));
+        await handleFileSelect(dataTransfer.files);
+      }
       return;
     }
     
@@ -1250,14 +1431,19 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     const items = e.dataTransfer.items;
     if (items && items.length > 0) {
       const imageFiles: File[] = [];
+      const otherFiles: File[] = [];
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
         console.log('Item:', item.kind, item.type);
         if (item.kind === 'file') {
           const file = item.getAsFile();
           console.log('File from item:', file?.name, file?.type, file?.size);
-          if (file && (file.type.startsWith('image/') || file.name.match(/\.(png|jpg|jpeg|gif|webp|bmp)$/i))) {
-            imageFiles.push(file);
+          if (file) {
+            if (file.type.startsWith('image/') || file.name.match(/\.(png|jpg|jpeg|gif|webp|bmp)$/i)) {
+              imageFiles.push(file);
+            } else {
+              otherFiles.push(file);
+            }
           }
         }
       }
@@ -1265,6 +1451,13 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         const dataTransfer = new DataTransfer();
         imageFiles.forEach(f => dataTransfer.items.add(f));
         await handleImageSelect(dataTransfer.files);
+      }
+      if (otherFiles.length > 0) {
+        const dataTransfer = new DataTransfer();
+        otherFiles.forEach(f => dataTransfer.items.add(f));
+        await handleFileSelect(dataTransfer.files);
+      }
+      if (imageFiles.length > 0 || otherFiles.length > 0) {
         return;
       }
     }
@@ -1311,7 +1504,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         .map(uri => decodeURIComponent(uri.replace('file://', '')));
       console.log('File paths from URI:', filePaths);
     }
-  }, [handleImageSelect]);
+  }, [handleImageSelect, handleFileSelect]);
 
   const handleStop = useCallback(() => {
     if (!activeTab) return;
@@ -2181,31 +2374,41 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         prev.filter((s) => s.sessionId !== prevSession.sessionId),
       );
 
-      // Load message history
-      window.electronAPI.copilot
-        .getMessages(result.sessionId)
-        .then((messages) => {
-          if (messages.length > 0) {
-            setTabs((prev) =>
-              prev.map((tab) =>
-                tab.id === result.sessionId
-                  ? {
-                      ...tab,
-                      messages: messages.map((m, i) => ({
-                        id: `hist-${i}`,
-                        ...m,
-                        isStreaming: false,
-                      })),
-                      needsTitle: false,
-                    }
-                  : tab,
-              ),
-            );
-          }
-        })
-        .catch((err) =>
-          console.error(`Failed to load history for ${result.sessionId}:`, err),
+      // Load message history and attachments
+      const [messagesResult, attachmentsResult] = await Promise.all([
+        window.electronAPI.copilot.getMessages(result.sessionId),
+        window.electronAPI.copilot.loadMessageAttachments(result.sessionId),
+      ]);
+      
+      console.log('Resume session - loaded messages:', messagesResult.length, 'attachments:', attachmentsResult.attachments.length);
+      
+      if (messagesResult.length > 0) {
+        const attachmentMap = new Map(
+          attachmentsResult.attachments.map(a => [a.messageIndex, a])
         );
+        console.log('Attachment map entries:', Array.from(attachmentMap.entries()));
+        
+        setTabs((prev) =>
+          prev.map((tab) =>
+            tab.id === result.sessionId
+              ? {
+                  ...tab,
+                  messages: messagesResult.map((m, i) => {
+                    const att = attachmentMap.get(i);
+                    return {
+                      id: `hist-${i}`,
+                      ...m,
+                      isStreaming: false,
+                      imageAttachments: att?.imageAttachments,
+                      fileAttachments: att?.fileAttachments,
+                    };
+                  }),
+                  needsTitle: false,
+                }
+              : tab,
+          ),
+        );
+      }
 
       setStatus("connected");
     } catch (error) {
@@ -2725,8 +2928,24 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                                   key={img.id}
                                   src={img.previewUrl}
                                   alt={img.name}
-                                  className="max-h-32 w-auto rounded border border-white/20 object-contain"
+                                  className="max-h-32 w-auto rounded border border-white/30 object-contain cursor-pointer hover:opacity-80 transition-opacity"
+                                  onClick={() => setLightboxImage({ src: img.previewUrl, alt: img.name })}
+                                  title="Click to enlarge"
                                 />
+                              ))}
+                            </div>
+                          )}
+                          {/* User message files */}
+                          {message.fileAttachments && message.fileAttachments.length > 0 && (
+                            <div className="flex flex-wrap gap-2 mb-2">
+                              {message.fileAttachments.map((file) => (
+                                <div key={file.id} className="flex items-center gap-2 px-2.5 py-1.5 bg-black/20 rounded-lg">
+                                  <FileIcon size={16} className="opacity-60 shrink-0" />
+                                  <div className="flex flex-col min-w-0">
+                                    <span className="text-xs truncate max-w-[150px]" title={file.name}>{file.name}</span>
+                                    <span className="text-[10px] opacity-50">{(file.size / 1024).toFixed(1)} KB</span>
+                                  </div>
+                                </div>
                               ))}
                             </div>
                           )}
@@ -3209,6 +3428,28 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               </div>
             )}
 
+            {/* File Attachments Preview */}
+            {fileAttachments.length > 0 && (
+              <div className={`flex flex-wrap gap-2 p-2 bg-copilot-surface border border-b-0 border-copilot-border ${(terminalAttachment || imageAttachments.length > 0) ? '' : 'rounded-t-lg'}`}>
+                {fileAttachments.map((file) => (
+                  <div key={file.id} className="relative group flex items-center gap-2 px-2 py-1.5 bg-copilot-bg rounded border border-copilot-border">
+                    <FileIcon size={16} className="text-copilot-text-muted shrink-0" />
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-xs text-copilot-text truncate max-w-[120px]" title={file.name}>{file.name}</span>
+                      <span className="text-[10px] text-copilot-text-muted">{(file.size / 1024).toFixed(1)} KB</span>
+                    </div>
+                    <button
+                      onClick={() => handleRemoveFile(file.id)}
+                      className="shrink-0 text-copilot-text-muted hover:text-copilot-error transition-colors"
+                      title="Remove file"
+                    >
+                      <CloseIcon size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* Vision Warning */}
             {imageAttachments.length > 0 && activeTab && modelCapabilities[activeTab.model] && !modelCapabilities[activeTab.model].supportsVision && (
               <div className="flex items-center gap-2 px-3 py-1.5 bg-copilot-warning/10 border border-b-0 border-copilot-warning/30 text-copilot-warning text-xs">
@@ -3218,18 +3459,25 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
             )}
             
             <div 
-              className={`relative flex items-center bg-copilot-bg border border-copilot-border focus-within:border-copilot-accent transition-colors ${(terminalAttachment || imageAttachments.length > 0 || (imageAttachments.length > 0 && activeTab && modelCapabilities[activeTab.model] && !modelCapabilities[activeTab.model].supportsVision)) ? 'rounded-b-lg' : 'rounded-lg'} ${isDraggingImage ? 'border-copilot-accent border-dashed bg-copilot-accent/5' : ''}`}
+              className={`relative flex items-center bg-copilot-bg border border-copilot-border focus-within:border-copilot-accent transition-colors ${(terminalAttachment || imageAttachments.length > 0 || fileAttachments.length > 0 || (imageAttachments.length > 0 && activeTab && modelCapabilities[activeTab.model] && !modelCapabilities[activeTab.model].supportsVision)) ? 'rounded-b-lg' : 'rounded-lg'} ${(isDraggingImage || isDraggingFile) ? 'border-copilot-accent border-dashed bg-copilot-accent/5' : ''}`}
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
             >
-              {/* Hidden file input */}
+              {/* Hidden file inputs */}
               <input
                 ref={imageInputRef}
                 type="file"
                 accept="image/*"
                 multiple
                 onChange={(e) => handleImageSelect(e.target.files)}
+                className="hidden"
+              />
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                onChange={(e) => handleFileSelect(e.target.files)}
                 className="hidden"
               />
               
@@ -3259,7 +3507,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyPress}
                 onPaste={handlePaste}
-                placeholder={isDraggingImage ? "Drop image here..." : (ralphEnabled ? "Describe task with clear completion criteria..." : "Ask Copilot... (Shift+Enter for new line)")}
+                placeholder={(isDraggingImage || isDraggingFile) ? "Drop files here..." : (ralphEnabled ? "Describe task with clear completion criteria..." : "Ask Copilot... (Shift+Enter for new line)")}
                 className="flex-1 bg-transparent py-2.5 pl-3 pr-2 text-copilot-text placeholder-copilot-text-muted outline-none text-sm resize-none min-h-[40px] max-h-[200px]"
                 disabled={status !== "connected" || activeTab?.isProcessing}
                 autoFocus
@@ -3272,6 +3520,20 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     Math.min(target.scrollHeight, 200) + "px";
                 }}
               />
+              {/* File Attach Button */}
+              {!activeTab?.isProcessing && (
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`shrink-0 p-1.5 transition-colors ${
+                    fileAttachments.length > 0
+                      ? "text-copilot-accent"
+                      : "text-copilot-text-muted hover:text-copilot-text"
+                  }`}
+                  title="Attach file (or drag & drop, or paste)"
+                >
+                  <PaperclipIcon size={18} />
+                </button>
+              )}
               {/* Image Attach Button */}
               {!activeTab?.isProcessing && (
                 <button
@@ -3299,7 +3561,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 <button
                   onClick={handleSendMessage}
                   disabled={
-                    ((!inputValue.trim() && !terminalAttachment && imageAttachments.length === 0) ||
+                    ((!inputValue.trim() && !terminalAttachment && imageAttachments.length === 0 && fileAttachments.length === 0) ||
                     status !== "connected" ||
                     activeTab?.isProcessing)
                   }
@@ -4463,6 +4725,33 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         onClose={() => setShowPermissionsModal(false)}
         onDismiss={() => setShowPermissionsModal(false)}
       />
+
+      {/* Image Lightbox Modal */}
+      {lightboxImage && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 cursor-pointer"
+          onClick={() => setLightboxImage(null)}
+        >
+          <div className="relative max-w-[90vw] max-h-[90vh]">
+            <img
+              src={lightboxImage.src}
+              alt={lightboxImage.alt}
+              className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            />
+            <button
+              onClick={() => setLightboxImage(null)}
+              className="absolute -top-3 -right-3 w-8 h-8 bg-copilot-surface text-copilot-text rounded-full flex items-center justify-center hover:bg-copilot-surface-hover transition-colors shadow-lg"
+              title="Close"
+            >
+              <CloseIcon size={16} />
+            </button>
+            <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-sm px-3 py-2 rounded-b-lg truncate">
+              {lightboxImage.alt}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

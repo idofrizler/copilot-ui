@@ -44,6 +44,12 @@ const electronAPI = {
     renameSession: (sessionId: string, name: string): Promise<{ success: boolean }> => {
       return ipcRenderer.invoke('copilot:renameSession', { sessionId, name })
     },
+    saveMessageAttachments: (sessionId: string, attachments: Array<{ messageIndex: number; imageAttachments?: Array<{ id: string; path: string; previewUrl: string; name: string; size: number; mimeType: string }>; fileAttachments?: Array<{ id: string; path: string; name: string; size: number; mimeType: string }> }>): Promise<{ success: boolean }> => {
+      return ipcRenderer.invoke('copilot:saveMessageAttachments', { sessionId, attachments })
+    },
+    loadMessageAttachments: (sessionId: string): Promise<{ attachments: Array<{ messageIndex: number; imageAttachments?: Array<{ id: string; path: string; previewUrl: string; name: string; size: number; mimeType: string }>; fileAttachments?: Array<{ id: string; path: string; name: string; size: number; mimeType: string }> }> }> => {
+      return ipcRenderer.invoke('copilot:loadMessageAttachments', sessionId)
+    },
     resumePreviousSession: (sessionId: string, cwd?: string): Promise<{ sessionId: string; model: string; cwd: string; alreadyOpen: boolean; editedFiles?: string[]; alwaysAllowed?: string[] }> => {
       return ipcRenderer.invoke('copilot:resumePreviousSession', sessionId, cwd)
     },
@@ -167,6 +173,9 @@ const electronAPI = {
     },
     saveImageToTemp: (dataUrl: string, filename: string): Promise<{ success: boolean; path?: string; error?: string }> => {
       return ipcRenderer.invoke('copilot:saveImageToTemp', { dataUrl, filename })
+    },
+    saveFileToTemp: (dataUrl: string, filename: string, mimeType: string): Promise<{ success: boolean; path?: string; size?: number; error?: string }> => {
+      return ipcRenderer.invoke('copilot:saveFileToTemp', { dataUrl, filename, mimeType })
     },
     fetchImageFromUrl: (url: string): Promise<{ success: boolean; path?: string; dataUrl?: string; mimeType?: string; size?: number; filename?: string; error?: string }> => {
       return ipcRenderer.invoke('copilot:fetchImageFromUrl', url)
