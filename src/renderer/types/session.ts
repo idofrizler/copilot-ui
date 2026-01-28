@@ -80,6 +80,20 @@ export interface PreviousSession {
   name?: string;
   modifiedTime: string;
   cwd?: string; // Original working directory for this session
+  // Worktree-specific properties (optional, present if session is a worktree)
+  worktree?: {
+    id: string; // Worktree session ID (e.g., "repo--branch")
+    branch: string;
+    worktreePath: string;
+    status: "active" | "idle" | "orphaned";
+    diskUsage?: string;
+  };
+}
+
+// Worktree session status type for removal confirmation
+export interface WorktreeRemovalStatus {
+  hasUncommittedChanges: boolean;
+  hasUnpushedCommits: boolean;
 }
 
 // Ralph Wiggum loop configuration

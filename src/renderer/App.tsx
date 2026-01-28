@@ -33,9 +33,9 @@ import {
   BookIcon,
   ImageIcon,
   HistoryIcon,
+  GitBranchIcon,
   TerminalPanel,
   TerminalOutputShrinkModal,
-  WorktreeSessionsList,
   CreateWorktreeSession,
   ChoiceSelector,
   PaperclipIcon,
@@ -72,6 +72,36 @@ import { playNotificationSound } from "./utils/sound";
 import { LONG_OUTPUT_LINE_THRESHOLD } from "./utils/cliOutputCompression";
 import { useClickOutside } from "./hooks";
 import buildInfo from "./build-info.json";
+
+// Helper to enrich sessions with worktree metadata
+const enrichSessionsWithWorktreeData = async (sessions: PreviousSession[]): Promise<PreviousSession[]> => {
+  try {
+    const worktreeSessions = await window.electronAPI.worktree.listSessions();
+    const worktreeMap = new Map(
+      worktreeSessions.sessions.map(wt => [wt.worktreePath, wt])
+    );
+    
+    return sessions.map(session => {
+      const worktree = session.cwd ? worktreeMap.get(session.cwd) : null;
+      if (worktree) {
+        return {
+          ...session,
+          worktree: {
+            id: worktree.id,
+            branch: worktree.branch,
+            worktreePath: worktree.worktreePath,
+            status: worktree.status,
+            diskUsage: worktree.diskUsage,
+          }
+        };
+      }
+      return session;
+    });
+  } catch (error) {
+    console.error('Failed to enrich sessions with worktree data:', error);
+    return sessions;
+  }
+};
 
 const App: React.FC = () => {
   const [status, setStatus] = useState<Status>("connecting");
@@ -148,7 +178,6 @@ const App: React.FC = () => {
   const [ralphRequireScreenshot, setRalphRequireScreenshot] = useState(false);
 
   // Worktree session state
-  const [showWorktreeList, setShowWorktreeList] = useState(false);
   const [showCreateWorktree, setShowCreateWorktree] = useState(false);
   const [worktreeRepoPath, setWorktreeRepoPath] = useState("");
 
@@ -374,7 +403,10 @@ const App: React.FC = () => {
         );
         setStatus("connected");
         setAvailableModels(data.models);
-        setPreviousSessions(data.previousSessions);
+        
+        // Enrich previous sessions with worktree metadata
+        const enrichedSessions = await enrichSessionsWithWorktreeData(data.previousSessions);
+        setPreviousSessions(enrichedSessions);
 
         // Load global safe commands
         try {
@@ -2322,7 +2354,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     if (existingTab) {
       // Switch to the existing tab instead of opening a new one
       setActiveTabId(existingTab.id);
-      setShowWorktreeList(false);
+      setShowSessionHistory(false);
       return;
     }
     
@@ -2330,13 +2362,37 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     const existingPreviousSession = previousSessions.find(s => s.cwd === session.worktreePath);
     if (existingPreviousSession) {
       // Resume the existing session instead of creating a new one
-      setShowWorktreeList(false);
+      setShowSessionHistory(false);
       await handleResumePreviousSession(existingPreviousSession);
       return;
     }
     
-    setShowWorktreeList(false);
+    setShowSessionHistory(false);
     await handleWorktreeSessionCreated(session.worktreePath, session.branch);
+  };
+
+  // Handle removing a worktree session
+  const handleRemoveWorktreeSession = async (worktreeId: string, worktreePath: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      // Close any tab that has this worktree path as cwd
+      const tabToClose = tabs.find(tab => tab.cwd === worktreePath);
+      if (tabToClose) {
+        await handleCloseTab(tabToClose.id);
+      }
+
+      // Remove the worktree
+      const result = await window.electronAPI.worktree.removeSession({ sessionId: worktreeId, force: true });
+      
+      if (result.success) {
+        // Re-enrich sessions to update the list
+        const enrichedSessions = await enrichSessionsWithWorktreeData(previousSessions);
+        setPreviousSessions(enrichedSessions);
+      }
+      
+      return result;
+    } catch (err) {
+      return { success: false, error: String(err) };
+    }
   };
 
   const handleCloseTab = async (tabId: string, e?: React.MouseEvent) => {
@@ -2726,33 +2782,30 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           className="bg-copilot-bg border-r border-copilot-border flex flex-col shrink-0"
           style={{ width: leftPanelWidth }}
         >
-          {/* New Tab Button */}
-          <button
-            onClick={() => handleNewTab()}
-            className="flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors border-b border-copilot-border"
-          >
-            <PlusIcon size={12} />
-            New Session
-          </button>
-          
-          {/* Worktree Session Buttons */}
-          <div className="flex border-b border-copilot-border">
+          {/* New Session Button with Dropdown */}
+          <div className="relative group border-b border-copilot-border">
             <button
-              onClick={() => handleNewWorktreeSession()}
-              className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-[10px] text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
-              title="Create isolated worktree session"
+              onClick={() => handleNewTab()}
+              className="w-full flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
             >
-              <PlusIcon size={10} />
-              Worktree
+              <PlusIcon size={12} />
+              New Session
             </button>
-            <button
-              onClick={() => setShowWorktreeList(true)}
-              className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-[10px] text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors border-l border-copilot-border"
-              title="View all worktree sessions"
-            >
-              <FolderIcon size={10} />
-              List
-            </button>
+            {/* Dropdown arrow / Worktree option on hover */}
+            <div className="absolute right-0 top-0 h-full flex items-center pr-2">
+              <div className="relative">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleNewWorktreeSession();
+                  }}
+                  className="p-1 text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="New Worktree Session (isolated branch)"
+                >
+                  <GitBranchIcon size={12} />
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Open Tabs */}
@@ -4825,20 +4878,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         onResumeSession={handleResumePreviousSession}
         onSwitchToSession={handleSwitchTab}
         onDeleteSession={handleDeleteSessionFromHistory}
-      />
-
-      {/* Worktree Sessions List Modal */}
-      <WorktreeSessionsList
-        isOpen={showWorktreeList}
-        onClose={() => setShowWorktreeList(false)}
-        onOpenSession={handleOpenWorktreeSession}
-        onRemoveSession={(worktreePath: string) => {
-          // Close any tab that has this worktree path as cwd
-          const tabToClose = tabs.find(tab => tab.cwd === worktreePath)
-          if (tabToClose) {
-            handleCloseTab(tabToClose.id)
-          }
-        }}
+        onRemoveWorktreeSession={handleRemoveWorktreeSession}
+        onOpenWorktreeSession={handleOpenWorktreeSession}
       />
 
       {/* Create Worktree Session Modal */}

@@ -1,7 +1,12 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { Modal } from '../Modal'
-import { ClockIcon, ZapIcon } from '../Icons'
-import { PreviousSession, TabState } from '../../types'
+import { Button } from '../Button'
+import { Spinner } from '../Spinner'
+import { ClockIcon, ZapIcon, GitBranchIcon } from '../Icons'
+import { PreviousSession, TabState, WorktreeRemovalStatus } from '../../types'
+
+// Filter options for the session list
+type SessionFilter = 'all' | 'worktree'
 
 // Extended session type that includes active flag
 interface DisplaySession extends PreviousSession {
@@ -17,6 +22,9 @@ interface SessionHistoryProps {
   onResumeSession: (session: PreviousSession) => void
   onSwitchToSession: (sessionId: string) => void
   onDeleteSession: (sessionId: string) => void
+  onRemoveWorktreeSession?: (worktreeId: string, worktreePath: string) => Promise<{ success: boolean; error?: string }>
+  onOpenWorktreeSession?: (session: { worktreePath: string; branch: string }) => void
+  initialFilter?: SessionFilter
 }
 
 // Helper to categorize sessions by time period
@@ -96,31 +104,85 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
   onResumeSession,
   onSwitchToSession,
   onDeleteSession,
+  onRemoveWorktreeSession,
+  onOpenWorktreeSession,
+  initialFilter = 'all',
 }) => {
   const [searchQuery, setSearchQuery] = useState('')
+  const [filter, setFilter] = useState<SessionFilter>(initialFilter)
+  const [isPruning, setIsPruning] = useState(false)
+  const [actionInProgress, setActionInProgress] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [confirmRemove, setConfirmRemove] = useState<{ 
+    sessionId: string
+    worktreeId: string
+    worktreePath: string
+    hasUncommitted: boolean
+    hasUnpushed: boolean 
+  } | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
+  
+  // Worktree data fetched directly (for detecting active worktrees)
+  const [worktreeMap, setWorktreeMap] = useState<Map<string, PreviousSession['worktree']>>(new Map())
 
-  // Focus search input when modal opens
+  // Fetch worktree list when modal opens to properly detect active worktrees
+  useEffect(() => {
+    if (isOpen) {
+      const fetchWorktrees = async () => {
+        try {
+          const result = await window.electronAPI.worktree.listSessions()
+          if (result?.sessions) {
+            const map = new Map<string, PreviousSession['worktree']>()
+            result.sessions.forEach((wt: { id: string; branch: string; worktreePath: string; status: 'active' | 'idle' | 'orphaned'; diskUsage?: string }) => {
+              map.set(wt.worktreePath, {
+                id: wt.id,
+                branch: wt.branch,
+                worktreePath: wt.worktreePath,
+                status: wt.status,
+                diskUsage: wt.diskUsage,
+              })
+            })
+            setWorktreeMap(map)
+          }
+        } catch (err) {
+          console.error('Failed to fetch worktree list:', err)
+        }
+      }
+      fetchWorktrees()
+    }
+  }, [isOpen])
+
+  // Reset filter to initialFilter when modal opens
   useEffect(() => {
     if (isOpen) {
       setSearchQuery('')
+      setFilter(initialFilter)
+      setError(null)
+      setSuccessMessage(null)
+      setConfirmRemove(null)
       // Small delay to ensure modal is rendered
       setTimeout(() => {
         searchInputRef.current?.focus()
       }, 100)
     }
-  }, [isOpen])
+  }, [isOpen, initialFilter])
 
   // Combine active sessions and previous sessions
   const allSessions: DisplaySession[] = useMemo(() => {
-    // Convert active tabs to DisplaySession format
-    const activeDisplaySessions: DisplaySession[] = activeSessions.map(tab => ({
-      sessionId: tab.id,
-      name: tab.name,
-      modifiedTime: new Date().toISOString(), // Active sessions are "now"
-      cwd: tab.cwd,
-      isActive: true,
-    }))
+    // Convert active tabs to DisplaySession format, enriching with worktree data from live worktreeMap
+    const activeDisplaySessions: DisplaySession[] = activeSessions.map(tab => {
+      // Match tab.cwd to worktreePath to find worktree data (from live worktree list)
+      const worktree = tab.cwd ? worktreeMap.get(tab.cwd) : undefined
+      return {
+        sessionId: tab.id,
+        name: tab.name,
+        modifiedTime: new Date().toISOString(), // Active sessions are "now"
+        cwd: tab.cwd,
+        isActive: true,
+        worktree,
+      }
+    })
     
     // Filter out any previous sessions that are now active (shouldn't happen but just in case)
     const activeIds = new Set(activeSessions.map(t => t.id))
@@ -130,20 +192,36 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
     
     // Combine: active sessions first (they're "today"), then previous
     return [...activeDisplaySessions, ...filteredPrevious]
-  }, [activeSessions, sessions])
+  }, [activeSessions, sessions, worktreeMap])
 
-  // Filter sessions based on search query
+  // Filter sessions based on search query AND filter type
   const filteredSessions = useMemo(() => {
-    if (!searchQuery.trim()) return allSessions
+    let result = allSessions
 
-    const query = searchQuery.toLowerCase()
-    return allSessions.filter(session => {
-      const name = (session.name || '').toLowerCase()
-      const sessionId = session.sessionId.toLowerCase()
-      const cwd = (session.cwd || '').toLowerCase()
-      return name.includes(query) || sessionId.includes(query) || cwd.includes(query)
-    })
-  }, [allSessions, searchQuery])
+    // Apply filter type
+    if (filter === 'worktree') {
+      result = result.filter(session => session.worktree)
+    }
+
+    // Apply search query
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase()
+      result = result.filter(session => {
+        const name = (session.name || '').toLowerCase()
+        const sessionId = session.sessionId.toLowerCase()
+        const cwd = (session.cwd || '').toLowerCase()
+        const branch = (session.worktree?.branch || '').toLowerCase()
+        return name.includes(query) || sessionId.includes(query) || cwd.includes(query) || branch.includes(query)
+      })
+    }
+
+    return result
+  }, [allSessions, searchQuery, filter])
+
+  // Count worktree sessions for filter badge
+  const worktreeCount = useMemo(() => {
+    return allSessions.filter(s => s.worktree).length
+  }, [allSessions])
 
   // Categorize filtered sessions
   const categorizedSessions = useMemo(() => {
@@ -151,50 +229,172 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
   }, [filteredSessions])
 
   const handleSessionClick = (session: DisplaySession) => {
-    if (session.isActive) {
+    if (session.worktree && onOpenWorktreeSession) {
+      // Open worktree session
+      onOpenWorktreeSession({ worktreePath: session.worktree.worktreePath, branch: session.worktree.branch })
+      onClose()
+    } else if (session.isActive) {
       // Switch to the active session
       onSwitchToSession(session.sessionId)
+      onClose()
     } else {
       // Resume a previous session
       onResumeSession(session)
+      onClose()
     }
-    onClose()
   }
 
-  const handleDeleteClick = (e: React.MouseEvent, session: DisplaySession) => {
+  const handleDeleteClick = async (e: React.MouseEvent, session: DisplaySession) => {
     e.stopPropagation() // Prevent triggering session click
-    if (!session.isActive) {
+    if (session.isActive) return
+
+    // For worktree sessions, check for uncommitted/unpushed changes first
+    if (session.worktree && onRemoveWorktreeSession) {
+      setActionInProgress(`remove-${session.sessionId}`)
+      setError(null)
+      try {
+        const status = await window.electronAPI.git.getWorkingStatus(session.worktree.worktreePath)
+        if (status.hasUncommittedChanges || status.hasUnpushedCommits) {
+          setConfirmRemove({
+            sessionId: session.sessionId,
+            worktreeId: session.worktree.id,
+            worktreePath: session.worktree.worktreePath,
+            hasUncommitted: status.hasUncommittedChanges,
+            hasUnpushed: status.hasUnpushedCommits
+          })
+          setActionInProgress(null)
+          return
+        }
+        // No uncommitted changes, proceed with removal
+        await doWorktreeRemove(session.sessionId, session.worktree.id, session.worktree.worktreePath)
+      } catch (err) {
+        setError(String(err))
+        setActionInProgress(null)
+      }
+    } else {
+      // Regular session deletion
       onDeleteSession(session.sessionId)
     }
   }
 
+  const doWorktreeRemove = async (sessionId: string, worktreeId: string, worktreePath: string) => {
+    if (!onRemoveWorktreeSession) return
+    setActionInProgress(`remove-${sessionId}`)
+    try {
+      const result = await onRemoveWorktreeSession(worktreeId, worktreePath)
+      if (result.success) {
+        setSuccessMessage('Worktree removed successfully')
+        setTimeout(() => setSuccessMessage(null), 3000)
+      } else {
+        setError(result.error || 'Failed to remove worktree')
+      }
+    } catch (err) {
+      setError(String(err))
+    } finally {
+      setActionInProgress(null)
+      setConfirmRemove(null)
+    }
+  }
+
+  const handlePrune = async () => {
+    setIsPruning(true)
+    setError(null)
+    try {
+      const result = await window.electronAPI.worktree.pruneSessions()
+      if (result.pruned.length > 0) {
+        setSuccessMessage(`Pruned ${result.pruned.length} stale session(s)`)
+        setTimeout(() => setSuccessMessage(null), 3000)
+      }
+    } catch (err) {
+      setError(String(err))
+    } finally {
+      setIsPruning(false)
+    }
+  }
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'active': return 'text-copilot-success'
+      case 'idle': return 'text-copilot-text-muted'
+      case 'orphaned': return 'text-copilot-warning'
+      default: return 'text-copilot-text-muted'
+    }
+  }
+
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Session History" width="600px">
+    <Modal isOpen={isOpen} onClose={onClose} title="Session History" width="650px">
       <Modal.Body className="p-0">
-        {/* Search Bar */}
-        <div className="p-3 border-b border-copilot-border">
-          <div className="relative">
-            <input
-              ref={searchInputRef}
-              type="text"
-              placeholder="Search sessions..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full px-3 py-2 pl-9 text-sm bg-copilot-bg border border-copilot-border rounded-md text-copilot-text placeholder-copilot-text-muted focus:outline-none focus:border-copilot-accent"
-            />
-            <svg
-              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-copilot-text-muted"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+        {/* Success/Error Messages */}
+        {successMessage && (
+          <div className="text-copilot-success text-sm p-2 m-3 mb-0 bg-copilot-success/10 rounded">
+            {successMessage}
+          </div>
+        )}
+        {error && (
+          <div className="text-copilot-error text-sm p-2 m-3 mb-0 bg-copilot-error/10 rounded flex items-center">
+            {error}
+            <button 
+              onClick={() => setError(null)} 
+              className="ml-auto text-copilot-text-muted hover:text-copilot-text"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+              ✕
+            </button>
+          </div>
+        )}
+
+        {/* Search Bar and Filter Toggle */}
+        <div className="p-3 border-b border-copilot-border">
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <input
+                ref={searchInputRef}
+                type="text"
+                placeholder="Search sessions..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full px-3 py-2 pl-9 text-sm bg-copilot-bg border border-copilot-border rounded-md text-copilot-text placeholder-copilot-text-muted focus:outline-none focus:border-copilot-accent"
               />
-            </svg>
+              <svg
+                className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-copilot-text-muted"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
+              </svg>
+            </div>
+            {/* Filter Toggle */}
+            <div className="flex rounded-md border border-copilot-border overflow-hidden">
+              <button
+                onClick={() => setFilter('all')}
+                className={`px-3 py-2 text-xs transition-colors ${
+                  filter === 'all' 
+                    ? 'bg-copilot-surface text-copilot-text' 
+                    : 'text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface/50'
+                }`}
+              >
+                All
+              </button>
+              <button
+                onClick={() => setFilter('worktree')}
+                className={`px-3 py-2 text-xs transition-colors border-l border-copilot-border flex items-center gap-1 ${
+                  filter === 'worktree' 
+                    ? 'bg-copilot-surface text-copilot-text' 
+                    : 'text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface/50'
+                }`}
+              >
+                <GitBranchIcon size={12} />
+                Worktree
+                {worktreeCount > 0 && (
+                  <span className="text-[10px] bg-copilot-bg px-1 rounded">{worktreeCount}</span>
+                )}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -227,65 +427,82 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
                   {/* Sessions in Category */}
                   {category.sessions.map((session) => {
                     const isCurrentSession = session.sessionId === activeSessionId
+                    const isRemoving = actionInProgress === `remove-${session.sessionId}`
                     return (
                       <div
                         key={session.sessionId}
-                        onClick={() => handleSessionClick(session)}
+                        onClick={() => !isRemoving && handleSessionClick(session)}
                         role="button"
                         tabIndex={0}
-                        onKeyDown={(e) => e.key === 'Enter' && handleSessionClick(session)}
-                        className={`w-full px-3 py-2.5 flex items-start gap-3 hover:bg-copilot-surface transition-colors text-left group cursor-pointer ${isCurrentSession ? 'bg-copilot-surface/50' : ''}`}
+                        onKeyDown={(e) => e.key === 'Enter' && !isRemoving && handleSessionClick(session)}
+                        className={`w-full px-3 py-2 flex items-center gap-3 hover:bg-copilot-surface transition-colors text-left group cursor-pointer ${isCurrentSession ? 'bg-copilot-surface/50' : ''} ${isRemoving ? 'opacity-50' : ''}`}
                       >
-                        {/* Status Icon */}
+                        {/* Status Icon - consistent for all sessions */}
                         {session.isActive ? (
                           <ZapIcon
-                            size={16}
-                            className="shrink-0 mt-0.5 text-copilot-text-muted group-hover:text-copilot-accent transition-colors"
+                            size={14}
+                            className="shrink-0 text-copilot-text-muted group-hover:text-copilot-accent"
                             strokeWidth={1.5}
                           />
                         ) : (
                           <ClockIcon
-                            size={16}
-                            className="shrink-0 mt-0.5 text-copilot-text-muted group-hover:text-copilot-accent transition-colors"
+                            size={14}
+                            className="shrink-0 text-copilot-text-muted group-hover:text-copilot-accent"
                             strokeWidth={1.5}
                           />
                         )}
                         
-                        {/* Session Info */}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm text-copilot-text truncate font-medium">
-                              {session.name || `Session ${session.sessionId.slice(0, 8)}...`}
+                        {/* Session Name/Branch */}
+                        <span className="flex-1 min-w-0 text-sm text-copilot-text truncate flex items-center gap-1.5">
+                          {session.worktree 
+                            ? session.worktree.branch 
+                            : session.name || `Session ${session.sessionId.slice(0, 8)}...`}
+                          {session.worktree && (
+                            <GitBranchIcon
+                              size={12}
+                              className="shrink-0 text-copilot-text-muted"
+                              strokeWidth={1.5}
+                            />
+                          )}
+                        </span>
+
+                        {/* Right side: size + badge/time - fixed widths for alignment */}
+                        <div className="flex items-center shrink-0">
+                          {/* Disk usage only shown when filtered to worktrees */}
+                          {filter === 'worktree' && (
+                            <span className="text-xs text-copilot-text-muted w-20 text-right">
+                              {session.worktree?.diskUsage || ''}
                             </span>
-                            <span className="flex-1" />
+                          )}
+                          
+                          {/* Time/badge column - fixed width, flex to align right */}
+                          <div className="w-20 flex justify-end items-center">
                             {session.isActive ? (
-                              <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${isCurrentSession ? 'bg-copilot-accent/20 text-copilot-accent' : 'bg-copilot-success/20 text-copilot-success'}`}>
+                              <span className={`text-xs ${isCurrentSession ? 'text-copilot-accent' : 'text-copilot-success'}`}>
                                 {isCurrentSession ? 'current' : 'active'}
                               </span>
                             ) : (
                               <>
-                                <span className="text-xs text-copilot-text-muted shrink-0 group-hover:hidden">
+                                <span className="text-xs text-copilot-text-muted group-hover:hidden">
                                   {formatRelativeTime(session.modifiedTime)}
                                 </span>
                                 <button
                                   onClick={(e) => handleDeleteClick(e, session)}
-                                  className="hidden group-hover:flex items-center text-copilot-text-muted hover:text-copilot-error transition-colors shrink-0"
-                                  title="Delete session from history"
+                                  disabled={isRemoving}
+                                  className="hidden group-hover:flex items-center justify-center text-copilot-text-muted hover:text-copilot-error transition-colors"
+                                  title={session.worktree ? "Remove worktree" : "Delete session"}
                                 >
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                  </svg>
+                                  {isRemoving ? (
+                                    <Spinner />
+                                  ) : (
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                  )}
                                 </button>
                               </>
                             )}
                           </div>
-                          
-                          {/* Working Directory */}
-                          {session.cwd && (
-                            <span className="text-xs text-copilot-text-muted truncate mt-0.5 block">
-                              {shortenPath(session.cwd)}
-                            </span>
-                          )}
                         </div>
                       </div>
                     )
@@ -296,15 +513,59 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
           )}
         </div>
 
-        {/* Footer with count */}
-        <div className="px-3 py-2 border-t border-copilot-border text-xs text-copilot-text-muted">
-          {searchQuery ? (
-            <span>{filteredSessions.length} of {allSessions.length} sessions</span>
-          ) : (
-            <span>{allSessions.length} sessions ({activeSessions.length} active)</span>
+        {/* Footer with count and prune button */}
+        <div className="px-3 py-2 border-t border-copilot-border text-xs text-copilot-text-muted flex items-center justify-between">
+          <span>
+            {searchQuery ? (
+              <>{filteredSessions.length} of {allSessions.length} sessions</>
+            ) : filter === 'worktree' ? (
+              <>{worktreeCount} worktree sessions</>
+            ) : (
+              <>{allSessions.length} sessions ({activeSessions.length} active)</>
+            )}
+          </span>
+          {filter === 'worktree' && worktreeCount > 0 && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handlePrune}
+              disabled={isPruning}
+            >
+              {isPruning ? 'Pruning...' : 'Prune Stale'}
+            </Button>
           )}
         </div>
       </Modal.Body>
+
+      {/* Confirmation dialog for worktree removal with uncommitted/unpushed changes */}
+      {confirmRemove && (
+        <Modal isOpen={true} onClose={() => setConfirmRemove(null)} title="Confirm Removal" width="400px">
+          <Modal.Body>
+            <div className="text-sm text-copilot-text mb-4">
+              This worktree has:
+              <ul className="list-disc list-inside mt-2 text-copilot-warning">
+                {confirmRemove.hasUncommitted && <li>Uncommitted changes</li>}
+                {confirmRemove.hasUnpushed && <li>Unpushed commits</li>}
+              </ul>
+            </div>
+            <p className="text-sm text-copilot-text-muted">
+              Are you sure you want to remove it? All changes will be lost.
+            </p>
+          </Modal.Body>
+          <Modal.Footer>
+            <Button variant="ghost" onClick={() => setConfirmRemove(null)}>
+              Cancel
+            </Button>
+            <Button 
+              variant="primary" 
+              onClick={() => doWorktreeRemove(confirmRemove.sessionId, confirmRemove.worktreeId, confirmRemove.worktreePath)}
+              className="bg-copilot-error hover:bg-copilot-error/80"
+            >
+              Remove Anyway
+            </Button>
+          </Modal.Footer>
+        </Modal>
+      )}
     </Modal>
   )
 }

@@ -319,12 +319,20 @@ describe('SessionHistory Component', () => {
       expect(screen.getByText('Session abc12345...')).toBeInTheDocument()
     })
 
-    it('displays shortened working directory paths', () => {
+    it('displays session names and branch names for worktrees', () => {
+      const sessionsWithWorktree: PreviousSession[] = [
+        createMockSession('session-1', 'Regular session', 0, '/Users/dev/project'),
+        {
+          ...createMockSession('session-2', 'Worktree session', 0, '/path/worktree'),
+          worktree: { id: 'wt-1', branch: 'feature/my-branch', worktreePath: '/path/worktree', status: 'active' as const }
+        },
+      ]
+      
       render(
         <SessionHistory
           isOpen={true}
           onClose={mockOnClose}
-          sessions={createMockSessions()}
+          sessions={sessionsWithWorktree}
           onResumeSession={mockOnResumeSession}
           onDeleteSession={mockOnDeleteSession}
           activeSessions={[]}
@@ -333,9 +341,10 @@ describe('SessionHistory Component', () => {
         />
       )
       
-      // Should show shortened paths like ".../dev/project-a" (multiple sessions have same path)
-      const pathElements = screen.getAllByText('.../dev/project-a')
-      expect(pathElements.length).toBeGreaterThan(0)
+      // Regular session shows name
+      expect(screen.getByText('Regular session')).toBeInTheDocument()
+      // Worktree session shows branch name instead of session name
+      expect(screen.getByText('feature/my-branch')).toBeInTheDocument()
     })
   })
 
@@ -611,6 +620,236 @@ describe('SessionHistory Component', () => {
       
       const searchInput = screen.getByPlaceholderText('Search sessions...')
       expect(searchInput).toHaveValue('')
+    })
+  })
+
+  describe('Filter Toggle', () => {
+    it('renders All and Worktree filter buttons', () => {
+      render(
+        <SessionHistory
+          isOpen={true}
+          onClose={mockOnClose}
+          sessions={createMockSessions()}
+          onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
+        />
+      )
+      
+      expect(screen.getByText('All')).toBeInTheDocument()
+      expect(screen.getByText('Worktree')).toBeInTheDocument()
+    })
+
+    it('starts with All filter selected by default', () => {
+      render(
+        <SessionHistory
+          isOpen={true}
+          onClose={mockOnClose}
+          sessions={createMockSessions()}
+          onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
+        />
+      )
+      
+      const allButton = screen.getByText('All')
+      expect(allButton).toHaveClass('bg-copilot-surface')
+    })
+
+    it('respects initialFilter prop for worktree', () => {
+      render(
+        <SessionHistory
+          isOpen={true}
+          onClose={mockOnClose}
+          sessions={createMockSessions()}
+          onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
+          initialFilter="worktree"
+        />
+      )
+      
+      // Worktree filter should be selected
+      const worktreeButton = screen.getByText('Worktree').closest('button')
+      expect(worktreeButton).toHaveClass('bg-copilot-surface')
+    })
+
+    it('filters to show only worktree sessions when Worktree filter clicked', async () => {
+      const user = userEvent.setup()
+      const sessionsWithWorktree: PreviousSession[] = [
+        createMockSession('session-1', 'Regular session', 0, '/Users/dev/project'),
+        {
+          ...createMockSession('session-2', 'Worktree session', 0, '/Users/dev/.copilot-sessions/repo--feature-branch'),
+          worktree: {
+            id: 'repo--feature-branch',
+            branch: 'feature-branch',
+            worktreePath: '/Users/dev/.copilot-sessions/repo--feature-branch',
+            status: 'active' as const,
+            diskUsage: '10 MB',
+          }
+        }
+      ]
+      
+      render(
+        <SessionHistory
+          isOpen={true}
+          onClose={mockOnClose}
+          sessions={sessionsWithWorktree}
+          onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
+        />
+      )
+      
+      // Both sessions visible initially
+      expect(screen.getByText('Regular session')).toBeInTheDocument()
+      expect(screen.getByText('feature-branch')).toBeInTheDocument()
+      
+      // Click worktree filter
+      await user.click(screen.getByText('Worktree'))
+      
+      // Only worktree session visible
+      expect(screen.queryByText('Regular session')).not.toBeInTheDocument()
+      expect(screen.getByText('feature-branch')).toBeInTheDocument()
+    })
+  })
+
+  describe('Worktree Session Display', () => {
+    it('displays branch name for worktree sessions', () => {
+      const sessionsWithWorktree: PreviousSession[] = [{
+        ...createMockSession('session-1', 'Worktree session', 0, '/Users/dev/.copilot-sessions/repo--feature-branch'),
+        worktree: {
+          id: 'repo--feature-branch',
+          branch: 'feature-branch',
+          worktreePath: '/Users/dev/.copilot-sessions/repo--feature-branch',
+          status: 'active' as const,
+          diskUsage: '10 MB',
+        }
+      }]
+      
+      render(
+        <SessionHistory
+          isOpen={true}
+          onClose={mockOnClose}
+          sessions={sessionsWithWorktree}
+          onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
+        />
+      )
+      
+      // Branch name should be displayed instead of session name
+      expect(screen.getByText('feature-branch')).toBeInTheDocument()
+    })
+
+    it('displays disk usage for worktree sessions when filtered to worktree', async () => {
+      const sessionsWithWorktree: PreviousSession[] = [{
+        ...createMockSession('session-1', 'Worktree session', 0, '/Users/dev/.copilot-sessions/repo--feature-branch'),
+        worktree: {
+          id: 'repo--feature-branch',
+          branch: 'feature-branch',
+          worktreePath: '/Users/dev/.copilot-sessions/repo--feature-branch',
+          status: 'active' as const,
+          diskUsage: '10 MB',
+        }
+      }]
+      
+      render(
+        <SessionHistory
+          isOpen={true}
+          onClose={mockOnClose}
+          sessions={sessionsWithWorktree}
+          onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
+        />
+      )
+      
+      // Disk usage should NOT be visible in "All" view
+      expect(screen.queryByText('10 MB')).not.toBeInTheDocument()
+      
+      // Click on "Worktree" filter button (the one in the header with badge)
+      const worktreeButtons = screen.getAllByRole('button', { name: /worktree/i })
+      const worktreeFilterButton = worktreeButtons.find(btn => btn.textContent?.includes('1'))
+      expect(worktreeFilterButton).toBeDefined()
+      await userEvent.click(worktreeFilterButton!)
+      
+      // Now disk usage should be visible
+      expect(screen.getByText('10 MB')).toBeInTheDocument()
+    })
+
+    it('shows worktree count badge on filter button', () => {
+      const sessionsWithWorktree: PreviousSession[] = [
+        createMockSession('session-1', 'Regular session', 0, '/Users/dev/project'),
+        {
+          ...createMockSession('session-2', 'Worktree 1', 0, '/path/1'),
+          worktree: { id: 'wt-1', branch: 'branch-1', worktreePath: '/path/1', status: 'active' as const }
+        },
+        {
+          ...createMockSession('session-3', 'Worktree 2', 0, '/path/2'),
+          worktree: { id: 'wt-2', branch: 'branch-2', worktreePath: '/path/2', status: 'idle' as const }
+        }
+      ]
+      
+      render(
+        <SessionHistory
+          isOpen={true}
+          onClose={mockOnClose}
+          sessions={sessionsWithWorktree}
+          onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
+        />
+      )
+      
+      // Should show count of 2 worktree sessions
+      expect(screen.getByText('2')).toBeInTheDocument()
+    })
+  })
+
+  describe('Prune Stale Button', () => {
+    it('shows Prune Stale button only in worktree filter mode with worktree sessions', async () => {
+      const user = userEvent.setup()
+      const sessionsWithWorktree: PreviousSession[] = [{
+        ...createMockSession('session-1', 'Worktree session', 0, '/path'),
+        worktree: { id: 'wt-1', branch: 'branch-1', worktreePath: '/path', status: 'active' as const }
+      }]
+      
+      render(
+        <SessionHistory
+          isOpen={true}
+          onClose={mockOnClose}
+          sessions={sessionsWithWorktree}
+          onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
+        />
+      )
+      
+      // Prune button should not be visible in All filter mode
+      expect(screen.queryByText('Prune Stale')).not.toBeInTheDocument()
+      
+      // Switch to worktree filter
+      await user.click(screen.getByText('Worktree'))
+      
+      // Prune button should now be visible
+      expect(screen.getByText('Prune Stale')).toBeInTheDocument()
     })
   })
 })
