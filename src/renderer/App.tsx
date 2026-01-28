@@ -54,6 +54,7 @@ import {
   PendingConfirmation,
   PendingInjection,
   TabState,
+  DraftInput,
   PreviousSession,
   MCPServerConfig,
   MCPLocalServerConfig,
@@ -508,9 +509,11 @@ const App: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const activeTabIdRef = useRef<string | null>(null);
+  const prevActiveTabIdRef = useRef<string | null>(null);
 
-  // Keep ref in sync with state
+  // Keep ref in sync with state (update prevActiveTabIdRef BEFORE activeTabIdRef)
   useEffect(() => {
+    prevActiveTabIdRef.current = activeTabIdRef.current;
     activeTabIdRef.current = activeTabId;
   }, [activeTabId]);
 
@@ -539,10 +542,45 @@ const App: React.FC = () => {
     }
   }, [activeTab?.model]);
 
-  // Clear image and file attachments when tab changes
+  // Save draft state to departing tab and restore from arriving tab on tab switch
   useEffect(() => {
-    setImageAttachments([]);
-    setFileAttachments([]);
+    // Save current input state to the previous tab's draftInput (if it still exists)
+    if (prevActiveTabIdRef.current && prevActiveTabIdRef.current !== activeTabId) {
+      const prevTabId = prevActiveTabIdRef.current;
+      setTabs((prev) =>
+        prev.map((tab) =>
+          tab.id === prevTabId
+            ? {
+                ...tab,
+                draftInput: {
+                  text: inputValue,
+                  imageAttachments: [...imageAttachments],
+                  fileAttachments: [...fileAttachments],
+                  terminalAttachment: terminalAttachment ? { ...terminalAttachment } : null,
+                },
+              }
+            : tab
+        )
+      );
+    }
+
+    // Restore draft state from the new active tab
+    if (activeTabId) {
+      const newActiveTab = tabs.find((t) => t.id === activeTabId);
+      const draft = newActiveTab?.draftInput;
+      if (draft) {
+        setInputValue(draft.text);
+        setImageAttachments(draft.imageAttachments);
+        setFileAttachments(draft.fileAttachments);
+        setTerminalAttachment(draft.terminalAttachment);
+      } else {
+        // No draft saved for this tab - clear inputs
+        setInputValue("");
+        setImageAttachments([]);
+        setFileAttachments([]);
+        setTerminalAttachment(null);
+      }
+    }
   }, [activeTabId]);
 
   // Save open sessions with models and cwd whenever tabs change
@@ -1555,7 +1593,8 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       
       // Add user message to conversation (but don't add assistant placeholder since agent is already working)
       updateTab(activeTab.id, { 
-        messages: [...activeTab.messages, userMessage]
+        messages: [...activeTab.messages, userMessage],
+        draftInput: undefined, // Clear draft after sending
       });
       
       // Clear input immediately
@@ -1708,6 +1747,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       ralphConfig,
       lisaConfig,
       detectedChoices: undefined, // Clear any detected choices
+      draftInput: undefined, // Clear draft after sending
     });
     setInputValue("");
     setTerminalAttachment(null);

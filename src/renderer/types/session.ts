@@ -149,6 +149,14 @@ export interface PendingInjection {
   terminalAttachment?: { output: string; lineCount: number };
 }
 
+// Draft input state for per-session textarea content
+export interface DraftInput {
+  text: string;
+  imageAttachments: ImageAttachment[];
+  fileAttachments: FileAttachment[];
+  terminalAttachment: { output: string; lineCount: number } | null;
+}
+
 // Tab/Session state
 export interface TabState {
   id: string;
@@ -173,4 +181,5 @@ export interface TabState {
   contextUsage?: ContextUsage; // Current context window usage
   compactionStatus?: CompactionStatus; // Status of context compaction
   detectedChoices?: DetectedChoice[]; // Choices detected in last assistant message
+  draftInput?: DraftInput; // Per-session textarea draft state
 }

@@ -8,6 +8,7 @@ export type {
   FileAttachment,
   PendingConfirmation,
   TabState,
+  DraftInput,
   PreviousSession,
   RalphConfig,
   LisaConfig,
