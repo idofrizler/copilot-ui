@@ -1,5 +1,5 @@
 // Commands that should include their subcommand for granular permission control
-const SUBCOMMAND_EXECUTABLES = ['git', 'npm', 'yarn', 'pnpm', 'docker', 'kubectl']
+const SUBCOMMAND_EXECUTABLES = ['git', 'npm', 'yarn', 'pnpm', 'docker', 'kubectl', 'gh']
 
 // Shell builtins that are not real executables and should be skipped
 // These are commonly used in patterns like `|| true` or `&& false` and don't need permission

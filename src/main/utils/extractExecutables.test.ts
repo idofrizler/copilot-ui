@@ -40,6 +40,26 @@ describe('extractExecutables', () => {
     it('extracts docker with subcommand', () => {
       expect(extractExecutables('docker run -it ubuntu')).toEqual(['docker run'])
     })
+
+    it('extracts gh with subcommand', () => {
+      expect(extractExecutables('gh copilot --help')).toEqual(['gh copilot'])
+    })
+
+    it('extracts gh issue subcommand', () => {
+      expect(extractExecutables('gh issue list')).toEqual(['gh issue'])
+    })
+
+    it('extracts gh pr subcommand', () => {
+      expect(extractExecutables('gh pr create --title "test"')).toEqual(['gh pr'])
+    })
+
+    it('extracts gh auth subcommand', () => {
+      expect(extractExecutables('gh auth login')).toEqual(['gh auth'])
+    })
+
+    it('extracts multiple gh commands in chain', () => {
+      expect(extractExecutables('gh auth login && gh issue list')).toEqual(['gh auth', 'gh issue'])
+    })
   })
 
   describe('environment variables and paths', () => {
