@@ -100,13 +100,22 @@ export interface WorktreeRemovalStatus {
 
 // Ralph Wiggum loop configuration
 // See: https://github.com/anthropics/claude-code/tree/main/plugins/ralph-wiggum
+// Enhanced based on: https://github.com/gemini-cli-extensions/ralph
+// And Anthropic's research: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 export const RALPH_COMPLETION_SIGNAL = "<promise>COMPLETE</promise>";
+export const RALPH_STATE_FILENAME = ".copilot/ralph-state.json";
+export const RALPH_PROGRESS_FILENAME = "ralph-progress.md";
+
 export interface RalphConfig {
   originalPrompt: string;
   maxIterations: number;
   currentIteration: number;
   active: boolean;
   requireScreenshot?: boolean; // When true, agent must take screenshot of delivered feature
+  clearContextBetweenIterations?: boolean; // When true, clears chat history each iteration (like Gemini Ralph)
+  startedAt?: string; // ISO timestamp of when loop started
+  progressFilePath?: string; // Path to ralph-progress.md
+  stateFilePath?: string; // Path to ralph-state.json for persistence
 }
 
 // Lisa Simpson loop configuration - multi-phase analytical workflow

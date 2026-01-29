@@ -64,6 +64,8 @@ import {
   LisaPhase,
   DetectedChoice,
   RALPH_COMPLETION_SIGNAL,
+  RALPH_STATE_FILENAME,
+  RALPH_PROGRESS_FILENAME,
   LISA_PHASE_COMPLETE_SIGNAL,
   LISA_REVIEW_APPROVE_SIGNAL,
   LISA_REVIEW_REJECT_PREFIX,
@@ -576,6 +578,7 @@ const App: React.FC = () => {
   const [ralphEnabled, setRalphEnabled] = useState(false);
   const [ralphMaxIterations, setRalphMaxIterations] = useState(5);
   const [ralphRequireScreenshot, setRalphRequireScreenshot] = useState(false);
+  const [ralphClearContext, setRalphClearContext] = useState(true); // New: Clear context between iterations (like Gemini Ralph)
 
   // Lisa Simpson loop state - multi-phase analytical workflow
   const [showLisaSettings, setShowLisaSettings] = useState(false);
@@ -1129,17 +1132,76 @@ const App: React.FC = () => {
           const maxReached = tab.ralphConfig.currentIteration >= tab.ralphConfig.maxIterations;
 
           if (!hasCompletionPromise && !maxReached) {
-            // Continue Ralph loop - include previous output for context
+            // Continue Ralph loop
             const nextIteration = tab.ralphConfig.currentIteration + 1;
             console.log(`[Ralph] Iteration ${nextIteration}/${tab.ralphConfig.maxIterations}`);
             
-            // Build continuation prompt that includes the agent's last response for context
-            // This differs from original Ralph which relies solely on files/git history
-            const lastResponseContent = lastMessage?.content || '';
             const screenshotChecklistItem = tab.ralphConfig.requireScreenshot 
               ? '\n- [ ] Screenshot taken of the delivered feature' 
               : '';
-            const continuationPrompt = `🔄 **Ralph Loop - Iteration ${nextIteration}/${tab.ralphConfig.maxIterations}**
+            
+            // Build continuation prompt based on context clearing setting
+            // If clearContextBetweenIterations is true, we provide minimal context (like Gemini Ralph)
+            // and instruct the agent to re-read files for state (reduces context pollution)
+            const clearContext = tab.ralphConfig.clearContextBetweenIterations ?? true;
+            const lastResponseContent = lastMessage?.content || '';
+            
+            let continuationPrompt: string;
+            
+            if (clearContext) {
+              // Gemini-style: Clear context, rely on file state
+              // This forces agent to read ralph-progress.md and git status for context
+              continuationPrompt = `🔄 **Ralph Loop - Iteration ${nextIteration}/${tab.ralphConfig.maxIterations}**
+
+⚠️ **CONTEXT CLEARED** - Previous chat history is not available. You must re-read file state.
+
+## 🔍 GET UP TO SPEED (Do these first!)
+
+Before continuing work, you MUST:
+
+1. **Read \`${RALPH_PROGRESS_FILENAME}\`** - See what was done in previous iterations
+2. **Run \`git status\` and \`git log --oneline -10\`** - See recent changes
+3. **Check if build passes** - Run \`npm run build\` or equivalent
+4. **Review your plan** - See what tasks remain
+
+## Original Task:
+
+${tab.ralphConfig.originalPrompt}
+
+---
+
+## Continue Working
+
+After getting up to speed, continue where the previous iteration left off.
+
+**Update \`${RALPH_PROGRESS_FILENAME}\`** with this iteration's progress:
+\`\`\`markdown
+## Iteration ${nextIteration} - ${new Date().toISOString()}
+### Status: IN PROGRESS
+### What I'm working on:
+- [describe current work]
+
+### Completed this iteration:
+- [list items]
+
+### Next steps:
+- [list remaining work]
+\`\`\`
+
+## ✅ COMPLETION CHECKLIST
+
+Verify ALL before signaling complete:
+- [ ] All plan items checked off
+- [ ] Code builds without errors
+- [ ] Feature tested and working (actually ran the app)
+- [ ] No console errors introduced
+- [ ] Tests added/updated if applicable${screenshotChecklistItem}
+- [ ] \`${RALPH_PROGRESS_FILENAME}\` updated with final status
+
+Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complete.`;
+            } else {
+              // Traditional mode: Include previous response in context
+              continuationPrompt = `🔄 **Ralph Loop - Iteration ${nextIteration}/${tab.ralphConfig.maxIterations}**
 
 ---
 
@@ -1159,6 +1221,8 @@ ${tab.ralphConfig.originalPrompt}
 
 Continue where you left off. Check your plan, verify what's done, and complete remaining items.
 
+**Update \`${RALPH_PROGRESS_FILENAME}\`** with progress.
+
 COMPLETION CHECKLIST (verify ALL before signaling complete):
 - [ ] Plan exists and all items checked off
 - [ ] Code builds without errors
@@ -1167,8 +1231,11 @@ COMPLETION CHECKLIST (verify ALL before signaling complete):
 - [ ] Tests added/updated if applicable${screenshotChecklistItem}
 
 Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complete.`;
+            }
             
             // Schedule the re-send after state update
+            // If clearing context, we may want to reset the session in the future
+            // For now, we just use a fresh prompt that instructs reading files
             setTimeout(() => {
               window.electronAPI.copilot.send(sessionId, continuationPrompt);
             }, 100);
@@ -1713,6 +1780,35 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
         : `Terminal output:\n${terminalBlock}`;
     }
 
+    // 👻 GHOST PROTECTION: Detect if user is starting a new task while Ralph is active
+    // If the message doesn't look like a continuation/instruction, cancel the Ralph loop
+    if (activeTab.ralphConfig?.active && messageContent.trim()) {
+      const originalPrompt = activeTab.ralphConfig.originalPrompt;
+      const currentMessage = messageContent.trim().toLowerCase();
+      
+      // Common continuation phrases that should NOT trigger ghost protection
+      const continuationPhrases = [
+        'continue', 'keep going', 'proceed', 'go ahead', 'yes', 'ok', 'okay',
+        'fix', 'try again', 'retry', 'debug', 'help', 'stop', 'cancel', 'abort'
+      ];
+      
+      // Check if this looks like a completely new task (not a continuation)
+      const isNewTask = !continuationPhrases.some(phrase => currentMessage.includes(phrase)) &&
+                        currentMessage.length > 50 && // Substantial new message
+                        !currentMessage.includes(RALPH_COMPLETION_SIGNAL.toLowerCase());
+      
+      if (isNewTask) {
+        console.log('[Ralph] 👻 Ghost protection triggered - new task detected, cancelling Ralph loop');
+        // Cancel the Ralph loop
+        updateTab(activeTab.id, {
+          ralphConfig: { ...activeTab.ralphConfig, active: false },
+        });
+        // Show notification (toast would be better, but for now just log)
+        console.log('[Ralph] Loop cancelled - you started a new task');
+        // Don't return - let the new message be sent normally
+      }
+    }
+
     // If agent is processing, send message immediately with enqueue mode
     // This injects the message into the agent's thinking queue rather than waiting for idle
     if (activeTab.isProcessing) {
@@ -1793,6 +1889,10 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
     const tabId = activeTab.id;
 
     // Set up Ralph config if enabled - auto-inject completion instruction
+    const startedAt = new Date().toISOString();
+    const progressFilePath = activeTab?.cwd ? `${activeTab.cwd}/${RALPH_PROGRESS_FILENAME}` : RALPH_PROGRESS_FILENAME;
+    const stateFilePath = activeTab?.cwd ? `${activeTab.cwd}/${RALPH_STATE_FILENAME}` : RALPH_STATE_FILENAME;
+    
     const ralphConfig: RalphConfig | undefined = ralphEnabled
       ? {
           originalPrompt: userMessage.content,
@@ -1800,6 +1900,10 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
           currentIteration: 1,
           active: true,
           requireScreenshot: ralphRequireScreenshot,
+          clearContextBetweenIterations: ralphClearContext,
+          startedAt,
+          progressFilePath,
+          stateFilePath,
         }
       : undefined;
 
@@ -1845,27 +1949,61 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
         undefined
       );
     } else if (ralphEnabled) {
+      // Enhanced Ralph prompt with progress file tracking (inspired by Gemini CLI Ralph and Anthropic research)
       promptToSend = `${userMessage.content}
 
-## COMPLETION REQUIREMENTS
+## RALPH LOOP - AUTONOMOUS AGENT MODE
 
-You are running in an autonomous loop. Before signaling completion, you MUST verify ALL of the following:
+You are running in an **autonomous Ralph loop** (iteration 1/${ralphMaxIterations}). This loop will continue until you complete the task or reach the maximum iterations.
 
-1. **Follow a Plan**: Create a detailed plan/PRD at the start and update it as you progress. Go over ALL items in the plan and verify each one is complete.
+### 🚀 FIRST ITERATION SETUP
 
-2. **Test the Feature**: Actually build and run the application to verify the feature works as expected:
+Since this is iteration 1, you MUST first:
+
+1. **Create \`${RALPH_PROGRESS_FILENAME}\`** - Your progress tracking file:
+   \`\`\`markdown
+   # Ralph Progress Log
+   
+   ## Task
+   ${userMessage.content.substring(0, 200)}${userMessage.content.length > 200 ? '...' : ''}
+   
+   ## Iteration 1 - ${new Date().toISOString()}
+   ### Status: IN PROGRESS
+   ### What I'm working on:
+   - [describe current work]
+   
+   ### Completed:
+   - (nothing yet)
+   
+   ### Next steps:
+   - (list next actions)
+   \`\`\`
+
+2. **Create a detailed plan** - Before coding, outline all tasks needed
+
+3. **Work incrementally** - Complete one task at a time, verify it works, then move on
+
+### ✅ COMPLETION REQUIREMENTS
+
+Before signaling completion, you MUST verify ALL of the following:
+
+1. **Follow the Plan**: Check off ALL items in your plan. Go through each one.
+
+2. **Test the Feature**: Actually build and run the application:
    - Run the build (e.g., \`npm run build\`)
-   - Start the app if needed and manually test the functionality
-   - Verify the expected behavior works end-to-end
+   - Start the app if needed and test functionality
+   - Verify expected behavior works end-to-end
 
 3. **Check for Errors**: 
-   - Fix any build errors or warnings you introduced
-   - Check for and fix any console errors (runtime errors, React warnings, etc.)
-   - Ensure no regressions in existing functionality
+   - Fix any build errors or warnings
+   - Check for console errors (runtime errors, React warnings, etc.)
+   - Ensure no regressions
 
-4. **Add Tests**: If the codebase has tests, add appropriate test coverage for the new functionality.
+4. **Add Tests**: If the codebase has tests, add coverage for new functionality.
 
-5. **Verify Completion**: Go through each item in your plan one more time to ensure nothing was missed.${screenshotRequirement}
+5. **Update Progress File**: Mark all items complete in \`${RALPH_PROGRESS_FILENAME}\`.${screenshotRequirement}
+
+6. **Final Verification**: Go through each plan item one more time.
 
 Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETION_SIGNAL}`;
     } else {
@@ -1936,7 +2074,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       console.error("Send error:", error);
       updateTab(tabId, { isProcessing: false, ralphConfig: undefined, lisaConfig: undefined });
     }
-  }, [inputValue, activeTab, updateTab, ralphEnabled, ralphMaxIterations, ralphRequireScreenshot, lisaEnabled, terminalAttachment, imageAttachments, fileAttachments]);
+  }, [inputValue, activeTab, updateTab, ralphEnabled, ralphMaxIterations, ralphRequireScreenshot, ralphClearContext, lisaEnabled, terminalAttachment, imageAttachments, fileAttachments]);
 
   // Handle sending terminal output to the agent
   const handleSendTerminalOutput = useCallback((output: string, lineCount: number) => {
@@ -4291,31 +4429,37 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
                 {/* Ralph Settings */}
                 {ralphEnabled && (
-                  <div className="space-y-2 pt-2 border-t border-copilot-border">
-                    <div className="flex items-center gap-3">
-                      <div>
-                        <label className="text-[10px] text-copilot-text-muted block mb-1">
-                          Max iterations
-                        </label>
-                        <input
-                          type="number"
-                          value={ralphMaxIterations}
-                          onChange={(e) => setRalphMaxIterations(Math.max(1, parseInt(e.target.value) || 1))}
-                          className="w-16 bg-copilot-surface border border-copilot-border rounded px-2 py-1 text-xs text-copilot-text"
-                          min={1}
-                          max={100}
-                        />
-                      </div>
-                      <label className="flex items-center gap-1.5 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={ralphRequireScreenshot}
-                          onChange={(e) => setRalphRequireScreenshot(e.target.checked)}
-                          className="rounded border-copilot-border w-3.5 h-3.5"
-                        />
-                        <span className="text-[10px] text-copilot-text-muted">Require screenshot</span>
-                      </label>
+                  <div className="space-y-2.5 pt-2 border-t border-copilot-border">
+                    <div className="flex items-center gap-2">
+                      <label className="text-[10px] text-copilot-text-muted">Max iterations</label>
+                      <input
+                        type="number"
+                        value={ralphMaxIterations}
+                        onChange={(e) => setRalphMaxIterations(Math.max(1, parseInt(e.target.value) || 1))}
+                        className="w-14 bg-copilot-surface border border-copilot-border rounded px-2 py-0.5 text-xs text-copilot-text"
+                        min={1}
+                        max={100}
+                      />
                     </div>
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={ralphClearContext}
+                        onChange={(e) => setRalphClearContext(e.target.checked)}
+                        className="rounded border-copilot-border w-3.5 h-3.5"
+                      />
+                      <span className="text-[10px] text-copilot-text-muted">Clear context between iterations</span>
+                      <span className="text-[9px] text-copilot-text-muted/60" title="Forces agent to rely on file state, not chat history (recommended)">(recommended)</span>
+                    </label>
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={ralphRequireScreenshot}
+                        onChange={(e) => setRalphRequireScreenshot(e.target.checked)}
+                        className="rounded border-copilot-border w-3.5 h-3.5"
+                      />
+                      <span className="text-[10px] text-copilot-text-muted">Require screenshot</span>
+                    </label>
                     <p className="text-[10px] text-copilot-text-muted">
                       Agent loops until verified complete: plan, test, fix errors, verify all items.
                     </p>
