@@ -20,8 +20,9 @@
     "postinstall": "npx patch-package && npx @electron/rebuild -f -w node-pty",
     "prebuild-info": "node scripts/build-info.js",
     "clean": "node -e \"const fs=require('fs');['out','release'].forEach(d=>{try{fs.rmSync(d,{recursive:true,force:true})}catch{}})\"",
-    "dist": "npm install && npm run clean && npm run prebuild-info && electron-vite build && electron-builder --mac --dir && node -e \"const pkg=require('./package.json'); const {execSync}=require('child_process'); const dmg='release/Copilot-Skins-'+pkg.version+'-arm64.dmg'; execSync('hdiutil create -volname \\'Copilot Skins\\' -srcfolder release/mac-arm64 -ov -format UDZO '+dmg, {stdio:'inherit'})\"",
-    "dist:win": "npm install && npm run clean && npm run prebuild-info && electron-vite build && electron-builder --win --dir"
+    "dist": "npm run test && npm run clean && npm run prebuild-info && electron-vite build && electron-builder --mac --dir && node -e \"const pkg=require('./package.json'); const {execSync}=require('child_process'); const dmg='release/Copilot-Skins-'+pkg.version+'-arm64.dmg'; execSync('hdiutil create -volname \\'Copilot Skins\\' -srcfolder release/mac-arm64 -ov -format UDZO '+dmg, {stdio:'inherit'})\"",
+    "dist:win": "npm run test && npm run clean && npm run prebuild-info && electron-vite build && electron-builder --win --dir",
+    "prepare": "husky"
   },
   "build": {
     "appId": "com.idofrizler.copilot-skins",
@@ -81,6 +82,7 @@
     "electron": "^28.1.0",
     "electron-builder": "^26.4.0",
     "electron-vite": "^2.0.0",
+    "husky": "^9.1.7",
     "jsdom": "^27.4.0",
     "patch-package": "^8.0.1",
     "postcss": "^8.4.0",

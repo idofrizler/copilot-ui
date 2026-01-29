@@ -1,0 +1,10 @@
+# Run unit tests before committing
+echo "Running unit tests..."
+npm run test
+
+if [ $? -ne 0 ]; then
+  echo "❌ Unit tests failed. Please fix them before committing."
+  exit 1
+fi
+
+echo "✅ All tests passed!"
