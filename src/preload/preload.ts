@@ -209,8 +209,8 @@ const electronAPI = {
     getDiff: (cwd: string, files: string[]): Promise<{ diff: string; success: boolean; error?: string }> => {
       return ipcRenderer.invoke('git:getDiff', { cwd, files })
     },
-    commitAndPush: (cwd: string, files: string[], message: string, mergeToMain?: boolean): Promise<{ success: boolean; error?: string; mergedToMain?: boolean; finalBranch?: string; mainSyncedWithChanges?: boolean; incomingFiles?: string[] }> => {
-      return ipcRenderer.invoke('git:commitAndPush', { cwd, files, message, mergeToMain })
+    commitAndPush: (cwd: string, files: string[], message: string): Promise<{ success: boolean; error?: string; finalBranch?: string }> => {
+      return ipcRenderer.invoke('git:commitAndPush', { cwd, files, message })
     },
     generateCommitMessage: (diff: string): Promise<string> => {
       return ipcRenderer.invoke('git:generateCommitMessage', { diff })
@@ -218,23 +218,35 @@ const electronAPI = {
     getBranch: (cwd: string): Promise<{ branch: string | null; success: boolean; error?: string }> => {
       return ipcRenderer.invoke('git:getBranch', cwd)
     },
-    checkMainAhead: (cwd: string): Promise<{ success: boolean; isAhead: boolean; commits: string[]; targetBranch?: string; error?: string }> => {
-      return ipcRenderer.invoke('git:checkMainAhead', cwd)
+    listBranches: (cwd: string): Promise<{ success: boolean; branches: string[]; error?: string }> => {
+      return ipcRenderer.invoke('git:listBranches', cwd)
     },
-    mergeMainIntoBranch: (cwd: string): Promise<{ success: boolean; targetBranch?: string; error?: string; warning?: string; conflictedFiles?: string[] }> => {
-      return ipcRenderer.invoke('git:mergeMainIntoBranch', cwd)
+    checkMainAhead: (cwd: string, targetBranch?: string): Promise<{ success: boolean; isAhead: boolean; commits: string[]; targetBranch?: string; error?: string }> => {
+      return ipcRenderer.invoke('git:checkMainAhead', { cwd, targetBranch })
+    },
+    mergeMainIntoBranch: (cwd: string, targetBranch: string): Promise<{ success: boolean; targetBranch?: string; error?: string; warning?: string; conflictedFiles?: string[] }> => {
+      return ipcRenderer.invoke('git:mergeMainIntoBranch', { cwd, targetBranch })
     },
     checkoutBranch: (cwd: string, branchName: string): Promise<{ success: boolean; error?: string }> => {
       return ipcRenderer.invoke('git:checkoutBranch', { cwd, branchName })
     },
-    mergeToMain: (cwd: string, deleteBranch?: boolean): Promise<{ success: boolean; error?: string; mergedBranch?: string; targetBranch?: string }> => {
-      return ipcRenderer.invoke('git:mergeToMain', { cwd, deleteBranch })
+    mergeToMain: (cwd: string, deleteBranch: boolean, targetBranch: string): Promise<{ success: boolean; error?: string; mergedBranch?: string; targetBranch?: string }> => {
+      return ipcRenderer.invoke('git:mergeToMain', { cwd, deleteBranch, targetBranch })
     },
-    createPullRequest: (cwd: string, title?: string, draft?: boolean): Promise<{ success: boolean; error?: string; prUrl?: string; branch?: string }> => {
-      return ipcRenderer.invoke('git:createPullRequest', { cwd, title, draft })
+    createPullRequest: (cwd: string, title: string | undefined, draft: boolean | undefined, targetBranch: string): Promise<{ success: boolean; error?: string; prUrl?: string; branch?: string; targetBranch?: string }> => {
+      return ipcRenderer.invoke('git:createPullRequest', { cwd, title, draft, targetBranch })
     },
     getWorkingStatus: (cwd: string): Promise<{ success: boolean; hasUncommittedChanges: boolean; hasUnpushedCommits: boolean; error?: string }> => {
       return ipcRenderer.invoke('git:getWorkingStatus', cwd)
+    }
+  },
+  // Settings for target branch persistence
+  settings: {
+    getTargetBranch: (repoPath: string): Promise<{ success: boolean; targetBranch: string | null; error?: string }> => {
+      return ipcRenderer.invoke('settings:getTargetBranch', repoPath)
+    },
+    setTargetBranch: (repoPath: string, targetBranch: string): Promise<{ success: boolean; error?: string }> => {
+      return ipcRenderer.invoke('settings:setTargetBranch', { repoPath, targetBranch })
     }
   },
   // Theme management
