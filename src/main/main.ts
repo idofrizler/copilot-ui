@@ -2507,27 +2507,98 @@ ipcMain.handle('git:getBranch', async (_event, cwd: string) => {
   }
 })
 
-// Git operations - check if origin/main is ahead of current branch
-ipcMain.handle('git:checkMainAhead', async (_event, cwd: string) => {
+// Git operations - list all branches (remote and local)
+ipcMain.handle('git:listBranches', async (_event, cwd: string) => {
   try {
+    // Fetch latest from origin first
+    try {
+      await execAsync('git fetch origin --prune', { cwd })
+    } catch {
+      // Ignore fetch errors (e.g., no network)
+    }
+    
+    // Get remote branches
+    const { stdout: remoteBranches } = await execAsync('git branch -r', { cwd })
+    const branches = remoteBranches
+      .split('\n')
+      .map(b => b.trim())
+      .filter(b => b && !b.includes('->')) // Filter out HEAD -> origin/main entries
+      .map(b => b.replace(/^origin\//, '')) // Strip origin/ prefix
+      .filter(b => b) // Remove empty strings
+    
+    // Deduplicate and sort
+    const uniqueBranches = [...new Set(branches)].sort((a, b) => {
+      // Put main/master first
+      if (a === 'main' || a === 'master') return -1
+      if (b === 'main' || b === 'master') return 1
+      return a.localeCompare(b)
+    })
+    
+    return { success: true, branches: uniqueBranches }
+  } catch (error) {
+    console.error('Git listBranches failed:', error)
+    return { success: false, branches: [], error: String(error) }
+  }
+})
+
+// Settings - get target branch for a repository
+ipcMain.handle('settings:getTargetBranch', async (_event, repoPath: string) => {
+  try {
+    const targetBranches = store.get('targetBranches') as Record<string, string> || {}
+    return { success: true, targetBranch: targetBranches[repoPath] || null }
+  } catch (error) {
+    console.error('Get target branch failed:', error)
+    return { success: false, targetBranch: null, error: String(error) }
+  }
+})
+
+// Settings - set target branch for a repository
+ipcMain.handle('settings:setTargetBranch', async (_event, data: { repoPath: string; targetBranch: string }) => {
+  try {
+    const targetBranches = store.get('targetBranches') as Record<string, string> || {}
+    targetBranches[data.repoPath] = data.targetBranch
+    store.set('targetBranches', targetBranches)
+    return { success: true }
+  } catch (error) {
+    console.error('Set target branch failed:', error)
+    return { success: false, error: String(error) }
+  }
+})
+
+// Git operations - check if origin/main is ahead of current branch
+ipcMain.handle('git:checkMainAhead', async (_event, data: string | { cwd: string; targetBranch?: string }) => {
+  try {
+    // Support both old string format and new object format for backwards compatibility
+    const cwd = typeof data === 'string' ? data : data.cwd
+    const providedTargetBranch = typeof data === 'string' ? undefined : data.targetBranch
+    
     // Get current branch
     const { stdout: branchOutput } = await execAsync('git branch --show-current', { cwd })
     const currentBranch = branchOutput.trim()
     
-    // If already on main/master, no need to check
-    if (currentBranch === 'main' || currentBranch === 'master') {
-      return { success: true, isAhead: false, commits: [] }
-    }
-    
-    // Determine target main branch
-    let targetBranch = 'main'
-    try {
-      await execAsync('git rev-parse --verify origin/main', { cwd })
-    } catch {
+    // Determine target branch - use provided, or auto-detect main/master
+    let targetBranch = providedTargetBranch || 'main'
+    if (!providedTargetBranch) {
+      // If already on main/master, no need to check
+      if (currentBranch === 'main' || currentBranch === 'master') {
+        return { success: true, isAhead: false, commits: [] }
+      }
+      
+      // Auto-detect main/master
       try {
-        await execAsync('git rev-parse --verify origin/master', { cwd })
-        targetBranch = 'master'
+        await execAsync('git rev-parse --verify origin/main', { cwd })
+        targetBranch = 'main'
       } catch {
+        try {
+          await execAsync('git rev-parse --verify origin/master', { cwd })
+          targetBranch = 'master'
+        } catch {
+          return { success: true, isAhead: false, commits: [] }
+        }
+      }
+    } else {
+      // Check if current branch is the target branch
+      if (currentBranch === providedTargetBranch) {
         return { success: true, isAhead: false, commits: [] }
       }
     }
@@ -2539,7 +2610,7 @@ ipcMain.handle('git:checkMainAhead', async (_event, cwd: string) => {
       // Ignore fetch errors
     }
     
-    // Check if origin/main has commits not in current branch
+    // Check if origin/targetBranch has commits not in current branch
     const { stdout: aheadCommits } = await execAsync(`git log --oneline HEAD..origin/${targetBranch}`, { cwd })
     const commits = aheadCommits.trim().split('\n').filter(c => c)
     
@@ -2556,8 +2627,12 @@ ipcMain.handle('git:checkMainAhead', async (_event, cwd: string) => {
 })
 
 // Git operations - merge origin/main into current branch
-ipcMain.handle('git:mergeMainIntoBranch', async (_event, cwd: string) => {
+ipcMain.handle('git:mergeMainIntoBranch', async (_event, data: string | { cwd: string; targetBranch?: string }) => {
   try {
+    // Support both old string format and new object format for backwards compatibility
+    const cwd = typeof data === 'string' ? data : data.cwd
+    const providedTargetBranch = typeof data === 'string' ? undefined : data.targetBranch
+    
     // Check for uncommitted changes
     const { stdout: statusOutput } = await execAsync('git status --porcelain', { cwd })
     const hasUncommittedChanges = statusOutput.trim().length > 0
@@ -2571,20 +2646,23 @@ ipcMain.handle('git:mergeMainIntoBranch', async (_event, cwd: string) => {
       }
     }
 
-    // Determine target branch (main or master)
-    let targetBranch = 'main'
-    try {
-      await execAsync('git rev-parse --verify origin/main', { cwd })
-    } catch {
+    // Determine target branch - use provided, or auto-detect main/master
+    let targetBranch = providedTargetBranch || 'main'
+    if (!providedTargetBranch) {
       try {
-        await execAsync('git rev-parse --verify origin/master', { cwd })
-        targetBranch = 'master'
+        await execAsync('git rev-parse --verify origin/main', { cwd })
+        targetBranch = 'main'
       } catch {
-        // Pop stash before returning error
-        if (hasUncommittedChanges) {
-          try { await execAsync('git stash pop', { cwd }) } catch { /* ignore */ }
+        try {
+          await execAsync('git rev-parse --verify origin/master', { cwd })
+          targetBranch = 'master'
+        } catch {
+          // Pop stash before returning error
+          if (hasUncommittedChanges) {
+            try { await execAsync('git stash pop', { cwd }) } catch { /* ignore */ }
+          }
+          return { success: false, error: 'Neither origin/main nor origin/master exists' }
         }
-        return { success: false, error: 'Neither origin/main nor origin/master exists' }
       }
     }
 
@@ -2595,7 +2673,7 @@ ipcMain.handle('git:mergeMainIntoBranch', async (_event, cwd: string) => {
       // Ignore fetch errors
     }
 
-    // Merge origin/main into current branch
+    // Merge origin/targetBranch into current branch
     try {
       await execAsync(`git merge origin/${targetBranch}`, { cwd })
     } catch (mergeError) {
@@ -2663,7 +2741,7 @@ ipcMain.handle('git:checkoutBranch', async (_event, data: { cwd: string; branchN
 })
 
 // Git operations - merge worktree branch to main/master
-ipcMain.handle('git:mergeToMain', async (_event, data: { cwd: string; deleteBranch?: boolean }) => {
+ipcMain.handle('git:mergeToMain', async (_event, data: { cwd: string; deleteBranch?: boolean; targetBranch?: string }) => {
   try {
     // Get current branch name
     const { stdout: branchOutput } = await execAsync('git branch --show-current', { cwd: data.cwd })
@@ -2673,9 +2751,30 @@ ipcMain.handle('git:mergeToMain', async (_event, data: { cwd: string; deleteBran
       return { success: false, error: 'Not on a branch (detached HEAD)' }
     }
     
-    const isMainBranch = currentBranch === 'main' || currentBranch === 'master'
-    if (isMainBranch) {
-      return { success: false, error: 'Already on main/master branch' }
+    // Determine the target branch - use provided, or auto-detect main/master
+    let targetBranch = data.targetBranch || 'main'
+    if (!data.targetBranch) {
+      const isMainBranch = currentBranch === 'main' || currentBranch === 'master'
+      if (isMainBranch) {
+        return { success: false, error: 'Already on main/master branch' }
+      }
+      
+      try {
+        await execAsync('git rev-parse --verify main', { cwd: data.cwd })
+        targetBranch = 'main'
+      } catch {
+        try {
+          await execAsync('git rev-parse --verify master', { cwd: data.cwd })
+          targetBranch = 'master'
+        } catch {
+          return { success: false, error: 'Neither main nor master branch exists' }
+        }
+      }
+    } else {
+      // Check if already on the target branch
+      if (currentBranch === data.targetBranch) {
+        return { success: false, error: `Already on ${data.targetBranch} branch` }
+      }
     }
     
     // Check if we're in a worktree by comparing git-dir and git-common-dir
@@ -2683,26 +2782,13 @@ ipcMain.handle('git:mergeToMain', async (_event, data: { cwd: string; deleteBran
     const { stdout: commonDir } = await execAsync('git rev-parse --git-common-dir', { cwd: data.cwd })
     const isWorktree = gitDir.trim() !== commonDir.trim()
     
-    // Get the main repository path (where main/master is checked out)
+    // Get the main repository path (where target branch is checked out)
     let mainRepoPath = data.cwd
     if (isWorktree) {
       // commonDir points to the .git folder of the main repo
       // The main repo is one level up from the .git folder
       const commonDirPath = commonDir.trim()
       mainRepoPath = dirname(commonDirPath)
-    }
-    
-    // Determine the target main branch
-    let targetBranch = 'main'
-    try {
-      await execAsync('git rev-parse --verify main', { cwd: data.cwd })
-    } catch {
-      try {
-        await execAsync('git rev-parse --verify master', { cwd: data.cwd })
-        targetBranch = 'master'
-      } catch {
-        return { success: false, error: 'Neither main nor master branch exists' }
-      }
     }
     
     // Check for uncommitted changes
@@ -2866,7 +2952,7 @@ ipcMain.handle('git:mergeToMain', async (_event, data: { cwd: string; deleteBran
 })
 
 // Git operations - create pull request via gh CLI
-ipcMain.handle('git:createPullRequest', async (_event, data: { cwd: string; title?: string; draft?: boolean }) => {
+ipcMain.handle('git:createPullRequest', async (_event, data: { cwd: string; title?: string; draft?: boolean; targetBranch?: string }) => {
   try {
     // Check if gh CLI is available (use augmented PATH for packaged apps)
     try {
@@ -2883,9 +2969,18 @@ ipcMain.handle('git:createPullRequest', async (_event, data: { cwd: string; titl
       return { success: false, error: 'Not on a branch (detached HEAD)' }
     }
     
-    const isMainBranch = currentBranch === 'main' || currentBranch === 'master'
-    if (isMainBranch) {
-      return { success: false, error: 'Cannot create PR from main/master branch' }
+    // Determine the target branch - use provided, or default to main
+    let targetBranch = data.targetBranch || 'main'
+    if (!data.targetBranch) {
+      const isMainBranch = currentBranch === 'main' || currentBranch === 'master'
+      if (isMainBranch) {
+        return { success: false, error: 'Cannot create PR from main/master branch' }
+      }
+    } else {
+      // Check if trying to create PR from target branch to itself
+      if (currentBranch === data.targetBranch) {
+        return { success: false, error: `Cannot create PR from ${data.targetBranch} to itself` }
+      }
     }
     
     // Check for uncommitted changes
@@ -2926,9 +3021,9 @@ ipcMain.handle('git:createPullRequest', async (_event, data: { cwd: string; titl
     // Construct PR creation URL - GitHub will auto-fill the form
     const title = data.title || currentBranch.replace(/[-_]/g, ' ')
     const encodedTitle = encodeURIComponent(title)
-    const prUrl = `https://github.com/${repoPath}/compare/main...${currentBranch}?quick_pull=1&title=${encodedTitle}`
+    const prUrl = `https://github.com/${repoPath}/compare/${targetBranch}...${currentBranch}?quick_pull=1&title=${encodedTitle}`
     
-    return { success: true, prUrl, branch: currentBranch }
+    return { success: true, prUrl, branch: currentBranch, targetBranch }
   } catch (error) {
     console.error('Create PR failed:', error)
     return { success: false, error: String(error) }

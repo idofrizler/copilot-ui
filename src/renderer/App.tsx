@@ -44,6 +44,7 @@ import {
   FilePreviewModal,
   UpdateAvailableModal,
   ReleaseNotesModal,
+  SearchableBranchSelect,
 } from "./components";
 import {
   Status,
@@ -547,6 +548,11 @@ const App: React.FC = () => {
   const [allowMode, setAllowMode] = useState<"once" | "session" | "global">("once");
   const [showAllowDropdown, setShowAllowDropdown] = useState(false);
   const allowDropdownRef = useRef<HTMLDivElement>(null);
+  
+  // Target branch selection state
+  const [targetBranch, setTargetBranch] = useState<string | null>(null);
+  const [availableBranches, setAvailableBranches] = useState<string[]>([]);
+  const [isLoadingBranches, setIsLoadingBranches] = useState(false);
 
   // Close allow dropdown when clicking outside
   const closeAllowDropdown = useCallback(() => {
@@ -2834,9 +2840,15 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     setIsGeneratingMessage(true);
     setMainAheadInfo(null);
     setShowCommitModal(true);
+    setIsLoadingBranches(true);
 
     try {
+      // Load branches and persisted target branch in parallel with other checks
+      const branchesPromise = window.electronAPI.git.listBranches(activeTab.cwd);
+      const savedTargetBranchPromise = window.electronAPI.settings.getTargetBranch(activeTab.cwd);
+      
       // Check if origin/main is ahead of current branch (in parallel with other checks)
+      // We'll re-check with selected target branch after loading persisted setting
       const mainAheadPromise = window.electronAPI.git.checkMainAhead(activeTab.cwd);
       
       // Get ALL changed files in the repo, not just the ones we tracked
@@ -2851,6 +2863,30 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       // Update the tab's editedFiles list with all changed files
       if (changedResult.success) {
         updateTab(activeTab.id, { editedFiles: actualChangedFiles });
+      }
+      
+      // Load branches
+      try {
+        const branchesResult = await branchesPromise;
+        if (branchesResult.success) {
+          setAvailableBranches(branchesResult.branches);
+        }
+      } catch {
+        // Ignore branch loading errors
+      }
+      setIsLoadingBranches(false);
+      
+      // Load persisted target branch
+      try {
+        const savedTargetResult = await savedTargetBranchPromise;
+        if (savedTargetResult.success && savedTargetResult.targetBranch) {
+          setTargetBranch(savedTargetResult.targetBranch);
+        } else {
+          // Default to main
+          setTargetBranch('main');
+        }
+      } catch {
+        setTargetBranch('main');
       }
       
       // If no files have changes, allow merge/PR without commit
@@ -2968,7 +3004,12 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       
       // Handle merge/PR actions (whether or not there was a commit)
       if (commitAction === 'pr') {
-        const prResult = await window.electronAPI.git.createPullRequest(activeTab.cwd, commitMessage.split('\n')[0] || undefined);
+        const prResult = await window.electronAPI.git.createPullRequest(
+          activeTab.cwd, 
+          commitMessage.split('\n')[0] || undefined,
+          undefined, // draft
+          targetBranch || undefined
+        );
         if (prResult.success && prResult.prUrl) {
           window.open(prResult.prUrl, '_blank');
         } else if (!prResult.success) {
@@ -2983,7 +3024,11 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       if (commitAction === 'merge') {
         // If no files were committed, we need to call mergeToMain directly
         if (!hasFilesToCommit) {
-          const mergeResult = await window.electronAPI.git.mergeToMain(activeTab.cwd, false);
+          const mergeResult = await window.electronAPI.git.mergeToMain(
+            activeTab.cwd, 
+            false,
+            targetBranch || undefined
+          );
           if (!mergeResult.success) {
             setCommitError(mergeResult.error || 'Merge failed');
             setIsCommitting(false);
@@ -5665,7 +5710,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     <span className="text-copilot-warning text-sm">⚠️</span>
                     <div className="flex-1">
                       <div className="text-xs text-copilot-warning font-medium mb-1">
-                        origin/{mainAheadInfo.targetBranch || 'main'} is {mainAheadInfo.commits.length} commit{mainAheadInfo.commits.length > 1 ? 's' : ''} ahead
+                        origin/{mainAheadInfo.targetBranch || targetBranch || 'main'} is {mainAheadInfo.commits.length} commit{mainAheadInfo.commits.length > 1 ? 's' : ''} ahead
                       </div>
                       <div className="text-xs text-copilot-text-muted mb-2">
                         Merge the latest changes into your branch to stay up to date.
@@ -5676,7 +5721,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                           setIsMergingMain(true);
                           setCommitError(null);
                           try {
-                            const result = await window.electronAPI.git.mergeMainIntoBranch(activeTab.cwd);
+                            const result = await window.electronAPI.git.mergeMainIntoBranch(activeTab.cwd, targetBranch || undefined);
                             if (!result.success) {
                               setCommitError(result.error || 'Failed to merge');
                               return;
@@ -5700,8 +5745,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                             if (changedResult.success) {
                               updateTab(activeTab.id, { editedFiles: changedResult.files });
                             }
-                            // Re-check if main is still ahead
-                            const mainAheadResult = await window.electronAPI.git.checkMainAhead(activeTab.cwd);
+                            // Re-check if target branch is still ahead
+                            const mainAheadResult = await window.electronAPI.git.checkMainAhead(activeTab.cwd, targetBranch || undefined);
                             if (mainAheadResult.success && mainAheadResult.isAhead) {
                               setMainAheadInfo({ 
                                 isAhead: true, 
@@ -5726,7 +5771,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                             Merging...
                           </>
                         ) : (
-                          <>Merge origin/{mainAheadInfo.targetBranch || 'main'} into branch</>
+                          <>Merge origin/{mainAheadInfo.targetBranch || targetBranch || 'main'} into branch</>
                         )}
                       </button>
                     </div>
@@ -5784,6 +5829,44 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   minWidth="120px"
                 />
               </div>
+
+              {/* Target branch selector - only visible when merge or pr is selected */}
+              {(commitAction === 'merge' || commitAction === 'pr') && (
+                <div className="mb-4">
+                  <SearchableBranchSelect
+                    label="Target branch:"
+                    value={targetBranch}
+                    branches={availableBranches}
+                    onSelect={async (branch) => {
+                      setTargetBranch(branch);
+                      // Persist the selection
+                      if (activeTab) {
+                        await window.electronAPI.settings.setTargetBranch(activeTab.cwd, branch);
+                      }
+                      // Re-check if target branch is ahead
+                      if (activeTab) {
+                        try {
+                          const mainAheadResult = await window.electronAPI.git.checkMainAhead(activeTab.cwd, branch);
+                          if (mainAheadResult.success && mainAheadResult.isAhead) {
+                            setMainAheadInfo({ 
+                              isAhead: true, 
+                              commits: mainAheadResult.commits,
+                              targetBranch: branch
+                            });
+                          } else {
+                            setMainAheadInfo(null);
+                          }
+                        } catch {
+                          // Ignore errors
+                        }
+                      }
+                    }}
+                    isLoading={isLoadingBranches}
+                    disabled={isCommitting}
+                    placeholder="Select target branch..."
+                  />
+                </div>
+              )}
 
               {/* Remove worktree option - only visible when merge is selected and in a worktree */}
               {commitAction === 'merge' && activeTab?.cwd.includes('.copilot-sessions') && (
