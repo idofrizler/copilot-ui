@@ -361,6 +361,34 @@ You are the **Tester** agent. Code has been reviewed. Now thoroughly validate it
    - Make it visually appealing - use colors, spacing, and clear typography
    - This HTML should convince a reviewer that the feature is complete and well-tested
 
+### CRITICAL: Test the ACTUAL FEATURE, Not Random Functionality
+
+**Focus your testing on the SPECIFIC scenarios described in the issue:**
+1. **Read the original issue carefully** - What exact UI/behavior was reported as broken?
+2. **Reproduce the bug scenario** - Create test conditions that match the reported issue
+   - If the issue mentions "long error messages", inject/mock long error messages
+   - If the issue mentions a specific modal/overlay, test THAT modal, not a different one
+   - If the issue mentions specific user actions, simulate THOSE actions
+3. **Don't substitute unrelated tests** - Testing one modal doesn't prove a different modal works
+4. **Mock/inject data as needed** - If testing requires specific conditions (errors, edge cases), create tooling to inject that data
+
+**Screenshots MUST show:**
+- The specific UI component mentioned in the issue
+- The exact scenario that was broken (e.g., "long Git error" means show a long Git error)
+- Before/after states of the REPORTED bug, not generic app states
+
+**Anti-patterns to AVOID:**
+- ❌ Testing whatever modal/component is easiest to open
+- ❌ Using existing unrelated E2E tests as evidence  
+- ❌ Generic "app works" screenshots
+- ❌ Skipping the actual bug scenario because it's "hard to reproduce"
+
+**If the bug scenario is hard to reproduce:**
+- Create mock data injection using \`page.evaluate()\`
+- Set component state directly via React internals
+- Build test fixtures that simulate the conditions
+- This effort IS part of proper testing - do not skip it
+
 ### Testing Approach:
 - Even if something seems hard to test, find creative ways to verify it
 - Mock external dependencies, APIs, or complex components as needed
@@ -5884,7 +5912,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
               {/* Error message */}
               {commitError && (
-                <div className="mb-3 px-3 py-2 bg-copilot-error-muted border border-copilot-error rounded text-xs text-copilot-error">
+                <div className="mb-3 px-3 py-2 bg-copilot-error-muted border border-copilot-error rounded text-xs text-copilot-error max-h-32 overflow-y-auto break-words whitespace-pre-wrap">
                   {commitError}
                 </div>
               )}
