@@ -7,12 +7,39 @@ import { readFile, writeFile, mkdir } from 'fs/promises'
 
 const execAsync = promisify(exec)
 
+// Get augmented PATH that includes common CLI tool locations
+// This is needed because packaged Electron apps don't inherit the user's shell PATH
+const getAugmentedEnv = () => {
+  const env = { ...process.env }
+  if (process.platform === 'win32') {
+    const username = process.env.USERNAME || process.env.USER || ''
+    const additionalPaths = [
+      'C:\\Program Files\\GitHub CLI',
+      'C:\\Program Files (x86)\\GitHub CLI',
+      `C:\\Users\\${username}\\AppData\\Local\\GitHub CLI`,
+      `C:\\Users\\${username}\\scoop\\shims`,
+      'C:\\ProgramData\\chocolatey\\bin',
+    ].filter(p => username || !p.includes('Users'))
+    const currentPath = env.PATH || env.Path || ''
+    env.PATH = [...additionalPaths, currentPath].filter(Boolean).join(';')
+  } else {
+    const additionalPaths = [
+      '/opt/homebrew/bin',
+      '/usr/local/bin',
+      '/usr/bin',
+      '/bin'
+    ]
+    env.PATH = [...additionalPaths, env.PATH].filter(Boolean).join(':')
+  }
+  return env
+}
+
 // Helper for git commands that may trigger hooks - passes full environment including PATH
 // This ensures npm, node, etc. are available to pre-commit hooks like husky
 const execGitWithEnv = (command: string, options: { cwd: string }) => {
   return execAsync(command, { 
     cwd: options.cwd, 
-    env: { ...process.env }
+    env: getAugmentedEnv()
   })
 }
 
@@ -279,35 +306,10 @@ async function getClientForCwd(cwd: string): Promise<CopilotClient> {
   console.log(`Creating new CopilotClient for cwd: ${cwd}`)
   const cliPath = getCliPath()
   
-  // In packaged apps, process.env may not have the user's PATH
-  // which is needed for the CLI to find `gh` for authentication
-  const env = { ...process.env }
+  // Use augmented PATH so CLI can find gh for authentication
+  const env = getAugmentedEnv()
   if (app.isPackaged) {
-    if (process.platform === 'win32') {
-      // Windows: gh CLI is typically in Program Files or user's AppData
-      const username = process.env.USERNAME || process.env.USER || ''
-      const additionalPaths = [
-        'C:\\Program Files\\GitHub CLI',
-        'C:\\Program Files (x86)\\GitHub CLI',
-        `C:\\Users\\${username}\\AppData\\Local\\GitHub CLI`,
-        `C:\\Users\\${username}\\scoop\\shims`,  // Scoop package manager
-        'C:\\ProgramData\\chocolatey\\bin',      // Chocolatey
-      ].filter(p => username || !p.includes('Users'))
-      const pathSep = ';'
-      const currentPath = env.PATH || env.Path || ''
-      env.PATH = [...additionalPaths, currentPath].filter(Boolean).join(pathSep)
-      log.info('Augmented PATH for packaged app (Windows)')
-    } else if (!env.PATH?.includes('/opt/homebrew/bin')) {
-      // macOS/Linux: Add common paths where gh CLI might be installed
-      const additionalPaths = [
-        '/opt/homebrew/bin',    // Apple Silicon Homebrew
-        '/usr/local/bin',       // Intel Homebrew / manual installs
-        '/usr/bin',
-        '/bin'
-      ]
-      env.PATH = [...additionalPaths, env.PATH].filter(Boolean).join(':')
-      log.info('Augmented PATH for packaged app (macOS/Linux)')
-    }
+    log.info('Using augmented PATH for packaged app')
   }
   
   const client = new CopilotClient({ cwd, cliPath, env })
@@ -2866,15 +2868,15 @@ ipcMain.handle('git:mergeToMain', async (_event, data: { cwd: string; deleteBran
 // Git operations - create pull request via gh CLI
 ipcMain.handle('git:createPullRequest', async (_event, data: { cwd: string; title?: string; draft?: boolean }) => {
   try {
-    // Check if gh CLI is available
+    // Check if gh CLI is available (use augmented PATH for packaged apps)
     try {
-      await execAsync('gh --version', { cwd: data.cwd })
+      await execGitWithEnv('gh --version', { cwd: data.cwd })
     } catch {
       return { success: false, error: 'GitHub CLI (gh) is not installed. Install it from https://cli.github.com/' }
     }
     
     // Get current branch name
-    const { stdout: branchOutput } = await execAsync('git branch --show-current', { cwd: data.cwd })
+    const { stdout: branchOutput } = await execGitWithEnv('git branch --show-current', { cwd: data.cwd })
     const currentBranch = branchOutput.trim()
     
     if (!currentBranch) {
@@ -2887,25 +2889,25 @@ ipcMain.handle('git:createPullRequest', async (_event, data: { cwd: string; titl
     }
     
     // Check for uncommitted changes
-    const { stdout: statusOutput } = await execAsync('git status --porcelain', { cwd: data.cwd })
+    const { stdout: statusOutput } = await execGitWithEnv('git status --porcelain', { cwd: data.cwd })
     if (statusOutput.trim()) {
       return { success: false, error: 'Uncommitted changes exist. Please commit them first.' }
     }
     
     // Push current branch
     try {
-      await execAsync('git push', { cwd: data.cwd })
+      await execGitWithEnv('git push', { cwd: data.cwd })
     } catch (pushError) {
       const errorMsg = String(pushError)
       if (errorMsg.includes('has no upstream branch')) {
-        await execAsync(`git push --set-upstream origin ${currentBranch}`, { cwd: data.cwd })
+        await execGitWithEnv(`git push --set-upstream origin ${currentBranch}`, { cwd: data.cwd })
       } else {
         throw pushError
       }
     }
     
     // Get remote URL to construct PR URL
-    const { stdout: remoteUrl } = await execAsync('git remote get-url origin', { cwd: data.cwd })
+    const { stdout: remoteUrl } = await execGitWithEnv('git remote get-url origin', { cwd: data.cwd })
     const remote = remoteUrl.trim()
     
     // Parse GitHub URL from remote (handles both HTTPS and SSH formats)
