@@ -6,6 +6,16 @@ import { promisify } from 'util'
 import { readFile, writeFile, mkdir } from 'fs/promises'
 
 const execAsync = promisify(exec)
+
+// Helper for git commands that may trigger hooks - passes full environment including PATH
+// This ensures npm, node, etc. are available to pre-commit hooks like husky
+const execGitWithEnv = (command: string, options: { cwd: string }) => {
+  return execAsync(command, { 
+    cwd: options.cwd, 
+    env: { ...process.env }
+  })
+}
+
 import { CopilotClient, CopilotSession, PermissionRequest, PermissionRequestResult, Tool } from '@github/copilot-sdk'
 import Store from 'electron-store'
 import log from 'electron-log/main'
@@ -1059,6 +1069,15 @@ You have access to browser automation tools (browser_navigate, browser_click, br
 
 The browser window will be visible to the user. Login sessions persist between runs, so users won't need to re-login each time.
 Browser tools available: browser_navigate, browser_click, browser_fill, browser_type, browser_press_key, browser_screenshot, browser_get_text, browser_get_html, browser_wait_for_element, browser_get_page_info, browser_select_option, browser_checkbox, browser_scroll, browser_go_back, browser_reload, browser_get_links, browser_get_form_inputs, browser_close.
+
+## Electron App Screenshots - CRITICAL
+
+**Your browser tools work with Electron desktop apps, not just websites.**
+- Playwright (which powers your browser_* tools) natively supports Electron apps
+- If you're editing an Electron app and need screenshots as evidence, USE YOUR BROWSER TOOLS
+- Do NOT say "I cannot take screenshots of desktop apps" - you CAN via Playwright
+- Use browser_navigate to connect to the running Electron app, then browser_screenshot to capture it
+- This is the CORRECT way to capture visual evidence of Electron app features you've built or tested
 `
     },
   })
@@ -2297,7 +2316,7 @@ ipcMain.handle('git:commitAndPush', async (_event, data: { cwd: string; files: s
     }
     
     // Commit with the message
-    await execAsync(`git commit -m "${data.message.replace(/"/g, '\\"')}"`, { cwd: data.cwd })
+    await execGitWithEnv(`git commit -m "${data.message.replace(/"/g, '\\"')}"`, { cwd: data.cwd })
     
     // Push - handle upstream branch setting
     try {
@@ -2770,7 +2789,7 @@ ipcMain.handle('git:mergeToMain', async (_event, data: { cwd: string; deleteBran
       try {
         await execAsync(`git merge --squash ${currentBranch}`, { cwd: mainRepoPath })
         // Squash merge doesn't auto-commit, so we need to create the commit
-        await execAsync(`git commit -m "Merge branch '${currentBranch}'"`, { cwd: mainRepoPath })
+        await execGitWithEnv(`git commit -m "Merge branch '${currentBranch}'"`, { cwd: mainRepoPath })
       } catch (mergeError) {
         const errorMsg = String(mergeError)
         if (errorMsg.includes('CONFLICT')) {
@@ -2810,7 +2829,7 @@ ipcMain.handle('git:mergeToMain', async (_event, data: { cwd: string; deleteBran
       try {
         await execAsync(`git merge --squash ${currentBranch}`, { cwd: data.cwd })
         // Squash merge doesn't auto-commit, so we need to create the commit
-        await execAsync(`git commit -m "Merge branch '${currentBranch}'"`, { cwd: data.cwd })
+        await execGitWithEnv(`git commit -m "Merge branch '${currentBranch}'"`, { cwd: data.cwd })
       } catch (mergeError) {
         const errorMsg = String(mergeError)
         if (errorMsg.includes('CONFLICT')) {
