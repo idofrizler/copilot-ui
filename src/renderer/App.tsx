@@ -5838,11 +5838,11 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   options={activeTab.editedFiles.length > 0 
                     ? [
                         { id: 'push' as const, label: 'Nothing' },
-                        { id: 'merge' as const, label: 'Merge to target' },
+                        { id: 'merge' as const, label: 'Merge to target branch' },
                         { id: 'pr' as const, label: 'Create PR' },
                       ]
                     : [
-                        { id: 'merge' as const, label: 'Merge to target' },
+                        { id: 'merge' as const, label: 'Merge to target branch' },
                         { id: 'pr' as const, label: 'Create PR' },
                       ]
                   }
@@ -5852,7 +5852,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   }}
                   disabled={isCommitting}
                   align="left"
-                  minWidth="120px"
+                  minWidth="160px"
                 />
               </div>
 
@@ -5905,7 +5905,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   {isCommitting 
                     ? "Processing..." 
                     : activeTab.editedFiles.length === 0
-                      ? (commitAction === 'pr' ? "Create PR" : "Merge to Target")
+                      ? (commitAction === 'pr' ? "Create PR" : "Merge")
                       : commitAction === 'pr' 
                         ? "Commit & Create PR" 
                         : commitAction === 'merge' 
@@ -5990,7 +5990,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               }}
               isLoading={isCommitting}
             >
-              Merge to Target Now
+              Merge Now
             </Button>
           </Modal.Footer>
         </Modal.Body>
