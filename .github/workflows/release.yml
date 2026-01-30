@@ -1,0 +1,194 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '*.md'
+      - 'docs/**'
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: 'Version bump type'
+        required: true
+        default: 'minor'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-main
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.check.outputs.should_release }}
+      new_version: ${{ steps.version.outputs.new_version }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check release notes exist
+        id: check
+        run: |
+          if [ ! -f "RELEASE_NOTES.md" ]; then
+            echo "❌ RELEASE_NOTES.md not found!"
+            echo "should_release=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          # Check if release notes have content for this release
+          if ! grep -q "^## " RELEASE_NOTES.md; then
+            echo "❌ RELEASE_NOTES.md must have at least one version heading (## x.y.z)"
+            echo "should_release=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          echo "✅ Release notes found and valid"
+          echo "should_release=true" >> $GITHUB_OUTPUT
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Calculate new version
+        id: version
+        run: |
+          current_version=$(node -p "require('./package.json').version.split('+')[0].split('-')[0]")
+          echo "Current version: $current_version"
+          
+          IFS='.' read -r major minor patch <<< "$current_version"
+          
+          bump_type="${{ github.event.inputs.version_bump || 'minor' }}"
+          
+          case $bump_type in
+            major)
+              new_version="$((major + 1)).0.0"
+              ;;
+            minor)
+              new_version="$major.$((minor + 1)).0"
+              ;;
+            patch)
+              new_version="$major.$minor.$((patch + 1))"
+              ;;
+          esac
+          
+          echo "New version: $new_version"
+          echo "new_version=$new_version" >> $GITHUB_OUTPUT
+
+  test:
+    needs: validate
+    if: needs.validate.outputs.should_release == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-14, ubuntu-latest, windows-latest]
+        node-version: [22]
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Build application
+        run: npm run build
+
+  release:
+    needs: [validate, test]
+    if: needs.validate.outputs.should_release == 'true'
+    runs-on: macos-14
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump version
+        run: |
+          new_version="${{ needs.validate.outputs.new_version }}"
+          npm version $new_version --no-git-tag-version
+          git add package.json package-lock.json
+          git commit -m "chore: bump version to $new_version [skip ci]"
+          git push
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build DMG
+        run: npm run dist
+
+      - name: Normalize DMG filename
+        run: |
+          set -euo pipefail
+          new_version="${{ needs.validate.outputs.new_version }}"
+          dmg="$(ls -1 release/*.dmg | head -n 1)"
+          mv -f "$dmg" "release/Copilot-Skins-${new_version}-arm64.dmg"
+
+      - name: Extract release notes for this version
+        id: release_notes
+        run: |
+          new_version="${{ needs.validate.outputs.new_version }}"
+          # Extract notes between this version header and the next one (or EOF)
+          notes=$(awk "/^## ${new_version//./\\.}/,/^## [0-9]+\.[0-9]+\.[0-9]+/{if(/^## [0-9]+\.[0-9]+\.[0-9]+/ && !/^## ${new_version//./\\.}/)exit; print}" RELEASE_NOTES.md | tail -n +2)
+          
+          if [ -z "$notes" ]; then
+            notes="Release $new_version"
+          fi
+          
+          # Handle multiline output
+          echo "notes<<EOF" >> $GITHUB_OUTPUT
+          echo "$notes" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: v${{ needs.validate.outputs.new_version }}
+          name: v${{ needs.validate.outputs.new_version }}
+          body: ${{ steps.release_notes.outputs.notes }}
+          artifacts: release/Copilot-Skins-${{ needs.validate.outputs.new_version }}-arm64.dmg
+          makeLatest: true
+
+      - name: Update latest release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: latest
+          name: Latest
+          prerelease: true
+          allowUpdates: true
+          replacesArtifacts: true
+          artifacts: release/Copilot-Skins-${{ needs.validate.outputs.new_version }}-arm64.dmg
+          body: |
+            Latest release: v${{ needs.validate.outputs.new_version }}
+            
+            ${{ steps.release_notes.outputs.notes }}

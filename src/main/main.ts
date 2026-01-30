@@ -3499,3 +3499,112 @@ ipcMain.handle('file:openFile', async (_event, filePath: string) => {
   }
 })
 
+// ============================================================================
+// Update and Release Notes Handlers
+// ============================================================================
+
+// GitHub repository for checking updates
+const GITHUB_REPO_OWNER = 'idofrizler'
+const GITHUB_REPO_NAME = 'copilot-ui'
+
+interface GitHubRelease {
+  tag_name: string
+  name: string
+  body: string
+  html_url: string
+  published_at: string
+  assets: Array<{ name: string; browser_download_url: string }>
+}
+
+// Check for updates from GitHub releases
+ipcMain.handle('updates:checkForUpdate', async () => {
+  try {
+    const response = await fetch(
+      `https://api.github.com/repos/${GITHUB_REPO_OWNER}/${GITHUB_REPO_NAME}/releases/latest`,
+      {
+        headers: {
+          'Accept': 'application/vnd.github.v3+json',
+          'User-Agent': 'Copilot-Skins'
+        }
+      }
+    )
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        return { hasUpdate: false, error: 'No releases found' }
+      }
+      throw new Error(`GitHub API error: ${response.status}`)
+    }
+
+    const release = await response.json() as GitHubRelease
+    const latestVersion = release.tag_name.replace(/^v/, '')
+    
+    // Get current version from package.json
+    const pkgPath = join(__dirname, '..', '..', 'package.json')
+    let currentVersion = '1.0.0'
+    try {
+      const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
+      currentVersion = pkg.version.split('+')[0].split('-')[0]
+    } catch {
+      // Fallback to hardcoded version if package.json not accessible
+    }
+
+    // Compare versions (simple comparison, assumes semver)
+    const hasUpdate = compareVersions(latestVersion, currentVersion) > 0
+    const dismissedVersion = store.get('dismissedUpdateVersion', '') as string
+
+    return {
+      hasUpdate: hasUpdate && latestVersion !== dismissedVersion,
+      currentVersion,
+      latestVersion,
+      releaseNotes: release.body || '',
+      releaseUrl: release.html_url,
+      downloadUrl: release.assets.find(a => a.name.endsWith('.dmg'))?.browser_download_url || release.html_url
+    }
+  } catch (error) {
+    console.error('Failed to check for updates:', error)
+    return { hasUpdate: false, error: String(error) }
+  }
+})
+
+// Dismiss update notification for a specific version
+ipcMain.handle('updates:dismissVersion', async (_event, version: string) => {
+  store.set('dismissedUpdateVersion', version)
+  return { success: true }
+})
+
+// Get the last seen version (for showing release notes on first run)
+ipcMain.handle('updates:getLastSeenVersion', async () => {
+  return { version: store.get('lastSeenVersion', '') as string }
+})
+
+// Set the last seen version
+ipcMain.handle('updates:setLastSeenVersion', async (_event, version: string) => {
+  store.set('lastSeenVersion', version)
+  return { success: true }
+})
+
+// Open the download URL in the default browser
+ipcMain.handle('updates:openDownloadUrl', async (_event, url: string) => {
+  try {
+    await shell.openExternal(url)
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: String(error) }
+  }
+})
+
+// Simple semver comparison: returns 1 if a > b, -1 if a < b, 0 if equal
+function compareVersions(a: string, b: string): number {
+  const partsA = a.split('.').map(Number)
+  const partsB = b.split('.').map(Number)
+  
+  for (let i = 0; i < Math.max(partsA.length, partsB.length); i++) {
+    const partA = partsA[i] || 0
+    const partB = partsB[i] || 0
+    if (partA > partB) return 1
+    if (partA < partB) return -1
+  }
+  return 0
+}
+

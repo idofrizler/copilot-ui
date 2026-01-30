@@ -440,6 +440,32 @@ const electronAPI = {
     openFile: (filePath: string): Promise<{ success: boolean; error?: string }> => {
       return ipcRenderer.invoke('file:openFile', filePath)
     }
+  },
+  // Updates and Release Notes
+  updates: {
+    checkForUpdate: (): Promise<{
+      hasUpdate: boolean
+      currentVersion?: string
+      latestVersion?: string
+      releaseNotes?: string
+      releaseUrl?: string
+      downloadUrl?: string
+      error?: string
+    }> => {
+      return ipcRenderer.invoke('updates:checkForUpdate')
+    },
+    dismissVersion: (version: string): Promise<{ success: boolean }> => {
+      return ipcRenderer.invoke('updates:dismissVersion', version)
+    },
+    getLastSeenVersion: (): Promise<{ version: string }> => {
+      return ipcRenderer.invoke('updates:getLastSeenVersion')
+    },
+    setLastSeenVersion: (version: string): Promise<{ success: boolean }> => {
+      return ipcRenderer.invoke('updates:setLastSeenVersion', version)
+    },
+    openDownloadUrl: (url: string): Promise<{ success: boolean; error?: string }> => {
+      return ipcRenderer.invoke('updates:openDownloadUrl', url)
+    }
   }
 }
 

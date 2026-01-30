@@ -1,0 +1,73 @@
+name: Build Staging
+
+on:
+  push:
+    branches: [staging]
+  pull_request:
+    branches: [staging]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-14, ubuntu-latest, windows-latest]
+        node-version: [22]
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Build application
+        run: npm run build
+
+  build-artifacts:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/staging'
+    runs-on: macos-14
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build DMG
+        run: npm run dist
+
+      - name: Normalize DMG filename
+        run: |
+          set -euo pipefail
+          dmg="$(ls -1 release/*.dmg | head -n 1)"
+          mv -f "$dmg" "release/Copilot-Skins-staging-arm64.dmg"
+
+      - name: Upload staging DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Copilot-Skins-staging-dmg
+          path: release/Copilot-Skins-staging-arm64.dmg
+          if-no-files-found: error
+          retention-days: 14

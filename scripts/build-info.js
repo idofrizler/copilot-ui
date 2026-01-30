@@ -18,6 +18,23 @@ const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'))
 const baseVersion = pkg.version.split('+')[0].split('-')[0]
 const newVersion = `${baseVersion}+${timestamp}`
 
+// Read release notes for the current version
+const releaseNotesPath = path.join(__dirname, '..', 'RELEASE_NOTES.md')
+let releaseNotes = ''
+try {
+  if (fs.existsSync(releaseNotesPath)) {
+    const content = fs.readFileSync(releaseNotesPath, 'utf8')
+    // Extract notes for the current base version
+    const versionRegex = new RegExp(`^## ${baseVersion.replace(/\./g, '\\.')}([\\s\\S]*?)(?=^## \\d+\\.\\d+\\.\\d+|$)`, 'm')
+    const match = content.match(versionRegex)
+    if (match) {
+      releaseNotes = match[1].trim()
+    }
+  }
+} catch (err) {
+  console.warn('⚠ Could not read release notes:', err.message)
+}
+
 // Create build-info.json in src/renderer
 const buildInfo = {
   version: newVersion,
@@ -26,7 +43,8 @@ const buildInfo = {
   buildDate: now.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }),
   buildTime: now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
   gitSha,
-  gitBranch
+  gitBranch,
+  releaseNotes
 }
 
 const buildInfoPath = path.join(__dirname, '..', 'src', 'renderer', 'build-info.json')
@@ -36,3 +54,6 @@ console.log(`✓ Version updated to: ${newVersion}`)
 console.log(`✓ Build info written to: src/renderer/build-info.json`)
 console.log(`  - Branch: ${gitBranch}`)
 console.log(`  - Commit: ${gitSha}`)
+if (releaseNotes) {
+  console.log(`  - Release notes: included for v${baseVersion}`)
+}

@@ -42,6 +42,8 @@ import {
   PaperclipIcon,
   SessionHistory,
   FilePreviewModal,
+  UpdateAvailableModal,
+  ReleaseNotesModal,
 } from "./components";
 import {
   Status,
@@ -624,6 +626,15 @@ const App: React.FC = () => {
   const resizeStartX = useRef(0);
   const resizeStartWidth = useRef(0);
 
+  // Update and Release Notes state
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState<{
+    currentVersion: string;
+    latestVersion: string;
+    downloadUrl: string;
+  } | null>(null);
+  const [showReleaseNotesModal, setShowReleaseNotesModal] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const activeTabIdRef = useRef<string | null>(null);
@@ -682,6 +693,44 @@ const App: React.FC = () => {
       }
     };
   }, [tabs, activeTabId]);
+
+  // Check for updates and show release notes on startup
+  useEffect(() => {
+    const checkUpdatesAndReleaseNotes = async () => {
+      try {
+        // Check if this is a new version (show release notes)
+        const { version: lastSeenVersion } = await window.electronAPI.updates.getLastSeenVersion();
+        const currentVersion = buildInfo.baseVersion;
+        
+        if (lastSeenVersion !== currentVersion && buildInfo.releaseNotes) {
+          // New version - show release notes
+          setShowReleaseNotesModal(true);
+          // Mark this version as seen
+          await window.electronAPI.updates.setLastSeenVersion(currentVersion);
+        }
+
+        // Check for newer updates available
+        const updateResult = await window.electronAPI.updates.checkForUpdate();
+        if (updateResult.hasUpdate && updateResult.latestVersion && updateResult.downloadUrl) {
+          setUpdateInfo({
+            currentVersion: updateResult.currentVersion || currentVersion,
+            latestVersion: updateResult.latestVersion,
+            downloadUrl: updateResult.downloadUrl,
+          });
+          // Show update modal after release notes (if any) are dismissed
+          if (!buildInfo.releaseNotes || lastSeenVersion === currentVersion) {
+            setShowUpdateModal(true);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to check for updates:', error);
+      }
+    };
+
+    // Delay the check slightly to not block initial render
+    const timer = setTimeout(checkUpdatesAndReleaseNotes, 2000);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Focus input when active tab changes
   useEffect(() => {
@@ -6067,6 +6116,39 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         isOpen={!!filePreviewPath}
         onClose={() => setFilePreviewPath(null)}
         filePath={filePreviewPath || ''}
+      />
+
+      {/* Update Available Modal */}
+      <UpdateAvailableModal
+        isOpen={showUpdateModal}
+        onClose={() => setShowUpdateModal(false)}
+        currentVersion={updateInfo?.currentVersion || buildInfo.baseVersion}
+        newVersion={updateInfo?.latestVersion || ''}
+        onDownload={() => {
+          if (updateInfo?.downloadUrl) {
+            window.electronAPI.updates.openDownloadUrl(updateInfo.downloadUrl);
+          }
+          setShowUpdateModal(false);
+        }}
+        onDontRemind={() => {
+          if (updateInfo?.latestVersion) {
+            window.electronAPI.updates.dismissVersion(updateInfo.latestVersion);
+          }
+        }}
+      />
+
+      {/* Release Notes Modal */}
+      <ReleaseNotesModal
+        isOpen={showReleaseNotesModal}
+        onClose={() => {
+          setShowReleaseNotesModal(false);
+          // Show update modal if there's an update available
+          if (updateInfo) {
+            setShowUpdateModal(true);
+          }
+        }}
+        version={buildInfo.baseVersion}
+        releaseNotes={buildInfo.releaseNotes || ''}
       />
     </div>
   );
