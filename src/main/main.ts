@@ -2822,7 +2822,20 @@ ipcMain.handle('git:mergeToMain', async (_event, data: { cwd: string; deleteBran
         return { success: false, error: `Main repository has uncommitted changes. Please commit or stash changes in ${mainRepoPath} first.` }
       }
       
-      // Pull latest on main in the main repo
+      // Check what branch is currently checked out in main repo
+      const { stdout: mainRepoBranch } = await execAsync('git branch --show-current', { cwd: mainRepoPath })
+      const currentMainRepoBranch = mainRepoBranch.trim()
+      
+      // If target branch is different from what's checked out in main repo, switch to it
+      if (currentMainRepoBranch !== targetBranch) {
+        try {
+          await execAsync(`git checkout ${targetBranch}`, { cwd: mainRepoPath })
+        } catch (checkoutError) {
+          return { success: false, error: `Failed to checkout ${targetBranch} in main repository: ${String(checkoutError)}` }
+        }
+      }
+      
+      // Pull latest on target branch in the main repo
       try {
         await execAsync('git pull', { cwd: mainRepoPath })
       } catch (pullError) {
