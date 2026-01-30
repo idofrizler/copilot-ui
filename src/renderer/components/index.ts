@@ -1,6 +1,7 @@
 // Shared UI Components
 export * from './Button'
 export * from './ChoiceSelector'
+export * from './CodeBlock'
 export * from './Dropdown'
 export * from './FilePreviewModal'
 export * from './IconButton'
