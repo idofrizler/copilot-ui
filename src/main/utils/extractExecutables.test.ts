@@ -62,6 +62,65 @@ describe('extractExecutables', () => {
     })
   })
 
+  describe('Azure CLI (az) commands - Issue #120', () => {
+    it('extracts az with subcommand', () => {
+      expect(extractExecutables('az webapp list')).toEqual(['az webapp'])
+    })
+
+    it('extracts az staticwebapp subcommand', () => {
+      expect(extractExecutables('az staticwebapp create --name test')).toEqual(['az staticwebapp'])
+    })
+
+    it('extracts az storage subcommand', () => {
+      expect(extractExecutables('az storage account list')).toEqual(['az storage'])
+    })
+
+    it('handles multiline az command with backslash continuations - exact Issue #120 case', () => {
+      const command = `az staticwebapp create \\
+  --name uniclaw \\
+  --resource-group uniclaw-rg \\
+  --source https://github.com/placeholder \\
+  --location "westus2" \\
+  --sku Free \\
+  --query "{name:name, defaultHostname:defaultHostname}" \\
+  -o table 2>&1`
+      const result = extractExecutables(command)
+      expect(result).toEqual(['az staticwebapp'])
+      // Should NOT extract flag values as commands
+      expect(result).not.toContain('uniclaw')
+      expect(result).not.toContain('uniclaw-rg')
+      expect(result).not.toContain('placeholder')
+      expect(result).not.toContain('Free')
+      expect(result).not.toContain('table')
+    })
+
+    it('handles multiple az commands chained with &&', () => {
+      expect(extractExecutables('az login && az account show')).toEqual(['az login', 'az account'])
+    })
+  })
+
+  describe('backslash line continuations', () => {
+    it('joins lines with backslash continuation', () => {
+      const command = `ls \\
+  -la`
+      expect(extractExecutables(command)).toEqual(['ls'])
+    })
+
+    it('handles multiple continuations', () => {
+      const command = `curl \\
+  -X POST \\
+  -H "Content-Type: application/json" \\
+  https://api.example.com`
+      expect(extractExecutables(command)).toEqual(['curl'])
+    })
+
+    it('handles continuation followed by another command', () => {
+      const command = `echo hello \\
+  world && ls -la`
+      expect(extractExecutables(command)).toEqual(['echo', 'ls'])
+    })
+  })
+
   describe('environment variables and paths', () => {
     it('handles PATH export', () => {
       expect(extractExecutables('export PATH="/usr/bin:$PATH"')).toEqual(['export'])

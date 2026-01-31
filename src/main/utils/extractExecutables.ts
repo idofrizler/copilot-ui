@@ -1,5 +1,5 @@
 // Commands that should include their subcommand for granular permission control
-const SUBCOMMAND_EXECUTABLES = ['git', 'npm', 'yarn', 'pnpm', 'docker', 'kubectl', 'gh']
+const SUBCOMMAND_EXECUTABLES = ['git', 'npm', 'yarn', 'pnpm', 'docker', 'kubectl', 'gh', 'az']
 
 // Shell builtins that are not real executables and should be skipped
 // These are commonly used in patterns like `|| true` or `&& false` and don't need permission
@@ -60,6 +60,11 @@ export function extractExecutables(command: string): string[] {
   cleaned = cleaned.replace(/\d*>&?\d+/g, '')      // 2>&1, >&1, 1>&2
   cleaned = cleaned.replace(/\d+>>\S+/g, '')       // 2>>/dev/null
   cleaned = cleaned.replace(/\d+>\S+/g, '')        // 2>/dev/null
+  
+  // Handle backslash line continuations (\ followed by newline)
+  // This joins multiline commands into a single logical line before splitting
+  // Issue #120: Prevents flag values from being extracted as commands
+  cleaned = cleaned.replace(/\\\n/g, ' ')
   
   // Split on shell operators, separators, and newlines
   const segments = cleaned.split(/[;&|\n]+/)
