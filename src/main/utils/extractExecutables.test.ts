@@ -296,6 +296,27 @@ pwd`
       // Redirection at end of command works better with chained commands
       expect(extractExecutables('command 2>&1 && echo done')).toContain('echo')
     })
+
+    it('does not detect numeric arguments as commands - Issue #121', () => {
+      // The "1" argument should not be detected as a command
+      const command = 'cd /Users/idofrizler/Git/uniclaw && ./scripts/analytics.sh 1 2>&1'
+      const result = extractExecutables(command)
+      expect(result).toContain('cd')
+      expect(result).toContain('analytics.sh')
+      expect(result).not.toContain('1')
+    })
+
+    it('handles scripts with .sh extension', () => {
+      expect(extractExecutables('./run.sh')).toEqual(['run.sh'])
+    })
+
+    it('handles scripts with multiple numeric arguments', () => {
+      const result = extractExecutables('./process.sh 1 2 3 2>&1')
+      expect(result).toEqual(['process.sh'])
+      expect(result).not.toContain('1')
+      expect(result).not.toContain('2')
+      expect(result).not.toContain('3')
+    })
   })
 
   describe('shell builtins - Issue #50', () => {

@@ -106,11 +106,13 @@ export function extractExecutables(command: string): string[] {
       if (!part || /^[<>|&;()]+$/.test(part)) continue
       // Skip redirection targets
       if (part.startsWith('>') || part.startsWith('<')) continue
+      // Skip pure numbers (arguments like "1", "2", not commands)
+      if (/^\d+$/.test(part)) continue
       
       // Found potential executable - remove path prefix
       const exec = part.replace(/^.*\//, '')
-      // Validate it looks like a command (alphanumeric, dashes, underscores)
-      if (exec && /^[a-zA-Z0-9_-]+$/.test(exec)) {
+      // Validate it looks like a command (alphanumeric, dashes, underscores, dots for extensions)
+      if (exec && /^[a-zA-Z0-9_.-]+$/.test(exec)) {
         if (!foundExec) {
           foundExec = exec
           // Check if this needs subcommand handling
