@@ -65,13 +65,10 @@ Windows requires additional build tools for native modules:
 ```powershell
 # In PowerShell (run as Administrator recommended)
 cd copilot-ui
-.\scripts\setup-windows.ps1
+pwsh -NoProfile -File .\scripts\setup-windows.ps1
 ```
 
-> **Note:** If you get a parse error, run with: `pwsh -NoProfile -File .\scripts\setup-windows.ps1`  
-> (This bypasses PowerShell profile scripts that may interfere with parsing)
-
-This will install all Windows prerequisites and npm dependencies automatically. After running, you're ready to go with `npm run dev`!
+This installs Windows prerequisites and npm dependencies automatically. After running, you're ready to go with `npm run dev`!
 
 <details>
 <summary><b>Manual Windows Setup (if automated script fails)</b></summary>
@@ -100,43 +97,33 @@ This will install all Windows prerequisites and npm dependencies automatically. 
 
 </details>
 
-## Installation
+## Installation (Agent-first)
 
-### Build the App (macOS)
+If you're using an AI coding agent: **tell it to clone this repo, install deps, and build the installer for your OS**.
 
-Building locally avoids macOS Gatekeeper issues with unsigned apps:
+Suggested prompt:
+
+> Clone `https://github.com/idofrizler/copilot-ui.git`, install dependencies, and build a signed/unsigned installer for my OS.  
+> - macOS: output a `.dmg`  
+> - Windows: output an `.exe`
+
+### macOS (build a DMG)
 
 ```bash
-# Clone and install
 git clone https://github.com/idofrizler/copilot-ui.git
 cd copilot-ui
-
-# Install dependencies
 npm install
-
-# Build the DMG
 npm run dist
-
-# Install
 open release/Copilot-Skins-*-arm64.dmg
 ```
 
-Drag "Copilot Skins" to your Applications folder and you're ready to go!
-
-### Build the App (Windows)
+### Windows (build an EXE)
 
 ```powershell
-# Clone and install
 git clone https://github.com/idofrizler/copilot-ui.git
 cd copilot-ui
-
-# Run Windows setup script (installs prerequisites and dependencies)
-.\scripts\setup-windows.ps1
-
-# Build the installer
+pwsh -NoProfile -File .\scripts\setup-windows.ps1
 npm run dist:win
-
-# The installer will be in release/
 ```
 
 ## Development
@@ -144,11 +131,6 @@ npm run dist:win
 ```bash
 npm install
 npm run dev
-```
-
-**Note for Windows users:** If you see `running scripts is disabled` error, run:
-```powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```
 
 ## Build
