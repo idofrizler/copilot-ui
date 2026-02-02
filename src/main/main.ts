@@ -272,6 +272,7 @@ let mainWindow: BrowserWindow | null = null
 
 // Map of cwd -> CopilotClient (one client per unique working directory)
 const copilotClients = new Map<string, CopilotClient>()
+const inFlightCopilotClients = new Map<string, Promise<CopilotClient>>()
 
 // Resolve CLI path for packaged apps
 function getCliPath(): string | undefined {
@@ -300,23 +301,38 @@ function getCliPath(): string | undefined {
 
 // Get or create a CopilotClient for the given cwd
 async function getClientForCwd(cwd: string): Promise<CopilotClient> {
-  if (copilotClients.has(cwd)) {
-    return copilotClients.get(cwd)!
+  const existingClient = copilotClients.get(cwd)
+  if (existingClient) {
+    return existingClient
   }
   
-  console.log(`Creating new CopilotClient for cwd: ${cwd}`)
-  const cliPath = getCliPath()
-  
-  // Use augmented PATH so CLI can find gh for authentication
-  const env = getAugmentedEnv()
-  if (app.isPackaged) {
-    log.info('Using augmented PATH for packaged app')
+  const inFlightClient = inFlightCopilotClients.get(cwd)
+  if (inFlightClient) {
+    return inFlightClient
   }
   
-  const client = new CopilotClient({ cwd, cliPath, env })
-  await client.start()
-  copilotClients.set(cwd, client)
-  return client
+  const clientPromise = (async () => {
+    console.log(`Creating new CopilotClient for cwd: ${cwd}`)
+    const cliPath = getCliPath()
+    
+    // Use augmented PATH so CLI can find gh for authentication
+    const env = getAugmentedEnv()
+    if (app.isPackaged) {
+      log.info('Using augmented PATH for packaged app')
+    }
+    
+    const client = new CopilotClient({ cwd, cliPath, env })
+    await client.start()
+    copilotClients.set(cwd, client)
+    return client
+  })()
+  
+  inFlightCopilotClients.set(cwd, clientPromise)
+  try {
+    return await clientPromise
+  } finally {
+    inFlightCopilotClients.delete(cwd)
+  }
 }
 
 // Repair corrupted session events (duplicate tool_result bug)
@@ -1274,78 +1290,86 @@ async function initCopilot(): Promise<void> {
     
     let resumedSessions: { sessionId: string; model: string; cwd: string; name?: string; editedFiles?: string[]; alwaysAllowed?: string[] }[] = []
     
-    // Resume only our open sessions with their stored models and cwd
-    for (const sessionId of sessionsToResume) {
+    // Load MCP servers config once for resumption
+    const mcpConfig = await readMcpConfig()
+    
+    // Resume only our open sessions with their stored models and cwd (in parallel)
+    const resumeResults = await Promise.allSettled(sessionsToResume.map(async (sessionId) => {
       const meta = sessionMetaMap.get(sessionId)!
       const storedSession = openSessionMap.get(sessionId)
-      try {
-        const sessionModel = storedSession?.model || store.get('model') as string || 'gpt-5.2'
-        const sessionCwd = storedSession?.cwd || defaultCwd
-        const storedAlwaysAllowed = storedSession?.alwaysAllowed || []
+      const sessionModel = storedSession?.model || store.get('model') as string || 'gpt-5.2'
+      const sessionCwd = storedSession?.cwd || defaultCwd
+      const storedAlwaysAllowed = storedSession?.alwaysAllowed || []
+      
+      // Get or create client for this session's cwd
+      const client = await getClientForCwd(sessionCwd)
+      
+      const session = await client.resumeSession(sessionId, {
+        mcpServers: mcpConfig.mcpServers,
+        tools: createBrowserTools(sessionId),
+        onPermissionRequest: (request, invocation) => handlePermissionRequest(request, invocation, sessionId)
+      })
+      
+      // Set up event handler for resumed session
+      session.on((event) => {
+        if (!mainWindow || mainWindow.isDestroyed()) return
         
-        // Get or create client for this session's cwd
-        const client = await getClientForCwd(sessionCwd)
+        console.log(`[${sessionId}] Event:`, event.type)
         
-        // Load MCP servers config
-        const mcpConfig = await readMcpConfig()
-        
-        const session = await client.resumeSession(sessionId, {
-          mcpServers: mcpConfig.mcpServers,
-          tools: createBrowserTools(sessionId),
-          onPermissionRequest: (request, invocation) => handlePermissionRequest(request, invocation, sessionId)
-        })
-        
-        // Set up event handler for resumed session
-        session.on((event) => {
-          if (!mainWindow || mainWindow.isDestroyed()) return
-          
-          console.log(`[${sessionId}] Event:`, event.type)
-          
-          if (event.type === 'assistant.message_delta') {
-            mainWindow.webContents.send('copilot:delta', { sessionId, content: event.data.deltaContent })
-          } else if (event.type === 'assistant.message') {
-            mainWindow.webContents.send('copilot:message', { sessionId, content: event.data.content })
-          } else if (event.type === 'session.idle') {
-            const currentSessionState = sessions.get(sessionId)
-            if (currentSessionState) currentSessionState.isProcessing = false
-            mainWindow.webContents.send('copilot:idle', { sessionId })
-            bounceDock()
-          } else if (event.type === 'tool.execution_start') {
-            console.log(`[${sessionId}] Tool start FULL:`, JSON.stringify(event.data, null, 2))
-            mainWindow.webContents.send('copilot:tool-start', { 
-              sessionId, 
-              toolCallId: event.data.toolCallId, 
-              toolName: event.data.toolName,
-              input: event.data.arguments || event.data.input || (event.data as Record<string, unknown>)
-            })
-          } else if (event.type === 'tool.execution_complete') {
-            console.log(`[${sessionId}] Tool end FULL:`, JSON.stringify(event.data, null, 2))
-            mainWindow.webContents.send('copilot:tool-end', { 
-              sessionId, 
-              toolCallId: event.data.toolCallId, 
-              toolName: event.data.toolName,
-              input: event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
-              output: event.data.output
-            })
-          }
-        })
-        
-        // Restore alwaysAllowed set from stored data (normalize legacy ids)
-        const alwaysAllowedSet = new Set(storedAlwaysAllowed.map(normalizeAlwaysAllowed))
-        sessions.set(sessionId, { session, client, model: sessionModel, cwd: sessionCwd, alwaysAllowed: alwaysAllowedSet, allowedPaths: new Set(), isProcessing: false })
-        resumedSessions.push({ 
-          sessionId, 
-          model: sessionModel,
-          cwd: sessionCwd,
-          name: storedSession?.name || meta.summary || undefined,
-          editedFiles: storedSession?.editedFiles || [],
-          alwaysAllowed: storedAlwaysAllowed
-        })
-        console.log(`Resumed session ${sessionId} with model ${sessionModel} in ${sessionCwd}${meta.summary ? ` (${meta.summary})` : ''}`)
-      } catch (err) {
-        console.error(`Failed to resume session ${sessionId}:`, err)
+        if (event.type === 'assistant.message_delta') {
+          mainWindow.webContents.send('copilot:delta', { sessionId, content: event.data.deltaContent })
+        } else if (event.type === 'assistant.message') {
+          mainWindow.webContents.send('copilot:message', { sessionId, content: event.data.content })
+        } else if (event.type === 'session.idle') {
+          const currentSessionState = sessions.get(sessionId)
+          if (currentSessionState) currentSessionState.isProcessing = false
+          mainWindow.webContents.send('copilot:idle', { sessionId })
+          bounceDock()
+        } else if (event.type === 'tool.execution_start') {
+          console.log(`[${sessionId}] Tool start FULL:`, JSON.stringify(event.data, null, 2))
+          mainWindow.webContents.send('copilot:tool-start', { 
+            sessionId, 
+            toolCallId: event.data.toolCallId, 
+            toolName: event.data.toolName,
+            input: event.data.arguments || event.data.input || (event.data as Record<string, unknown>)
+          })
+        } else if (event.type === 'tool.execution_complete') {
+          console.log(`[${sessionId}] Tool end FULL:`, JSON.stringify(event.data, null, 2))
+          mainWindow.webContents.send('copilot:tool-end', { 
+            sessionId, 
+            toolCallId: event.data.toolCallId, 
+            toolName: event.data.toolName,
+            input: event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
+            output: event.data.output
+          })
+        }
+      })
+      
+      // Restore alwaysAllowed set from stored data (normalize legacy ids)
+      const alwaysAllowedSet = new Set(storedAlwaysAllowed.map(normalizeAlwaysAllowed))
+      sessions.set(sessionId, { session, client, model: sessionModel, cwd: sessionCwd, alwaysAllowed: alwaysAllowedSet, allowedPaths: new Set(), isProcessing: false })
+      
+      return {
+        sessionId,
+        model: sessionModel,
+        cwd: sessionCwd,
+        name: storedSession?.name || meta.summary || undefined,
+        editedFiles: storedSession?.editedFiles || [],
+        alwaysAllowed: storedAlwaysAllowed
       }
-    }
+    }))
+    
+    resumeResults.forEach((result, index) => {
+      const sessionId = sessionsToResume[index]
+      const meta = sessionMetaMap.get(sessionId)
+      if (result.status === 'fulfilled') {
+        const resumed = result.value
+        resumedSessions.push(resumed)
+        console.log(`Resumed session ${resumed.sessionId} with model ${resumed.model} in ${resumed.cwd}${meta?.summary ? ` (${meta.summary})` : ''}`)
+      } else {
+        console.error(`Failed to resume session ${sessionId}:`, result.reason)
+      }
+    })
     
     // If no sessions were resumed, don't create one automatically
     // The frontend will trigger creation which includes trust check
@@ -3633,4 +3657,3 @@ function compareVersions(a: string, b: string): number {
   }
   return 0
 }
-
