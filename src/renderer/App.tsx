@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from "react";
+import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import logo from "./assets/logo.png";
@@ -3707,6 +3707,11 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     }
   };
 
+  // Memoize cleaned edited files for the active tab
+  const cleanedEditedFiles = useMemo(() => {
+    return activeTab ? getCleanEditedFiles(activeTab.editedFiles) : [];
+  }, [activeTab?.editedFiles, getCleanEditedFiles]);
+
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-copilot-bg rounded-xl">
       {/* Title Bar */}
@@ -5353,14 +5358,11 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       className={`transition-transform ${showEditedFiles ? "rotate-90" : ""}`}
                     />
                     <span>Edited Files</span>
-                    {(() => {
-                      const cleanFiles = getCleanEditedFiles(activeTab?.editedFiles || []);
-                      return cleanFiles.length > 0 && (
-                        <span className="text-copilot-accent">
-                          ({cleanFiles.length})
-                        </span>
-                      );
-                    })()}
+                    {cleanedEditedFiles.length > 0 && (
+                      <span className="text-copilot-accent">
+                        ({cleanedEditedFiles.length})
+                      </span>
+                    )}
                   </button>
                   <IconButton
                     icon={<CommitIcon size={12} />}
@@ -5378,7 +5380,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                         No files edited
                       </div>
                     ) : (
-                      getCleanEditedFiles(activeTab.editedFiles).map((filePath) => {
+                      cleanedEditedFiles.map((filePath) => {
                         const isConflicted = conflictedFiles.some(cf => filePath.endsWith(cf) || cf.endsWith(filePath.split(/[/\\]/).pop() || ''));
                         return (
                           <button
