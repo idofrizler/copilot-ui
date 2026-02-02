@@ -577,7 +577,7 @@ const App: React.FC = () => {
   const [commitError, setCommitError] = useState<string | null>(null);
   const [commitAction, setCommitAction] = useState<'push' | 'merge' | 'pr'>('push');
   const [removeWorktreeAfterMerge, setRemoveWorktreeAfterMerge] = useState(false);
-  const [pendingMergeInfo, setPendingMergeInfo] = useState<{ incomingFiles: string[] } | null>(null);
+  const [pendingMergeInfo, setPendingMergeInfo] = useState<{ incomingFiles: string[]; targetBranch: string } | null>(null);
   const [mainAheadInfo, setMainAheadInfo] = useState<{ isAhead: boolean; commits: string[]; targetBranch?: string } | null>(null);
   const [isMergingMain, setIsMergingMain] = useState(false);
   const [conflictedFiles, setConflictedFiles] = useState<string[]>([]);
@@ -3122,6 +3122,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     if (!activeTab) return;
 
     const hasFilesToCommit = activeTab.editedFiles.length > 0;
+    const effectiveTargetBranch = targetBranch || 'main';
     
     // Require commit message only if there are files to commit
     if (hasFilesToCommit && !commitMessage.trim()) return;
@@ -3150,7 +3151,10 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
         // If merge synced with main and brought in changes, notify user to test first
         if (result.mainSyncedWithChanges && commitAction === 'merge') {
-          setPendingMergeInfo({ incomingFiles: result.incomingFiles || [] });
+          setPendingMergeInfo({ 
+            incomingFiles: result.incomingFiles || [], 
+            targetBranch: effectiveTargetBranch 
+          });
           // Clear the edited files list and refresh git branch widget (commit was successful)
           updateTab(activeTab.id, { 
             editedFiles: [],
@@ -3169,7 +3173,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           activeTab.cwd, 
           commitMessage.split('\n')[0] || undefined,
           undefined, // draft
-          targetBranch || undefined
+          effectiveTargetBranch
         );
         if (prResult.success && prResult.prUrl) {
           window.open(prResult.prUrl, '_blank');
@@ -3183,18 +3187,15 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       // If merge was selected and removeWorktreeAfterMerge is checked, remove the worktree and close session
       const isWorktreePath = activeTab.cwd.includes('.copilot-sessions')
       if (commitAction === 'merge') {
-        // If no files were committed, we need to call mergeToMain directly
-        if (!hasFilesToCommit) {
-          const mergeResult = await window.electronAPI.git.mergeToMain(
-            activeTab.cwd, 
-            false,
-            targetBranch || undefined
-          );
-          if (!mergeResult.success) {
-            setCommitError(mergeResult.error || 'Merge failed');
-            setIsCommitting(false);
-            return;
-          }
+        const mergeResult = await window.electronAPI.git.mergeToMain(
+          activeTab.cwd, 
+          false,
+          effectiveTargetBranch
+        );
+        if (!mergeResult.success) {
+          setCommitError(mergeResult.error || 'Merge failed');
+          setIsCommitting(false);
+          return;
         }
         
         if (removeWorktreeAfterMerge && isWorktreePath) {
@@ -6131,7 +6132,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         <Modal.Body>
           <div className="mb-4">
             <div className="text-sm text-copilot-text mb-2">
-              Your branch has been synced with the latest changes from {targetBranch || 'main'}. The following files were updated:
+              Your branch has been synced with the latest changes from {pendingMergeInfo?.targetBranch || targetBranch || 'main'}. The following files were updated:
             </div>
             {pendingMergeInfo && pendingMergeInfo.incomingFiles.length > 0 ? (
               <div className="bg-copilot-bg rounded border border-copilot-surface max-h-40 overflow-y-auto">
@@ -6152,7 +6153,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
             )}
           </div>
           <div className="text-sm text-copilot-text-muted mb-4">
-            We recommend testing your changes before completing the merge to {targetBranch || 'main'}.
+            We recommend testing your changes before completing the merge to {pendingMergeInfo?.targetBranch || targetBranch || 'main'}.
           </div>
           <Modal.Footer>
             <Button
@@ -6167,7 +6168,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 if (!activeTab) return;
                 setIsCommitting(true);
                 try {
-                  const result = await window.electronAPI.git.mergeToMain(activeTab.cwd, removeWorktreeAfterMerge, targetBranch || undefined);
+                  const mergeTarget = pendingMergeInfo?.targetBranch || targetBranch || 'main';
+                  const result = await window.electronAPI.git.mergeToMain(activeTab.cwd, removeWorktreeAfterMerge, mergeTarget);
                   if (result.success) {
                     if (removeWorktreeAfterMerge && activeTab.cwd.includes('.copilot-sessions')) {
                       const sessionId = activeTab.cwd.split(/[/\\]/).pop() || '';
