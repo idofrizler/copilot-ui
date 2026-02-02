@@ -2884,6 +2884,30 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
   const [isGeneratingMessage, setIsGeneratingMessage] = useState(false);
 
+  const handleToggleEditedFiles = async () => {
+    const newShowState = !showEditedFiles;
+    setShowEditedFiles(newShowState);
+    
+    // When expanding, refresh the edited files list
+    if (newShowState && activeTab) {
+      try {
+        const changedResult = await window.electronAPI.git.getChangedFiles(
+          activeTab.cwd,
+          activeTab.editedFiles,
+          true, // includeAll: get all changed files
+        );
+        
+        if (changedResult.success) {
+          // Deduplicate and filter out empty filenames
+          const uniqueFiles = Array.from(new Set(changedResult.files.filter(file => file && file.trim() !== '')));
+          updateTab(activeTab.id, { editedFiles: uniqueFiles });
+        }
+      } catch (error) {
+        console.error("Failed to refresh edited files:", error);
+      }
+    }
+  };
+
   const handleOpenCommitModal = async () => {
     if (!activeTab) return;
 
@@ -5316,7 +5340,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               <div className="border-b border-copilot-surface">
                 <div className="flex items-center">
                   <button
-                    onClick={() => setShowEditedFiles(!showEditedFiles)}
+                    onClick={handleToggleEditedFiles}
                     className="flex-1 flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
                   >
                     <ChevronRightIcon
@@ -5324,11 +5348,14 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       className={`transition-transform ${showEditedFiles ? "rotate-90" : ""}`}
                     />
                     <span>Edited Files</span>
-                    {(activeTab?.editedFiles.length || 0) > 0 && (
-                      <span className="text-copilot-accent">
-                        ({activeTab?.editedFiles.length})
-                      </span>
-                    )}
+                    {(() => {
+                      const filteredCount = activeTab?.editedFiles.filter(f => f && f.trim() !== '').length || 0;
+                      return filteredCount > 0 && (
+                        <span className="text-copilot-accent">
+                          ({Array.from(new Set(activeTab?.editedFiles.filter(f => f && f.trim() !== ''))).length})
+                        </span>
+                      );
+                    })()}
                   </button>
                   <IconButton
                     icon={<CommitIcon size={12} />}
@@ -5346,7 +5373,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                         No files edited
                       </div>
                     ) : (
-                      activeTab.editedFiles.map((filePath) => {
+                      Array.from(new Set(activeTab.editedFiles.filter(f => f && f.trim() !== ''))).map((filePath) => {
                         const isConflicted = conflictedFiles.some(cf => filePath.endsWith(cf) || cf.endsWith(filePath.split(/[/\\]/).pop() || ''));
                         return (
                           <button
