@@ -44,6 +44,7 @@ import {
   FilePreviewModal,
   UpdateAvailableModal,
   WelcomeWizard,
+  SpotlightTour,
   ReleaseNotesModal,
   SearchableBranchSelect,
   CodeBlockWithCopy,
@@ -690,6 +691,8 @@ const App: React.FC = () => {
   
   // Welcome wizard state
   const [showWelcomeWizard, setShowWelcomeWizard] = useState(false);
+  const [shouldShowWizardWhenReady, setShouldShowWizardWhenReady] = useState(false);
+  const [dataLoaded, setDataLoaded] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -794,8 +797,8 @@ const App: React.FC = () => {
       try {
         const { hasSeen } = await window.electronAPI.wizard.hasSeenWelcome();
         if (!hasSeen) {
-          // Show wizard after a short delay to let the app initialize
-          setTimeout(() => setShowWelcomeWizard(true), 1000);
+          // Mark that we should show wizard once data is loaded
+          setShouldShowWizardWhenReady(true);
         }
       } catch (error) {
         console.error('Failed to check welcome wizard status:', error);
@@ -804,6 +807,15 @@ const App: React.FC = () => {
 
     checkWelcomeWizard();
   }, []);
+
+  // Show wizard once data is loaded and we should show it
+  useEffect(() => {
+    if (shouldShowWizardWhenReady && dataLoaded) {
+      // Small delay to ensure UI has rendered
+      const timer = setTimeout(() => setShowWelcomeWizard(true), 300);
+      return () => clearTimeout(timer);
+    }
+  }, [shouldShowWizardWhenReady, dataLoaded]);
 
   // Focus input when active tab changes
   useEffect(() => {
@@ -1150,6 +1162,9 @@ const App: React.FC = () => {
               console.error(`Failed to load history for ${s.sessionId}:`, err),
             );
         }
+        
+        // Mark data as loaded for wizard
+        setDataLoaded(true);
       },
     );
 
@@ -3823,73 +3838,75 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
         <div className="flex items-center gap-2 no-drag">
           {/* Model Selector */}
-          <Dropdown
-            value={activeTab?.model || null}
-            options={availableModels.map((model) => ({
-              id: model.id,
-              label: model.name,
-              rightContent: (
-                <span
-                  className={`ml-2 ${
-                    model.multiplier === 0
-                      ? "text-copilot-success"
-                      : model.multiplier < 1
+          <div data-tour="model-selector">
+            <Dropdown
+              value={activeTab?.model || null}
+              options={availableModels.map((model) => ({
+                id: model.id,
+                label: model.name,
+                rightContent: (
+                  <span
+                    className={`ml-2 ${
+                      model.multiplier === 0
                         ? "text-copilot-success"
-                        : model.multiplier > 1
-                          ? "text-copilot-warning"
-                          : "text-copilot-text-muted"
-                  }`}
-                >
-                  {model.multiplier === 0 ? "free" : `${model.multiplier}×`}
-                </span>
-              ),
-            }))}
-            onSelect={handleModelChange}
-            placeholder="Loading..."
-            title="Model"
-            minWidth="240px"
-          />
+                        : model.multiplier < 1
+                          ? "text-copilot-success"
+                          : model.multiplier > 1
+                            ? "text-copilot-warning"
+                            : "text-copilot-text-muted"
+                    }`}
+                  >
+                    {model.multiplier === 0 ? "free" : `${model.multiplier}×`}
+                  </span>
+                ),
+              }))}
+              onSelect={handleModelChange}
+              placeholder="Loading..."
+              title="Model"
+              minWidth="240px"
+            />
+          </div>
 
           {/* Theme Selector */}
           <Dropdown
-            value={themePreference}
-            options={[
-              {
-                id: "system",
-                label: "System",
-                icon: <MonitorIcon size={12} />,
-              },
-              ...availableThemes.map((theme) => ({
-                id: theme.id,
-                label: theme.name,
-                icon:
-                  theme.id === "dark" ? (
+              value={themePreference}
+              options={[
+                {
+                  id: "system",
+                  label: "System",
+                  icon: <MonitorIcon size={12} />,
+                },
+                ...availableThemes.map((theme) => ({
+                  id: theme.id,
+                  label: theme.name,
+                  icon:
+                    theme.id === "dark" ? (
+                      <MoonIcon size={12} />
+                    ) : theme.id === "light" ? (
+                      <SunIcon size={12} />
+                    ) : (
+                      <PaletteIcon size={12} />
+                    ),
+                })),
+              ]}
+              onSelect={(id) => setTheme(id)}
+              trigger={
+                <>
+                  {activeTheme.type === "dark" ? (
                     <MoonIcon size={12} />
-                  ) : theme.id === "light" ? (
-                    <SunIcon size={12} />
                   ) : (
-                    <PaletteIcon size={12} />
-                  ),
-              })),
-            ]}
-            onSelect={(id) => setTheme(id)}
-            trigger={
-              <>
-                {activeTheme.type === "dark" ? (
-                  <MoonIcon size={12} />
-                ) : (
-                  <SunIcon size={12} />
-                )}
-                <span>
-                  {themePreference === "system" ? "System" : activeTheme.name}
-                </span>
-                <ChevronDownIcon size={10} />
-              </>
-            }
-            title="Theme"
-            minWidth="180px"
-            dividers={[0]}
-            footerActions={
+                    <SunIcon size={12} />
+                  )}
+                  <span>
+                    {themePreference === "system" ? "System" : activeTheme.name}
+                  </span>
+                  <ChevronDownIcon size={10} />
+                </>
+              }
+              title="Theme"
+              minWidth="180px"
+              dividers={[0]}
+              footerActions={
               <button
                 onClick={async () => {
                   const result = await importTheme();
@@ -3933,6 +3950,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   }}
                   className="p-1 text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover rounded opacity-0 group-hover:opacity-100 transition-opacity"
                   title="New Worktree Session (isolated branch)"
+                  data-tour="new-worktree"
                 >
                   <GitBranchIcon size={12} />
                 </button>
@@ -3941,7 +3959,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           </div>
 
           {/* Open Tabs */}
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto" data-tour="sidebar-tabs">
             {tabs.map((tab) => (
               <div
                 key={tab.id}
@@ -4138,6 +4156,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   ? "text-copilot-accent bg-copilot-surface" 
                   : "text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface"
               }`}
+              data-tour="terminal-toggle"
             >
               <TerminalIcon size={14} />
               <span className="font-medium">Terminal</span>
@@ -4639,7 +4658,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           <div className="shrink-0 p-3 bg-copilot-surface border-t border-copilot-border">
             {/* Agent Modes Panel - Combined Ralph & Lisa */}
             {(showRalphSettings || showLisaSettings) && !activeTab?.isProcessing && (
-              <div className="mb-2 p-3 bg-copilot-bg rounded-lg border border-copilot-border">
+              <div className="mb-2 p-3 bg-copilot-bg rounded-lg border border-copilot-border" data-tour="agent-modes-panel">
                 <div className="flex items-center gap-2 mb-3">
                   <span className="text-xs font-medium text-copilot-text">Agent Modes</span>
                   <span className="flex-1" />
@@ -5038,6 +5057,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                         : "text-copilot-text-muted hover:text-copilot-text"
                   }`}
                   title="Agent Modes - Ralph Wiggum (Simple Loop) or Lisa Simpson (Multi-Phase)"
+                  data-tour="agent-modes"
                 >
                   {lisaEnabled ? (
                     <LisaIcon size={16} />
@@ -5437,7 +5457,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               </div>
 
               {/* Edited Files */}
-              <div className="border-b border-copilot-surface">
+              <div className="border-b border-copilot-surface" data-tour="edited-files">
                 <div className="flex items-center">
                   <button
                     onClick={handleToggleEditedFiles}
@@ -5496,7 +5516,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               </div>
 
               {/* Allowed Commands (merged session + global) */}
-              <div className="border-b border-copilot-border">
+              <div className="border-b border-copilot-border" data-tour="allowed-commands">
                 <div className="flex items-center">
                   <button
                     onClick={() => {
@@ -5681,6 +5701,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 )}
               </div>
 
+              {/* MCP Servers & Skills Section */}
+              <div data-tour="mcp-skills">
               {/* MCP Servers */}
               <div>
                 <div className="flex items-center">
@@ -5847,6 +5869,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   </div>
                 )}
               </div>
+              </div>{/* End MCP/Skills wrapper */}
             </div>
           </div>
         </div>
@@ -6459,8 +6482,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         releaseNotes={buildInfo.releaseNotes || ''}
       />
 
-      {/* Welcome Wizard */}
-      <WelcomeWizard
+      {/* Welcome Wizard - Spotlight Tour */}
+      <SpotlightTour
         isOpen={showWelcomeWizard}
         onClose={() => setShowWelcomeWizard(false)}
         onComplete={async () => {
