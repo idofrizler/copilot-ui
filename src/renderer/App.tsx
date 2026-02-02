@@ -6294,6 +6294,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         isOpen={!!filePreviewPath}
         onClose={() => setFilePreviewPath(null)}
         filePath={filePreviewPath || ''}
+        cwd={activeTab?.cwd}
       />
 
       {/* Update Available Modal */}

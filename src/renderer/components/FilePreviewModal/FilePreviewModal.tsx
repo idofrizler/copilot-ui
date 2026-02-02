@@ -6,6 +6,7 @@ export interface FilePreviewModalProps {
   isOpen: boolean
   onClose: () => void
   filePath: string
+  cwd?: string
 }
 
 interface FileContent {
@@ -17,31 +18,77 @@ interface FileContent {
   errorType?: 'not_found' | 'too_large' | 'binary' | 'read_error'
 }
 
+interface FileDiff {
+  success: boolean
+  diff?: string
+  error?: string
+  isNew?: boolean
+  isModified?: boolean
+  linesAdded?: number
+  linesRemoved?: number
+}
+
 export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   isOpen,
   onClose,
   filePath,
+  cwd,
 }) => {
   const [loading, setLoading] = useState(true)
-  const [fileContent, setFileContent] = useState<FileContent | null>(null)
+  const [fileDiff, setFileDiff] = useState<FileDiff | null>(null)
 
   const loadFileContent = useCallback(async () => {
-    if (!filePath) return
+    if (!filePath || !cwd) return
     
     setLoading(true)
     try {
-      const result = await window.electronAPI.file.readContent(filePath)
-      setFileContent(result)
+      // Get the diff for this file
+      const result = await window.electronAPI.git.getDiff(cwd, [filePath])
+      
+      if (result.success && result.diff) {
+        // Parse the diff to extract metadata
+        const diffLines = result.diff.split('\n')
+        let linesAdded = 0
+        let linesRemoved = 0
+        let isNew = false
+        let isModified = false
+        
+        // Check if it's a new file or modified file
+        for (const line of diffLines) {
+          if (line.startsWith('new file mode')) {
+            isNew = true
+          } else if (line.startsWith('+++') || line.startsWith('---')) {
+            isModified = true
+          } else if (line.startsWith('+') && !line.startsWith('+++')) {
+            linesAdded++
+          } else if (line.startsWith('-') && !line.startsWith('---')) {
+            linesRemoved++
+          }
+        }
+        
+        setFileDiff({
+          success: true,
+          diff: result.diff,
+          isNew,
+          isModified: isModified || linesAdded > 0 || linesRemoved > 0,
+          linesAdded,
+          linesRemoved,
+        })
+      } else {
+        setFileDiff({
+          success: false,
+          error: result.error || 'Failed to load diff',
+        })
+      }
     } catch (error) {
-      setFileContent({
+      setFileDiff({
         success: false,
-        error: `Failed to load file: ${String(error)}`,
-        errorType: 'read_error',
+        error: `Failed to load file diff: ${String(error)}`,
       })
     } finally {
       setLoading(false)
     }
-  }, [filePath])
+  }, [filePath, cwd])
 
   useEffect(() => {
     if (isOpen && filePath) {
@@ -78,6 +125,35 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
 
   const fileName = filePath.split(/[/\\]/).pop() || filePath
 
+  // Helper function to render diff with colors
+  const renderDiff = (diff: string) => {
+    const lines = diff.split('\n')
+    return lines.map((line, index) => {
+      let className = 'font-mono text-[11px] leading-relaxed'
+      let displayLine = line
+      
+      if (line.startsWith('+++') || line.startsWith('---')) {
+        className += ' text-copilot-text-muted font-semibold'
+      } else if (line.startsWith('+')) {
+        className += ' bg-green-500/10 text-green-400'
+      } else if (line.startsWith('-')) {
+        className += ' bg-red-500/10 text-red-400'
+      } else if (line.startsWith('@@')) {
+        className += ' text-copilot-accent font-semibold'
+      } else if (line.startsWith('diff --git') || line.startsWith('index ') || line.startsWith('new file mode')) {
+        className += ' text-copilot-text-muted text-[10px]'
+      } else {
+        className += ' text-copilot-text'
+      }
+      
+      return (
+        <div key={index} className={className}>
+          {displayLine || '\u00A0'}
+        </div>
+      )
+    })
+  }
+
   return (
     <div
       className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50"
@@ -94,9 +170,32 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
         {/* Header */}
         <div className="px-4 py-3 border-b border-copilot-border flex items-center justify-between shrink-0">
           <div className="flex-1 min-w-0 mr-4">
-            <h3 id="file-preview-title" className="text-sm font-medium text-copilot-text truncate">
-              {fileName}
-            </h3>
+            <div className="flex items-center gap-2">
+              <h3 id="file-preview-title" className="text-sm font-medium text-copilot-text truncate">
+                {fileName}
+              </h3>
+              {fileDiff?.isNew && (
+                <span className="px-1.5 py-0.5 text-[9px] font-semibold bg-green-500/20 text-green-400 rounded">
+                  ADDED
+                </span>
+              )}
+              {fileDiff?.isModified && !fileDiff?.isNew && (
+                <span className="px-1.5 py-0.5 text-[9px] font-semibold bg-blue-500/20 text-blue-400 rounded">
+                  MODIFIED
+                </span>
+              )}
+              {(fileDiff?.linesAdded || fileDiff?.linesRemoved) && (
+                <span className="text-[10px] text-copilot-text-muted">
+                  {fileDiff.linesAdded > 0 && (
+                    <span className="text-green-400">+{fileDiff.linesAdded}</span>
+                  )}
+                  {fileDiff.linesAdded > 0 && fileDiff.linesRemoved > 0 && ' '}
+                  {fileDiff.linesRemoved > 0 && (
+                    <span className="text-red-400">-{fileDiff.linesRemoved}</span>
+                  )}
+                </span>
+              )}
+            </div>
             <p className="text-xs text-copilot-text-muted truncate mt-0.5" title={filePath}>
               {filePath}
             </p>
@@ -121,57 +220,26 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-auto p-4 min-h-0 min-w-0">
+        <div className="flex-1 overflow-auto p-4 min-h-0 min-w-0 bg-copilot-bg">
           {loading ? (
             <div className="flex items-center justify-center h-32">
               <Spinner size={24} />
             </div>
-          ) : fileContent?.success ? (
-            <pre 
-              className="text-xs font-mono text-copilot-text leading-relaxed"
-              style={{ 
-                whiteSpace: 'pre-wrap', 
-                wordBreak: 'break-word',
-                overflowWrap: 'anywhere',
-                maxWidth: '100%'
-              }}
-            >
-              {fileContent.content}
-            </pre>
+          ) : fileDiff?.success && fileDiff?.diff ? (
+            <div className="text-xs leading-relaxed">
+              {renderDiff(fileDiff.diff)}
+            </div>
           ) : (
             <div className="flex flex-col items-center justify-center h-32 text-center">
               <p className="text-copilot-text-muted text-sm mb-2">
-                {fileContent?.errorType === 'not_found' && '📁 File not found'}
-                {fileContent?.errorType === 'too_large' && '📦 File too large to preview'}
-                {fileContent?.errorType === 'binary' && '🔒 Binary file'}
-                {fileContent?.errorType === 'read_error' && '⚠️ Error reading file'}
+                ⚠️ Error loading diff
               </p>
               <p className="text-copilot-text-muted text-xs">
-                {fileContent?.error}
+                {fileDiff?.error || 'Unknown error'}
               </p>
-              {(fileContent?.errorType === 'binary' || fileContent?.errorType === 'too_large') && (
-                <button
-                  onClick={handleRevealInFolder}
-                  className="mt-4 flex items-center gap-1.5 px-3 py-1.5 text-xs text-copilot-accent hover:bg-copilot-bg rounded transition-colors border border-copilot-border"
-                >
-                  <ExternalLinkIcon size={12} />
-                  <span>Open in Folder</span>
-                </button>
-              )}
             </div>
           )}
         </div>
-
-        {/* Footer with file size */}
-        {fileContent?.fileSize !== undefined && (
-          <div className="px-4 py-2 border-t border-copilot-border text-xs text-copilot-text-muted shrink-0">
-            {fileContent.fileSize < 1024
-              ? `${fileContent.fileSize} bytes`
-              : fileContent.fileSize < 1024 * 1024
-                ? `${(fileContent.fileSize / 1024).toFixed(1)} KB`
-                : `${(fileContent.fileSize / 1024 / 1024).toFixed(2)} MB`}
-          </div>
-        )}
       </div>
     </div>
   )
