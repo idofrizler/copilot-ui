@@ -4,13 +4,30 @@
  * Provides Playwright-based browser automation with persistent sessions.
  * Sessions persist cookies, localStorage, and other browser state between runs
  * so users don't need to re-login each time.
+ * 
+ * Playwright is lazy-loaded on first use to improve app startup time.
  */
 
-import { chromium, Browser, BrowserContext, Page } from 'playwright'
 import { app } from 'electron'
 import { join } from 'path'
 import { existsSync, mkdirSync, readFileSync } from 'fs'
 import log from 'electron-log/main'
+
+// Lazy-loaded Playwright types (import type is free - doesn't load the module)
+import type { Browser, BrowserContext, Page } from 'playwright'
+
+// Playwright module - lazy loaded on first use
+let playwrightModule: typeof import('playwright') | null = null
+
+// Load Playwright lazily to improve startup time
+async function getPlaywright(): Promise<typeof import('playwright')> {
+  if (!playwrightModule) {
+    log.info('[Browser] Loading Playwright module (lazy load)...')
+    playwrightModule = await import('playwright')
+    log.info('[Browser] Playwright module loaded')
+  }
+  return playwrightModule
+}
 
 // Browser session manager - singleton
 let browserInstance: Browser | null = null
@@ -38,7 +55,8 @@ async function getBrowser(): Promise<Browser> {
   }
 
   log.info('[Browser] Launching new browser instance...')
-  browserInstance = await chromium.launch({
+  const playwright = await getPlaywright()
+  browserInstance = await playwright.chromium.launch({
     headless: true, // Using headless to avoid Chromium cleanup windows flashing on close
     args: [
       '--disable-blink-features=AutomationControlled', // Avoid detection

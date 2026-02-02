@@ -3166,25 +3166,27 @@ if (!gotTheLock) {
   app.whenReady().then(() => {
     console.log('Baseline models:', AVAILABLE_MODELS.map(m => `${m.name} (${m.multiplier}×)`).join(', '))
     
-    // Clean up old cached images (older than 24 hours)
+    // Clean up old cached images async (non-blocking to improve startup time)
     const imageDir = join(app.getPath('home'), '.copilot', 'images')
-    if (existsSync(imageDir)) {
-      const now = Date.now()
-      const maxAge = 24 * 60 * 60 * 1000 // 24 hours
-      try {
-        const files = readdirSync(imageDir)
-        for (const file of files) {
-          const filePath = join(imageDir, file)
-          const stats = statSync(filePath)
-          if (now - stats.mtimeMs > maxAge) {
-            unlinkSync(filePath)
-            log.info(`Cleaned up old image: ${file}`)
+    setImmediate(() => {
+      if (existsSync(imageDir)) {
+        const now = Date.now()
+        const maxAge = 24 * 60 * 60 * 1000 // 24 hours
+        try {
+          const files = readdirSync(imageDir)
+          for (const file of files) {
+            const filePath = join(imageDir, file)
+            const stats = statSync(filePath)
+            if (now - stats.mtimeMs > maxAge) {
+              unlinkSync(filePath)
+              log.info(`Cleaned up old image: ${file}`)
+            }
           }
+        } catch (err) {
+          log.error('Failed to clean up old images:', err)
         }
-      } catch (err) {
-        log.error('Failed to clean up old images:', err)
       }
-    }
+    })
     
     createWindow()
 

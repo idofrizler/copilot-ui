@@ -1,6 +1,20 @@
-import * as pty from 'node-pty'
 import { BrowserWindow } from 'electron'
 import * as os from 'os'
+
+// Lazy-loaded node-pty module to improve startup time
+// node-pty is a native module that takes time to load
+let ptyModule: typeof import('node-pty') | null = null
+
+function getPtyModule(): typeof import('node-pty') {
+  if (!ptyModule) {
+    // Use require for CommonJS native module
+    ptyModule = require('node-pty')
+  }
+  return ptyModule
+}
+
+// Import type only (doesn't load the module)
+import type * as pty from 'node-pty'
 
 interface PtyInstance {
   pty: pty.IPty
@@ -33,6 +47,7 @@ export function createPty(
     const shell = getDefaultShell()
     const shellArgs = process.platform === 'win32' ? [] : ['-l']
 
+    const pty = getPtyModule()
     const ptyProcess = pty.spawn(shell, shellArgs, {
       name: 'xterm-256color',
       cols: 80,
