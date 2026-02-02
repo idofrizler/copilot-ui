@@ -490,6 +490,15 @@ const electronAPI = {
     restartApp: (): Promise<{ success: boolean }> => {
       return ipcRenderer.invoke('updates:restartApp')
     }
+  },
+  // Welcome wizard
+  wizard: {
+    hasSeenWelcome: (): Promise<{ hasSeen: boolean }> => {
+      return ipcRenderer.invoke('wizard:hasSeenWelcome')
+    },
+    markWelcomeAsSeen: (): Promise<{ success: boolean }> => {
+      return ipcRenderer.invoke('wizard:markWelcomeAsSeen')
+    }
   }
 }
 
