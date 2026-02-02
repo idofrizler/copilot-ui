@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from "react";
+import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import logo from "./assets/logo.png";
@@ -88,6 +88,11 @@ import { LONG_OUTPUT_LINE_THRESHOLD } from "./utils/cliOutputCompression";
 import { isAsciiDiagram, extractTextContent } from "./utils/isAsciiDiagram";
 import { useClickOutside } from "./hooks";
 import buildInfo from "./build-info.json";
+
+// Helper function to deduplicate and filter edited files
+const getCleanEditedFiles = (files: string[]): string[] => {
+  return Array.from(new Set(files.filter(f => f?.trim())));
+};
 
 const enrichSessionsWithWorktreeData = async (sessions: PreviousSession[]): Promise<PreviousSession[]> => {
   try {
@@ -2973,6 +2978,30 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
   const [isGeneratingMessage, setIsGeneratingMessage] = useState(false);
 
+  const handleToggleEditedFiles = async () => {
+    const newShowState = !showEditedFiles;
+    setShowEditedFiles(newShowState);
+    
+    // When expanding, refresh the edited files list
+    if (newShowState && activeTab) {
+      try {
+        const changedResult = await window.electronAPI.git.getChangedFiles(
+          activeTab.cwd,
+          activeTab.editedFiles,
+          true, // includeAll: get all changed files
+        );
+        
+        if (changedResult.success) {
+          // Deduplicate and filter out empty filenames
+          const uniqueFiles = getCleanEditedFiles(changedResult.files);
+          updateTab(activeTab.id, { editedFiles: uniqueFiles });
+        }
+      } catch (error) {
+        console.error("Failed to refresh edited files:", error);
+      }
+    }
+  };
+
   const handleOpenCommitModal = async () => {
     if (!activeTab) return;
 
@@ -3766,6 +3795,11 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       setStatus("connected");
     }
   };
+
+  // Memoize cleaned edited files for the active tab
+  const cleanedEditedFiles = useMemo(() => {
+    return activeTab ? getCleanEditedFiles(activeTab.editedFiles) : [];
+  }, [activeTab]);
 
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-copilot-bg rounded-xl">
@@ -5405,7 +5439,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               <div className="border-b border-copilot-surface">
                 <div className="flex items-center">
                   <button
-                    onClick={() => setShowEditedFiles(!showEditedFiles)}
+                    onClick={handleToggleEditedFiles}
                     className="flex-1 flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
                   >
                     <ChevronRightIcon
@@ -5413,9 +5447,9 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       className={`transition-transform ${showEditedFiles ? "rotate-90" : ""}`}
                     />
                     <span>Edited Files</span>
-                    {(activeTab?.editedFiles.length || 0) > 0 && (
+                    {cleanedEditedFiles.length > 0 && (
                       <span className="text-copilot-accent">
-                        ({activeTab?.editedFiles.length})
+                        ({cleanedEditedFiles.length})
                       </span>
                     )}
                   </button>
@@ -5435,7 +5469,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                         No files edited
                       </div>
                     ) : (
-                      activeTab.editedFiles.map((filePath) => {
+                      cleanedEditedFiles.map((filePath) => {
                         const isConflicted = conflictedFiles.some(cf => filePath.endsWith(cf) || cf.endsWith(filePath.split(/[/\\]/).pop() || ''));
                         return (
                           <button
