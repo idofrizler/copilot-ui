@@ -43,6 +43,7 @@ import {
   SessionHistory,
   FilePreviewModal,
   UpdateAvailableModal,
+  WelcomeWizard,
   ReleaseNotesModal,
   SearchableBranchSelect,
   CodeBlockWithCopy,
@@ -681,6 +682,9 @@ const App: React.FC = () => {
     downloadUrl: string;
   } | null>(null);
   const [showReleaseNotesModal, setShowReleaseNotesModal] = useState(false);
+  
+  // Welcome wizard state
+  const [showWelcomeWizard, setShowWelcomeWizard] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -777,6 +781,23 @@ const App: React.FC = () => {
     // Delay the check slightly to not block initial render
     const timer = setTimeout(checkUpdatesAndReleaseNotes, 2000);
     return () => clearTimeout(timer);
+  }, []);
+
+  // Check if user has seen welcome wizard on startup
+  useEffect(() => {
+    const checkWelcomeWizard = async () => {
+      try {
+        const { hasSeen } = await window.electronAPI.wizard.hasSeenWelcome();
+        if (!hasSeen) {
+          // Show wizard after a short delay to let the app initialize
+          setTimeout(() => setShowWelcomeWizard(true), 1000);
+        }
+      } catch (error) {
+        console.error('Failed to check welcome wizard status:', error);
+      }
+    };
+
+    checkWelcomeWizard();
   }, []);
 
   // Focus input when active tab changes
@@ -6321,6 +6342,19 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         }}
         version={buildInfo.baseVersion}
         releaseNotes={buildInfo.releaseNotes || ''}
+      />
+
+      {/* Welcome Wizard */}
+      <WelcomeWizard
+        isOpen={showWelcomeWizard}
+        onClose={() => setShowWelcomeWizard(false)}
+        onComplete={async () => {
+          try {
+            await window.electronAPI.wizard.markWelcomeAsSeen();
+          } catch (error) {
+            console.error('Failed to mark welcome wizard as seen:', error);
+          }
+        }}
       />
     </div>
   );

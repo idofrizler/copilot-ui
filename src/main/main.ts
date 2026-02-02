@@ -166,6 +166,7 @@ const store = new Store({
     theme: 'system' as string,  // Theme preference: 'system', 'light', 'dark', or custom theme id
     sessionCwds: {} as Record<string, string>,  // Persistent map of sessionId -> cwd (survives session close)
     globalSafeCommands: [] as string[],  // Globally safe commands that are auto-approved for all sessions
+    hasSeenWelcomeWizard: false as boolean,  // Whether user has completed the welcome wizard
     // URL allowlist - domains that are auto-approved for web_fetch (similar to --allow-url in Copilot CLI)
     allowedUrls: [
       'github.com',
@@ -3604,6 +3605,16 @@ ipcMain.handle('updates:restartApp', async () => {
   // Relaunch the app and quit the current instance
   app.relaunch()
   app.quit()
+  return { success: true }
+})
+
+// Welcome wizard handlers
+ipcMain.handle('wizard:hasSeenWelcome', async () => {
+  return { hasSeen: store.get('hasSeenWelcomeWizard', false) as boolean }
+})
+
+ipcMain.handle('wizard:markWelcomeAsSeen', async () => {
+  store.set('hasSeenWelcomeWizard', true)
   return { success: true }
 })
 
