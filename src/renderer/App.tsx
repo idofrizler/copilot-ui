@@ -590,6 +590,11 @@ const App: React.FC = () => {
   }, []);
   useClickOutside(allowDropdownRef, closeAllowDropdown, showAllowDropdown);
 
+  // Helper function to deduplicate and filter edited files
+  const getCleanEditedFiles = useCallback((files: string[]): string[] => {
+    return Array.from(new Set(files.filter(f => f && f.trim() !== '')));
+  }, []);
+
   // Theme context
   const {
     themePreference,
@@ -2899,7 +2904,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         
         if (changedResult.success) {
           // Deduplicate and filter out empty filenames
-          const uniqueFiles = Array.from(new Set(changedResult.files.filter(file => file && file.trim() !== '')));
+          const uniqueFiles = getCleanEditedFiles(changedResult.files);
           updateTab(activeTab.id, { editedFiles: uniqueFiles });
         }
       } catch (error) {
@@ -5349,10 +5354,10 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     />
                     <span>Edited Files</span>
                     {(() => {
-                      const filteredCount = activeTab?.editedFiles.filter(f => f && f.trim() !== '').length || 0;
-                      return filteredCount > 0 && (
+                      const cleanFiles = getCleanEditedFiles(activeTab?.editedFiles || []);
+                      return cleanFiles.length > 0 && (
                         <span className="text-copilot-accent">
-                          ({Array.from(new Set(activeTab?.editedFiles.filter(f => f && f.trim() !== ''))).length})
+                          ({cleanFiles.length})
                         </span>
                       );
                     })()}
@@ -5373,7 +5378,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                         No files edited
                       </div>
                     ) : (
-                      Array.from(new Set(activeTab.editedFiles.filter(f => f && f.trim() !== ''))).map((filePath) => {
+                      getCleanEditedFiles(activeTab.editedFiles).map((filePath) => {
                         const isConflicted = conflictedFiles.some(cf => filePath.endsWith(cf) || cf.endsWith(filePath.split(/[/\\]/).pop() || ''));
                         return (
                           <button
