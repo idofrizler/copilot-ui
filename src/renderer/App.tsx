@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from "react";
+import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import logo from "./assets/logo.png";
@@ -43,6 +43,7 @@ import {
   SessionHistory,
   FilePreviewModal,
   UpdateAvailableModal,
+  WelcomeWizard,
   ReleaseNotesModal,
   SearchableBranchSelect,
   CodeBlockWithCopy,
@@ -87,6 +88,11 @@ import { LONG_OUTPUT_LINE_THRESHOLD } from "./utils/cliOutputCompression";
 import { isAsciiDiagram, extractTextContent } from "./utils/isAsciiDiagram";
 import { useClickOutside } from "./hooks";
 import buildInfo from "./build-info.json";
+
+// Helper function to deduplicate and filter edited files
+const getCleanEditedFiles = (files: string[]): string[] => {
+  return Array.from(new Set(files.filter(f => f?.trim())));
+};
 
 const enrichSessionsWithWorktreeData = async (sessions: PreviousSession[]): Promise<PreviousSession[]> => {
   try {
@@ -681,6 +687,9 @@ const App: React.FC = () => {
     downloadUrl: string;
   } | null>(null);
   const [showReleaseNotesModal, setShowReleaseNotesModal] = useState(false);
+  
+  // Welcome wizard state
+  const [showWelcomeWizard, setShowWelcomeWizard] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -777,6 +786,23 @@ const App: React.FC = () => {
     // Delay the check slightly to not block initial render
     const timer = setTimeout(checkUpdatesAndReleaseNotes, 2000);
     return () => clearTimeout(timer);
+  }, []);
+
+  // Check if user has seen welcome wizard on startup
+  useEffect(() => {
+    const checkWelcomeWizard = async () => {
+      try {
+        const { hasSeen } = await window.electronAPI.wizard.hasSeenWelcome();
+        if (!hasSeen) {
+          // Show wizard after a short delay to let the app initialize
+          setTimeout(() => setShowWelcomeWizard(true), 1000);
+        }
+      } catch (error) {
+        console.error('Failed to check welcome wizard status:', error);
+      }
+    };
+
+    checkWelcomeWizard();
   }, []);
 
   // Focus input when active tab changes
@@ -1867,6 +1893,74 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
     if (!inputValue.trim() && !terminalAttachment && imageAttachments.length === 0 && fileAttachments.length === 0) return;
     if (!activeTab) return;
 
+    // If there are pending confirmations, automatically deny them when sending a new message
+    // Note: Only the first confirmation is denied (confirmations are processed sequentially)
+    // This matches the behavior of handleConfirmation which also processes one at a time
+    if (activeTab.pendingConfirmations.length > 0) {
+      const pendingConfirmation = activeTab.pendingConfirmations[0];
+      
+      // Deny the pending confirmation
+      try {
+        await window.electronAPI.copilot.respondPermission({
+          requestId: pendingConfirmation.requestId,
+          decision: "denied",
+        });
+      } catch (error) {
+        console.error("Error denying pending confirmation:", error);
+      }
+
+      // Remove this confirmation from the queue
+      const remainingConfirmations = activeTab.pendingConfirmations.slice(1);
+
+      // Add a system message showing what was denied
+      let deniedContent = "🚫 **Denied:** ";
+      if (pendingConfirmation.kind === "command" || pendingConfirmation.kind === "bash") {
+        deniedContent += `Command execution`;
+        if (pendingConfirmation.fullCommandText) {
+          deniedContent += `\n\`\`\`\n${pendingConfirmation.fullCommandText}\n\`\`\``;
+        } else if (pendingConfirmation.executable) {
+          deniedContent += ` \`${pendingConfirmation.executable}\``;
+        }
+      } else if (pendingConfirmation.kind === "mcp") {
+        deniedContent += `MCP tool \`${pendingConfirmation.toolName || pendingConfirmation.toolTitle || "unknown"}\``;
+        if (pendingConfirmation.serverName) {
+          deniedContent += ` from server \`${pendingConfirmation.serverName}\``;
+        }
+      } else if (pendingConfirmation.kind === "url") {
+        deniedContent += `URL fetch`;
+        if (pendingConfirmation.url) {
+          deniedContent += `: ${pendingConfirmation.url}`;
+        }
+      } else if (pendingConfirmation.kind === "write" || pendingConfirmation.kind === "edit") {
+        deniedContent += `File ${pendingConfirmation.kind}`;
+        if (pendingConfirmation.path) {
+          deniedContent += `: \`${pendingConfirmation.path}\``;
+        }
+      } else if (pendingConfirmation.kind === "read") {
+        deniedContent += `File read`;
+        if (pendingConfirmation.path) {
+          deniedContent += `: \`${pendingConfirmation.path}\``;
+        }
+      } else {
+        deniedContent += `${pendingConfirmation.kind}`;
+        if (pendingConfirmation.path) {
+          deniedContent += `: \`${pendingConfirmation.path}\``;
+        }
+      }
+
+      const deniedMessage: Message = {
+        id: generateId(),
+        role: "system",
+        content: deniedContent,
+        timestamp: Date.now(),
+      };
+
+      updateTab(activeTab.id, {
+        pendingConfirmations: remainingConfirmations,
+        messages: [...activeTab.messages, deniedMessage],
+      });
+    }
+
     // Build message content with terminal attachment if present
     let messageContent = inputValue.trim();
     if (terminalAttachment) {
@@ -2884,6 +2978,30 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
   const [isGeneratingMessage, setIsGeneratingMessage] = useState(false);
 
+  const handleToggleEditedFiles = async () => {
+    const newShowState = !showEditedFiles;
+    setShowEditedFiles(newShowState);
+    
+    // When expanding, refresh the edited files list
+    if (newShowState && activeTab) {
+      try {
+        const changedResult = await window.electronAPI.git.getChangedFiles(
+          activeTab.cwd,
+          activeTab.editedFiles,
+          true, // includeAll: get all changed files
+        );
+        
+        if (changedResult.success) {
+          // Deduplicate and filter out empty filenames
+          const uniqueFiles = getCleanEditedFiles(changedResult.files);
+          updateTab(activeTab.id, { editedFiles: uniqueFiles });
+        }
+      } catch (error) {
+        console.error("Failed to refresh edited files:", error);
+      }
+    }
+  };
+
   const handleOpenCommitModal = async () => {
     if (!activeTab) return;
 
@@ -3677,6 +3795,11 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       setStatus("connected");
     }
   };
+
+  // Memoize cleaned edited files for the active tab
+  const cleanedEditedFiles = useMemo(() => {
+    return activeTab ? getCleanEditedFiles(activeTab.editedFiles) : [];
+  }, [activeTab]);
 
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-copilot-bg rounded-xl">
@@ -5316,7 +5439,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               <div className="border-b border-copilot-surface">
                 <div className="flex items-center">
                   <button
-                    onClick={() => setShowEditedFiles(!showEditedFiles)}
+                    onClick={handleToggleEditedFiles}
                     className="flex-1 flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
                   >
                     <ChevronRightIcon
@@ -5324,9 +5447,9 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       className={`transition-transform ${showEditedFiles ? "rotate-90" : ""}`}
                     />
                     <span>Edited Files</span>
-                    {(activeTab?.editedFiles.length || 0) > 0 && (
+                    {cleanedEditedFiles.length > 0 && (
                       <span className="text-copilot-accent">
-                        ({activeTab?.editedFiles.length})
+                        ({cleanedEditedFiles.length})
                       </span>
                     )}
                   </button>
@@ -5346,7 +5469,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                         No files edited
                       </div>
                     ) : (
-                      activeTab.editedFiles.map((filePath) => {
+                      cleanedEditedFiles.map((filePath) => {
                         const isConflicted = conflictedFiles.some(cf => filePath.endsWith(cf) || cf.endsWith(filePath.split(/[/\\]/).pop() || ''));
                         return (
                           <button
@@ -5745,15 +5868,25 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       Files to commit ({activeTab.editedFiles.length}):
                     </div>
                     <div className="bg-copilot-bg rounded border border-copilot-surface max-h-32 overflow-y-auto">
-                      {activeTab.editedFiles.map((filePath) => (
-                        <div
-                          key={filePath}
-                          className="px-3 py-1.5 text-xs text-copilot-success font-mono truncate"
-                          title={filePath}
-                        >
-                          {filePath}
-                        </div>
-                      ))}
+                      {activeTab.editedFiles.map((filePath) => {
+                        const fileName = filePath.split(/[/\\]/).pop() || '';
+                        const isConflicted = conflictedFiles.some(cf => filePath.endsWith(cf) || cf.endsWith(fileName));
+                        return (
+                          <button
+                            key={filePath}
+                            onClick={() => setFilePreviewPath(filePath)}
+                            className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs font-mono truncate text-left hover:bg-copilot-surface transition-colors ${isConflicted ? 'text-copilot-error' : 'text-copilot-success'}`}
+                            title={isConflicted ? `${filePath} (conflict) - Click to preview diff` : `${filePath} - Click to preview diff`}
+                          >
+                            <FileIcon
+                              size={10}
+                              className={`shrink-0 ${isConflicted ? 'text-copilot-error' : 'text-copilot-success'}`}
+                            />
+                            <span className="truncate">{filePath}</span>
+                            {isConflicted && <span className="text-[10px] text-copilot-error ml-auto">!</span>}
+                          </button>
+                        );
+                      })}
                     </div>
                   </>
                 ) : (
@@ -6294,6 +6427,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         isOpen={!!filePreviewPath}
         onClose={() => setFilePreviewPath(null)}
         filePath={filePreviewPath || ''}
+        cwd={activeTab?.cwd}
       />
 
       {/* Update Available Modal */}
@@ -6321,6 +6455,19 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         }}
         version={buildInfo.baseVersion}
         releaseNotes={buildInfo.releaseNotes || ''}
+      />
+
+      {/* Welcome Wizard */}
+      <WelcomeWizard
+        isOpen={showWelcomeWizard}
+        onClose={() => setShowWelcomeWizard(false)}
+        onComplete={async () => {
+          try {
+            await window.electronAPI.wizard.markWelcomeAsSeen();
+          } catch (error) {
+            console.error('Failed to mark welcome wizard as seen:', error);
+          }
+        }}
       />
     </div>
   );
