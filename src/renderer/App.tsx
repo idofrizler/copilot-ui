@@ -5868,15 +5868,25 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       Files to commit ({activeTab.editedFiles.length}):
                     </div>
                     <div className="bg-copilot-bg rounded border border-copilot-surface max-h-32 overflow-y-auto">
-                      {activeTab.editedFiles.map((filePath) => (
-                        <div
-                          key={filePath}
-                          className="px-3 py-1.5 text-xs text-copilot-success font-mono truncate"
-                          title={filePath}
-                        >
-                          {filePath}
-                        </div>
-                      ))}
+                      {activeTab.editedFiles.map((filePath) => {
+                        const fileName = filePath.split(/[/\\]/).pop() || '';
+                        const isConflicted = conflictedFiles.some(cf => filePath.endsWith(cf) || cf.endsWith(fileName));
+                        return (
+                          <button
+                            key={filePath}
+                            onClick={() => setFilePreviewPath(filePath)}
+                            className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs font-mono truncate text-left hover:bg-copilot-surface transition-colors ${isConflicted ? 'text-copilot-error' : 'text-copilot-success'}`}
+                            title={isConflicted ? `${filePath} (conflict) - Click to preview diff` : `${filePath} - Click to preview diff`}
+                          >
+                            <FileIcon
+                              size={10}
+                              className={`shrink-0 ${isConflicted ? 'text-copilot-error' : 'text-copilot-success'}`}
+                            />
+                            <span className="truncate">{filePath}</span>
+                            {isConflicted && <span className="text-[10px] text-copilot-error ml-auto">!</span>}
+                          </button>
+                        );
+                      })}
                     </div>
                   </>
                 ) : (
@@ -6417,6 +6427,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         isOpen={!!filePreviewPath}
         onClose={() => setFilePreviewPath(null)}
         filePath={filePreviewPath || ''}
+        cwd={activeTab?.cwd}
       />
 
       {/* Update Available Modal */}
