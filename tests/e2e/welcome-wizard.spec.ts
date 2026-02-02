@@ -41,13 +41,16 @@ test.describe('Issue #128 - Welcome Wizard', () => {
     // Check if wizard is visible
     const isVisible = await wizardModal.isVisible({ timeout: 5000 }).catch(() => false)
     
+    await window.screenshot({ path: path.join(screenshotsDir, 'welcome-wizard-01-initial.png') })
+    
+    // Verify that either wizard is visible or we can detect it's been seen
+    // (can't make this a strict requirement as it depends on electron-store state)
     if (isVisible) {
-      await window.screenshot({ path: path.join(screenshotsDir, 'welcome-wizard-01-initial.png') })
-      expect(true).toBe(true)
-    } else {
-      console.log('Welcome wizard not visible (may have been seen before)')
-      expect(true).toBe(true)
+      // If visible, verify it has the expected title
+      const title = await wizardModal.locator('h3').first().textContent()
+      expect(title).toContain('Welcome to Copilot Skins')
     }
+    expect(true).toBe(true)
   })
 
   test('02 - Navigate through wizard steps', async () => {
@@ -60,10 +63,18 @@ test.describe('Issue #128 - Welcome Wizard', () => {
       const nextButtonVisible = await nextButton.isVisible({ timeout: 1000 }).catch(() => false)
       
       if (nextButtonVisible) {
+        // Get initial step content
+        const initialContent = await wizardModal.locator('h3').first().textContent()
+        
         // Click through a few steps
         for (let i = 0; i < 3; i++) {
           await nextButton.click()
           await window.waitForTimeout(500)
+          
+          // Verify content changed
+          const newContent = await wizardModal.locator('h3').first().textContent()
+          expect(newContent).not.toBe(initialContent)
+          
           await window.screenshot({ 
             path: path.join(screenshotsDir, `welcome-wizard-02-step-${i + 2}.png`) 
           })
@@ -78,6 +89,9 @@ test.describe('Issue #128 - Welcome Wizard', () => {
     const isVisible = await wizardModal.isVisible({ timeout: 2000 }).catch(() => false)
     
     if (isVisible) {
+      // Get current step content before clicking Previous
+      const beforeContent = await wizardModal.locator('h3').first().textContent()
+      
       // Look for Previous button
       const previousButton = wizardModal.locator('button:has-text("Previous")')
       const previousButtonVisible = await previousButton.isVisible({ timeout: 1000 }).catch(() => false)
@@ -85,6 +99,11 @@ test.describe('Issue #128 - Welcome Wizard', () => {
       if (previousButtonVisible) {
         await previousButton.click()
         await window.waitForTimeout(500)
+        
+        // Verify we moved to a different step
+        const afterContent = await wizardModal.locator('h3').first().textContent()
+        expect(afterContent).not.toBe(beforeContent)
+        
         await window.screenshot({ 
           path: path.join(screenshotsDir, 'welcome-wizard-03-previous.png') 
         })
