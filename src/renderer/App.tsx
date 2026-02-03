@@ -50,6 +50,7 @@ import {
   SearchableBranchSelect,
   CodeBlockWithCopy,
   RepeatIcon,
+  WarningIcon,
 } from "./components";
 import {
   Status,
@@ -573,6 +574,7 @@ const App: React.FC = () => {
   const [addCommandValue, setAddCommandValue] = useState("");
   const [showEditedFiles, setShowEditedFiles] = useState(false);
   const [filePreviewPath, setFilePreviewPath] = useState<string | null>(null);
+  const [isGitRepo, setIsGitRepo] = useState<boolean>(true);
   const [showCommitModal, setShowCommitModal] = useState(false);
   const [commitMessage, setCommitMessage] = useState("");
   const [isCommitting, setIsCommitting] = useState(false);
@@ -3103,25 +3105,75 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     const newShowState = !showEditedFiles;
     setShowEditedFiles(newShowState);
     
-    // When expanding, refresh the edited files list
+    // When expanding, refresh the edited files list and check if in git repo
     if (newShowState && activeTab) {
       try {
-        const changedResult = await window.electronAPI.git.getChangedFiles(
-          activeTab.cwd,
-          activeTab.editedFiles,
-          true, // includeAll: get all changed files
-        );
+        // Check if we're in a git repo
+        const repoCheck = await window.electronAPI.git.isGitRepo(activeTab.cwd);
+        setIsGitRepo(repoCheck.isGitRepo);
         
-        if (changedResult.success) {
-          // Deduplicate and filter out empty filenames
-          const uniqueFiles = getCleanEditedFiles(changedResult.files);
-          updateTab(activeTab.id, { editedFiles: uniqueFiles });
+        if (repoCheck.isGitRepo) {
+          const changedResult = await window.electronAPI.git.getChangedFiles(
+            activeTab.cwd,
+            activeTab.editedFiles,
+            true, // includeAll: get all changed files
+          );
+          
+          if (changedResult.success) {
+            // Deduplicate and filter out empty filenames
+            const uniqueFiles = getCleanEditedFiles(changedResult.files);
+            updateTab(activeTab.id, { editedFiles: uniqueFiles });
+          }
         }
       } catch (error) {
         console.error("Failed to refresh edited files:", error);
       }
     }
   };
+
+  // Auto-refresh edited files every 1 minute when expanded and in a git repo
+  useEffect(() => {
+    if (!showEditedFiles || !activeTab || !isGitRepo) return;
+    
+    const refreshEditedFiles = async () => {
+      try {
+        const changedResult = await window.electronAPI.git.getChangedFiles(
+          activeTab.cwd,
+          activeTab.editedFiles,
+          true,
+        );
+        
+        if (changedResult.success) {
+          const uniqueFiles = getCleanEditedFiles(changedResult.files);
+          updateTab(activeTab.id, { editedFiles: uniqueFiles });
+        }
+      } catch (error) {
+        console.error("Auto-refresh edited files failed:", error);
+      }
+    };
+    
+    const intervalId = setInterval(refreshEditedFiles, 60000); // 1 minute
+    
+    return () => clearInterval(intervalId);
+  }, [showEditedFiles, activeTab?.id, activeTab?.cwd, isGitRepo]);
+
+  // Check if current directory is a git repo when active tab changes
+  useEffect(() => {
+    const checkGitRepo = async () => {
+      if (!activeTab?.cwd) {
+        setIsGitRepo(true); // Default to true if no cwd
+        return;
+      }
+      try {
+        const result = await window.electronAPI.git.isGitRepo(activeTab.cwd);
+        setIsGitRepo(result.isGitRepo);
+      } catch (error) {
+        console.error("Failed to check git repo:", error);
+        setIsGitRepo(false);
+      }
+    };
+    checkGitRepo();
+  }, [activeTab?.cwd]);
 
   const handleOpenCommitModal = async () => {
     if (!activeTab) return;
@@ -5599,15 +5651,25 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                         ({cleanedEditedFiles.length})
                       </span>
                     )}
+                    {showEditedFiles && !isGitRepo && (
+                      <span 
+                        className="text-copilot-warning"
+                        title="Not in a Git repository. File list is based on manual tracking of files touched in this session."
+                      >
+                        <WarningIcon size={10} />
+                      </span>
+                    )}
                   </button>
-                  <IconButton
-                    icon={<CommitIcon size={12} />}
-                    onClick={handleOpenCommitModal}
-                    variant="accent"
-                    size="sm"
-                    title="Commit and push"
-                    className="mr-1"
-                  />
+                  {isGitRepo && (
+                    <IconButton
+                      icon={<CommitIcon size={12} />}
+                      onClick={handleOpenCommitModal}
+                      variant="accent"
+                      size="sm"
+                      title="Commit and push"
+                      className="mr-1"
+                    />
+                  )}
                 </div>
                 {showEditedFiles && activeTab && (
                   <div className="max-h-32 overflow-y-auto" data-clarity-mask="true">
@@ -5617,7 +5679,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       </div>
                     ) : (
                       cleanedEditedFiles.map((filePath) => {
-                        const isConflicted = conflictedFiles.some(cf => filePath.endsWith(cf) || cf.endsWith(filePath.split(/[/\\]/).pop() || ''));
+                        const isConflicted = isGitRepo && conflictedFiles.some(cf => filePath.endsWith(cf) || cf.endsWith(filePath.split(/[/\\]/).pop() || ''));
                         return (
                           <button
                             key={filePath}
@@ -5630,7 +5692,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                               className={`shrink-0 ${isConflicted ? 'text-copilot-error' : 'text-copilot-success'}`}
                             />
                             <span className="truncate font-mono">
-                              {filePath.split(/[/\\]/).pop()}
+                              {filePath}
                             </span>
                             {isConflicted && <span className="text-[8px] text-copilot-error">!</span>}
                           </button>
@@ -6580,6 +6642,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         onClose={() => setFilePreviewPath(null)}
         filePath={filePreviewPath || ''}
         cwd={activeTab?.cwd}
+        isGitRepo={isGitRepo}
       />
 
       {/* Update Available Modal */}

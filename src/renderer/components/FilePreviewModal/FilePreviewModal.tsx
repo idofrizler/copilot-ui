@@ -7,6 +7,7 @@ export interface FilePreviewModalProps {
   onClose: () => void
   filePath: string
   cwd?: string
+  isGitRepo?: boolean
 }
 
 interface FileContent {
@@ -33,59 +34,76 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   onClose,
   filePath,
   cwd,
+  isGitRepo = true,
 }) => {
   const [loading, setLoading] = useState(true)
   const [fileDiff, setFileDiff] = useState<FileDiff | null>(null)
+  const [fileContent, setFileContent] = useState<FileContent | null>(null)
 
   const loadFileContent = useCallback(async () => {
     if (!filePath || !cwd) return
     
     setLoading(true)
     try {
-      // Get the diff for this file
-      const result = await window.electronAPI.git.getDiff(cwd, [filePath])
-      
-      if (result.success && result.diff) {
-        // Parse the diff to extract metadata
-        const diffLines = result.diff.split('\n')
-        let linesAdded = 0
-        let linesRemoved = 0
-        let isNew = false
+      if (isGitRepo) {
+        // Get the diff for this file
+        const result = await window.electronAPI.git.getDiff(cwd, [filePath])
         
-        // Check if it's a new file or modified file
-        for (const line of diffLines) {
-          if (line.startsWith('new file mode')) {
-            isNew = true
-          } else if (line.startsWith('+') && !line.startsWith('+++')) {
-            linesAdded++
-          } else if (line.startsWith('-') && !line.startsWith('---')) {
-            linesRemoved++
+        if (result.success && result.diff) {
+          // Parse the diff to extract metadata
+          const diffLines = result.diff.split('\n')
+          let linesAdded = 0
+          let linesRemoved = 0
+          let isNew = false
+          
+          // Check if it's a new file or modified file
+          for (const line of diffLines) {
+            if (line.startsWith('new file mode')) {
+              isNew = true
+            } else if (line.startsWith('+') && !line.startsWith('+++')) {
+              linesAdded++
+            } else if (line.startsWith('-') && !line.startsWith('---')) {
+              linesRemoved++
+            }
           }
+          
+          setFileDiff({
+            success: true,
+            diff: result.diff,
+            isNew,
+            isModified: !isNew && (linesAdded > 0 || linesRemoved > 0),
+            linesAdded,
+            linesRemoved,
+          })
+          setFileContent(null)
+        } else {
+          setFileDiff({
+            success: false,
+            error: result.error || 'Failed to load diff',
+          })
         }
-        
-        setFileDiff({
-          success: true,
-          diff: result.diff,
-          isNew,
-          isModified: !isNew && (linesAdded > 0 || linesRemoved > 0),
-          linesAdded,
-          linesRemoved,
-        })
       } else {
-        setFileDiff({
-          success: false,
-          error: result.error || 'Failed to load diff',
-        })
+        // Not in a git repo, load file content directly
+        const result = await window.electronAPI.file.readContent(filePath)
+        setFileContent(result)
+        setFileDiff(null)
       }
     } catch (error) {
-      setFileDiff({
-        success: false,
-        error: `Failed to load file diff: ${String(error)}`,
-      })
+      if (isGitRepo) {
+        setFileDiff({
+          success: false,
+          error: `Failed to load file diff: ${String(error)}`,
+        })
+      } else {
+        setFileContent({
+          success: false,
+          error: `Failed to load file content: ${String(error)}`,
+        })
+      }
     } finally {
       setLoading(false)
     }
-  }, [filePath, cwd])
+  }, [filePath, cwd, isGitRepo])
 
   useEffect(() => {
     if (isOpen && filePath) {
@@ -172,6 +190,11 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
               <h3 id="file-preview-title" className="text-sm font-medium text-copilot-text truncate">
                 {fileName}
               </h3>
+              {!isGitRepo && (
+                <span className="px-1.5 py-0.5 text-[9px] font-semibold bg-copilot-text-muted/20 text-copilot-text-muted rounded">
+                  FILE CONTENT
+                </span>
+              )}
               {fileDiff?.isNew && (
                 <span className="px-1.5 py-0.5 text-[9px] font-semibold bg-green-500/20 text-green-400 rounded">
                   ADDED
@@ -227,13 +250,17 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
             <div className="text-xs leading-relaxed">
               {renderDiff(fileDiff.diff)}
             </div>
+          ) : fileContent?.success && fileContent?.content !== undefined ? (
+            <pre className="font-mono text-[11px] leading-relaxed text-copilot-text whitespace-pre-wrap break-words">
+              {fileContent.content}
+            </pre>
           ) : (
             <div className="flex flex-col items-center justify-center h-32 text-center">
               <p className="text-copilot-text-muted text-sm mb-2">
-                ⚠️ Error loading diff
+                ⚠️ {isGitRepo ? 'Error loading diff' : 'Error loading file'}
               </p>
               <p className="text-copilot-text-muted text-xs">
-                {fileDiff?.error || 'Unknown error'}
+                {fileDiff?.error || fileContent?.error || 'Unknown error'}
               </p>
             </div>
           )}

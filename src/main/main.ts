@@ -2393,6 +2393,18 @@ ipcMain.handle('git:getWorkingStatus', async (_event, cwd: string) => {
   }
 })
 
+// Git operations - check if directory is a git repository
+ipcMain.handle('git:isGitRepo', async (_event, cwd: string) => {
+  try {
+    const gitDir = join(cwd, '.git')
+    const isRepo = existsSync(gitDir)
+    return { success: true, isGitRepo: isRepo }
+  } catch (error) {
+    console.error('Git repo check failed:', error)
+    return { success: false, isGitRepo: false, error: String(error) }
+  }
+})
+
 // Git operations - get current branch
 ipcMain.handle('git:getBranch', async (_event, cwd: string) => {
   try {

@@ -208,6 +208,9 @@ const electronAPI = {
 
   // Git operations
   git: {
+    isGitRepo: (cwd: string): Promise<{ success: boolean; isGitRepo: boolean; error?: string }> => {
+      return ipcRenderer.invoke('git:isGitRepo', cwd)
+    },
     getChangedFiles: (cwd: string, files: string[], includeAll?: boolean): Promise<{ success: boolean; files: string[]; error?: string }> => {
       return ipcRenderer.invoke('git:getChangedFiles', { cwd, files, includeAll })
     },
