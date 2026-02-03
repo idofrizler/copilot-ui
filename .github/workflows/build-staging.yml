@@ -30,22 +30,20 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: npm
 
-      # Cache the compiled node-pty native module to speed up Windows builds
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: npm ci --ignore-scripts && npx patch-package
+
+      # Cache must be AFTER npm ci (which deletes node_modules)
       - name: Cache node-pty build (Windows)
         if: runner.os == 'Windows'
         id: cache-node-pty
         uses: actions/cache@v4
         with:
-          path: |
-            node_modules/node-pty/build
-            node_modules/node-pty/prebuilds
-          key: node-pty-${{ runner.os }}-node${{ matrix.node-version }}-${{ hashFiles('package-lock.json') }}
+          path: node_modules/node-pty/build
+          key: node-pty-${{ runner.os }}-node${{ matrix.node-version }}-electron-${{ hashFiles('package-lock.json') }}
           restore-keys: |
-            node-pty-${{ runner.os }}-node${{ matrix.node-version }}-
-
-      - name: Install dependencies (Windows)
-        if: runner.os == 'Windows'
-        run: npm ci --ignore-scripts && npx patch-package
+            node-pty-${{ runner.os }}-node${{ matrix.node-version }}-electron-
 
       - name: Rebuild node-pty (Windows, cache miss)
         if: runner.os == 'Windows' && steps.cache-node-pty.outputs.cache-hit != 'true'
