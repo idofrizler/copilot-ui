@@ -797,6 +797,7 @@ const App: React.FC = () => {
     const checkWelcomeWizard = async () => {
       try {
         const { hasSeen } = await window.electronAPI.wizard.hasSeenWelcome();
+        console.log('Welcome wizard check:', { hasSeen });
         if (!hasSeen) {
           // Mark that we should show wizard once data is loaded
           setShouldShowWizardWhenReady(true);
@@ -811,9 +812,13 @@ const App: React.FC = () => {
 
   // Show wizard once data is loaded and we should show it
   useEffect(() => {
+    console.log('Wizard show check:', { shouldShowWizardWhenReady, dataLoaded });
     if (shouldShowWizardWhenReady && dataLoaded) {
       // Small delay to ensure UI has rendered
-      const timer = setTimeout(() => setShowWelcomeWizard(true), 300);
+      const timer = setTimeout(() => {
+        console.log('Showing welcome wizard');
+        setShowWelcomeWizard(true);
+      }, 300);
       return () => clearTimeout(timer);
     }
   }, [shouldShowWizardWhenReady, dataLoaded]);
