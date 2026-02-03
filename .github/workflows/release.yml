@@ -68,7 +68,7 @@ jobs:
           
           IFS='.' read -r major minor patch <<< "$current_version"
           
-          bump_type="${{ github.event.inputs.version_bump || 'minor' }}"
+          bump_type="${{ github.event.inputs.version_bump || 'patch' }}"
           
           case $bump_type in
             major)
