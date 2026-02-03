@@ -1,6 +1,6 @@
 {
   "name": "copilot-skins",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "description": "A beautiful native desktop GUI for GitHub Copilot",
   "main": "./out/main/index.js",
   "author": "Ido Frizler",
