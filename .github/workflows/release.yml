@@ -20,6 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       should_release: ${{ steps.check.outputs.should_release }}
+      tag_exists: ${{ steps.version.outputs.tag_exists }}
       version: ${{ steps.version.outputs.version }}
 
     steps:
@@ -50,7 +51,7 @@ jobs:
         with:
           node-version: 22
 
-      - name: Get current version
+      - name: Get current version and check tag
         id: version
         run: |
           version=$(node -p "require('./package.json').version")
@@ -60,12 +61,14 @@ jobs:
           # Check if tag already exists
           if git rev-parse "v$version" >/dev/null 2>&1; then
             echo "⚠️ Tag v$version already exists - skipping release"
-            echo "should_release=false" >> $GITHUB_OUTPUT
+            echo "tag_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "tag_exists=false" >> $GITHUB_OUTPUT
           fi
 
   test:
     needs: validate
-    if: needs.validate.outputs.should_release == 'true'
+    if: needs.validate.outputs.should_release == 'true' && needs.validate.outputs.tag_exists != 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -97,7 +100,7 @@ jobs:
 
   release:
     needs: [validate, test]
-    if: needs.validate.outputs.should_release == 'true'
+    if: needs.validate.outputs.should_release == 'true' && needs.validate.outputs.tag_exists != 'true'
     runs-on: macos-14
 
     steps:
