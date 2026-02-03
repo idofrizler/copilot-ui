@@ -1151,9 +1151,6 @@ const App: React.FC = () => {
 
         setTabs(initialTabs);
         setActiveTabId(data.sessions[0]?.sessionId || null);
-        if (data.sessions.length > 0) {
-          setTabCounter(Math.max(tabCounterRef.current, data.sessions.length));
-        }
 
         // Load message history and attachments for each session
         for (const s of data.sessions) {
