@@ -409,6 +409,89 @@ done`
     })
   })
 
+  describe('for loop value list - Issue #134', () => {
+    it('excludes numeric values in for loop value list', () => {
+      const command = 'for i in 1 2 3 4 5; do node /tmp/bot-social.js 2>/dev/null | tail -3; echo "---"; done'
+      const result = extractExecutables(command)
+      expect(result).toContain('node')
+      expect(result).toContain('tail')
+      expect(result).toContain('echo')
+      // Should NOT extract the numbers from the for loop value list
+      expect(result).not.toContain('1')
+      expect(result).not.toContain('2')
+      expect(result).not.toContain('3')
+      expect(result).not.toContain('4')
+      expect(result).not.toContain('5')
+    })
+
+    it('excludes values in multiline for loop', () => {
+      const command = `cd /Users/idofrizler/temp && node server.js &
+sleep 2 
+for i in 1 2 3; do 
+  echo "=== Bot $i ==="
+  node /tmp/bot-social.js 2>&1 | grep -E "(TASK|Topic)"
+done`
+      const result = extractExecutables(command)
+      expect(result).toContain('cd')
+      expect(result).toContain('node')
+      expect(result).toContain('sleep')
+      expect(result).toContain('echo')
+      expect(result).toContain('grep')
+      // Should NOT extract numbers from the for loop
+      expect(result).not.toContain('1')
+      expect(result).not.toContain('2')
+      expect(result).not.toContain('3')
+    })
+  })
+
+  describe('flag arguments - Issue #134', () => {
+    it('excludes HTTP method after -X flag in curl', () => {
+      const command = 'curl -s -X POST http://localhost:3001/api/start | jq -r \'.sessionId\''
+      const result = extractExecutables(command)
+      expect(result).toContain('curl')
+      expect(result).toContain('jq')
+      // Should NOT extract POST as a command - it's the argument to -X
+      expect(result).not.toContain('POST')
+    })
+
+    it('excludes output format after -o flag in Azure CLI', () => {
+      const command = 'az cosmosdb show --name nha-cosmos-db --resource-group no-humans-allowed-rg -o json'
+      const result = extractExecutables(command)
+      expect(result).toContain('az')
+      // Should NOT extract these as commands - they are flag arguments
+      expect(result).not.toContain('json')
+      expect(result).not.toContain('nha-cosmos-db')
+      expect(result).not.toContain('no-humans-allowed-rg')
+    })
+
+    it('excludes --name argument values in Azure CLI', () => {
+      const command = `az appservice plan delete --name no-humans-allowed-plan --resource-group no-humans-allowed-rg --yes`
+      const result = extractExecutables(command)
+      expect(result).toContain('az')
+      // Should NOT extract these as commands - they are --name and --resource-group arguments
+      expect(result).not.toContain('no-humans-allowed-plan')
+      expect(result).not.toContain('no-humans-allowed-rg')
+    })
+
+    it('handles complex curl commands with multiple flags', () => {
+      const command = `curl -s -X POST http://localhost:3001/api/verify/\$SESSION -H "Content-Type: application/json" -d "{\\"key\\":\\"value\\"}" | jq '{success,level}'`
+      const result = extractExecutables(command)
+      expect(result).toContain('curl')
+      expect(result).toContain('jq')
+      expect(result).not.toContain('POST')
+    })
+
+    it('excludes subscription argument in Azure CLI', () => {
+      const command = 'az webapp delete --name no-humans-allowed-app --resource-group no-humans-allowed-rg --subscription 74226166-2d6e-48b3-9194-6d3ef0c7bdff'
+      const result = extractExecutables(command)
+      expect(result).toContain('az')
+      expect(result).not.toContain('no-humans-allowed-app')
+      expect(result).not.toContain('no-humans-allowed-rg')
+      // Subscription ID should not be extracted
+      expect(result).not.toContain('74226166-2d6e-48b3-9194-6d3ef0c7bdff')
+    })
+  })
+
   describe('destructive command detection - Issue #65', () => {
     describe('isDestructiveExecutable', () => {
       it('detects rm as destructive', () => {

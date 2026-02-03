@@ -8,6 +8,53 @@ const SHELL_BUILTINS_TO_SKIP = ['true', 'false']
 // Shell keywords that are part of control flow syntax, not executables
 const SHELL_KEYWORDS_TO_SKIP = ['for', 'in', 'do', 'done', 'while', 'until', 'if', 'then', 'else', 'elif', 'fi', 'case', 'esac', 'select']
 
+// Common flags that take an argument value (the value should not be treated as a command)
+// Format: both short and long forms where applicable
+const FLAGS_WITH_ARGUMENTS = new Set([
+  // HTTP/curl flags
+  '-X', '--request',     // HTTP method (GET, POST, PUT, etc.)
+  '-H', '--header',      // HTTP header
+  '-d', '--data',        // POST data
+  '-o', '--output',      // Output file/format
+  '-u', '--user',        // Username
+  '-T', '--upload-file', // Upload file
+  '-A', '--user-agent',  // User agent
+  '-e', '--referer',     // Referer
+  '-b', '--cookie',      // Cookie
+  '-c', '--cookie-jar',  // Cookie jar file
+  '-F', '--form',        // Form data
+  // Azure CLI flags
+  '--name',
+  '--resource-group', '-g',
+  '--subscription', '-s',
+  '--location', '-l',
+  '--query',
+  '--sku',
+  '--image',
+  '--size',
+  // Docker flags
+  '--network',
+  '--volume', '-v',
+  '--env', '-e',
+  '--publish', '-p',
+  '--workdir', '-w',
+  '--entrypoint',
+  // Git flags
+  '-m', '--message',
+  '-b', '--branch',
+  '-C',                  // Change directory
+  // kubectl flags
+  '-n', '--namespace',
+  '-f', '--filename',
+  '--context',
+  // General flags
+  '-t', '--tag',
+  '-i', '--input',
+  '--type',
+  '--format',
+  '--filter',
+])
+
 // Destructive executables that should NEVER be auto-approved.
 // These commands can delete files/data and require explicit user permission every time.
 // Issue #65: Protect against accidental deletions
@@ -78,13 +125,37 @@ export function extractExecutables(command: string): string[] {
     let foundExec: string | null = null
     let subcommand: string | null = null
     let skipNextAsLoopVar = false
+    let inForValueList = false  // Track when we're in the value list after "for VAR in"
+    let skipNextAsFlagArg = false  // Track when next token is a flag's argument
     
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i]
+      
+      // If we're in a "for VAR in VALUE_LIST" context, skip until we hit 'do' or find the executable
+      if (inForValueList) {
+        if (part === 'do') {
+          inForValueList = false
+        }
+        continue
+      }
+      
+      // Skip the argument value after a flag that takes arguments (e.g., -X POST, --name value)
+      if (skipNextAsFlagArg) {
+        skipNextAsFlagArg = false
+        continue
+      }
+      
       // Skip environment variable assignments
       if (part.includes('=') && !part.startsWith('-')) continue
-      // Skip flags
-      if (part.startsWith('-')) continue
+      
+      // Check if this flag takes an argument - if so, skip the next token
+      if (part.startsWith('-')) {
+        if (FLAGS_WITH_ARGUMENTS.has(part)) {
+          skipNextAsFlagArg = true
+        }
+        continue
+      }
+      
       // Skip common prefixes
       if (prefixes.includes(part)) continue
       // Skip shell builtins like 'true' and 'false' used in || true patterns
@@ -94,6 +165,10 @@ export function extractExecutables(command: string): string[] {
       if (SHELL_KEYWORDS_TO_SKIP.includes(part)) {
         if (part === 'for' || part === 'select') {
           skipNextAsLoopVar = true
+        } else if (part === 'in' && skipNextAsLoopVar === false) {
+          // 'in' after the loop variable means we're entering the value list
+          // (skipNextAsLoopVar would have been consumed by the loop variable)
+          inForValueList = true
         }
         continue
       }
@@ -115,10 +190,20 @@ export function extractExecutables(command: string): string[] {
           foundExec = exec
           // Check if this needs subcommand handling
           if (SUBCOMMAND_EXECUTABLES.includes(exec)) {
-            // Look for subcommand in next non-flag part
+            // Look for subcommand in next non-flag part, but respect flags that take arguments
+            let skipNext = false
             for (let j = i + 1; j < parts.length; j++) {
               const nextPart = parts[j]
-              if (nextPart.startsWith('-')) continue
+              if (skipNext) {
+                skipNext = false
+                continue
+              }
+              if (nextPart.startsWith('-')) {
+                if (FLAGS_WITH_ARGUMENTS.has(nextPart)) {
+                  skipNext = true
+                }
+                continue
+              }
               if (nextPart.includes('=')) continue
               if (/^[a-zA-Z0-9_-]+$/.test(nextPart)) {
                 subcommand = nextPart
