@@ -40,6 +40,8 @@ jobs:
             node_modules/node-pty/build
             node_modules/node-pty/prebuilds
           key: node-pty-${{ runner.os }}-node${{ matrix.node-version }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            node-pty-${{ runner.os }}-node${{ matrix.node-version }}-
 
       - name: Install dependencies (Windows)
         if: runner.os == 'Windows'
