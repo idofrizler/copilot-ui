@@ -64,14 +64,66 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
     xterm.open(terminalRef.current)
     fitAddon.fit()
 
-    // Allow Ctrl/Cmd key combinations to pass through to the terminal
+    // Handle special key combinations for the terminal
+    // Return true = xterm handles it, false = browser/Electron handles it
     xterm.attachCustomKeyEventHandler((event) => {
-      // Allow all key events to be processed by xterm (pass to PTY)
-      // Return true to let xterm handle the event, false to prevent it
-      if ((event.ctrlKey || event.metaKey) && event.type === 'keydown') {
-        // Let xterm handle Ctrl/Cmd key combinations
-        return true
+      // Only handle keydown events
+      if (event.type !== 'keydown') return true
+      
+      const isMac = navigator.platform.includes('Mac')
+      const isCtrlOrCmd = isMac ? event.metaKey : event.ctrlKey
+      
+      // Handle Ctrl/Cmd+C - send SIGINT (ETX character) to the terminal
+      // This allows interrupting running processes
+      if (isCtrlOrCmd && event.key === 'c') {
+        // Don't let the browser/Electron intercept this
+        event.preventDefault()
+        event.stopPropagation()
+        // Send ETX (End of Text / Ctrl+C / 0x03) to the PTY
+        window.electronAPI.pty.write(sessionIdRef.current, '\x03')
+        return false
       }
+      
+      // Handle Ctrl/Cmd+V - paste
+      if (isCtrlOrCmd && event.key === 'v') {
+        event.preventDefault()
+        event.stopPropagation()
+        // Read from clipboard and send to terminal
+        navigator.clipboard.readText().then(text => {
+          if (text) {
+            window.electronAPI.pty.write(sessionIdRef.current, text)
+          }
+        }).catch(() => {
+          // Clipboard access denied - ignore
+        })
+        return false
+      }
+      
+      // Handle Ctrl+Arrow keys for word navigation in terminal
+      // On macOS, also handle Option+Arrow as that's more common for word navigation
+      // Send ESC b (word-left) and ESC f (word-right) which work in bash/zsh
+      const isWordNavModifier = isMac 
+        ? (event.altKey && !event.ctrlKey && !event.metaKey)  // Option+Arrow on macOS
+        : (event.ctrlKey && !event.metaKey && !event.altKey)  // Ctrl+Arrow on Linux/Windows
+      
+      if (isWordNavModifier && !event.shiftKey) {
+        if (event.key === 'ArrowLeft') {
+          event.preventDefault()
+          event.stopPropagation()
+          // Send ESC b (word backward) - works in bash/zsh
+          window.electronAPI.pty.write(sessionIdRef.current, '\x1bb')
+          return false
+        }
+        if (event.key === 'ArrowRight') {
+          event.preventDefault()
+          event.stopPropagation()
+          // Send ESC f (word forward) - works in bash/zsh
+          window.electronAPI.pty.write(sessionIdRef.current, '\x1bf')
+          return false
+        }
+      }
+      
+      // Let xterm handle all other key events
       return true
     })
 

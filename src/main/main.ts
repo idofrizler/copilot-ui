@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, dialog, nativeTheme } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, dialog, nativeTheme, Menu } from 'electron'
 import { join, dirname } from 'path'
 import { existsSync, mkdirSync, readdirSync, readFileSync, copyFileSync, statSync, unlinkSync } from 'fs'
 import { exec } from 'child_process'
@@ -3201,6 +3201,74 @@ if (!gotTheLock) {
 
   app.whenReady().then(() => {
     console.log('Baseline models:', AVAILABLE_MODELS.map(m => `${m.name} (${m.multiplier}×)`).join(', '))
+    
+    // Set up custom application menu
+    // We remove accelerators for Ctrl/Cmd+C,V,X to allow the terminal to handle them directly
+    // The terminal handles copy/paste via xterm's own mechanisms
+    const isMac = process.platform === 'darwin'
+    const template: Electron.MenuItemConstructorOptions[] = [
+      // App menu (macOS only)
+      ...(isMac ? [{
+        label: app.name,
+        submenu: [
+          { role: 'about' as const },
+          { type: 'separator' as const },
+          { role: 'services' as const },
+          { type: 'separator' as const },
+          { role: 'hide' as const },
+          { role: 'hideOthers' as const },
+          { role: 'unhide' as const },
+          { type: 'separator' as const },
+          { role: 'quit' as const }
+        ]
+      }] : []),
+      // Edit menu - explicitly without accelerators for copy/paste/cut so terminal can handle them
+      {
+        label: 'Edit',
+        submenu: [
+          { role: 'undo' as const },
+          { role: 'redo' as const },
+          { type: 'separator' as const },
+          // No accelerators for cut/copy/paste - let the focused element handle them
+          { label: 'Cut', role: 'cut' as const, accelerator: undefined },
+          { label: 'Copy', role: 'copy' as const, accelerator: undefined },
+          { label: 'Paste', role: 'paste' as const, accelerator: undefined },
+          { type: 'separator' as const },
+          { role: 'selectAll' as const }
+        ]
+      },
+      // View menu
+      {
+        label: 'View',
+        submenu: [
+          { role: 'reload' as const },
+          { role: 'forceReload' as const },
+          { role: 'toggleDevTools' as const },
+          { type: 'separator' as const },
+          { role: 'resetZoom' as const },
+          { role: 'zoomIn' as const },
+          { role: 'zoomOut' as const },
+          { type: 'separator' as const },
+          { role: 'togglefullscreen' as const }
+        ]
+      },
+      // Window menu
+      {
+        label: 'Window',
+        submenu: [
+          { role: 'minimize' as const },
+          { role: 'zoom' as const },
+          ...(isMac ? [
+            { type: 'separator' as const },
+            { role: 'front' as const }
+          ] : [
+            { role: 'close' as const }
+          ])
+        ]
+      }
+    ]
+    const menu = Menu.buildFromTemplate(template)
+    Menu.setApplicationMenu(menu)
     
     // Clean up old cached images async (non-blocking to improve startup time)
     const imageDir = join(app.getPath('home'), '.copilot', 'images')
