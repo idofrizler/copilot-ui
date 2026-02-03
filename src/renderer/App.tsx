@@ -916,13 +916,35 @@ const App: React.FC = () => {
     });
   }, [tabs]);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  const scrollToBottom = (instant?: boolean) => {
+    messagesEndRef.current?.scrollIntoView({ behavior: instant ? "instant" : "smooth" });
   };
 
+  // Track previous message count and session ID for scroll logic
+  const prevMessageCountRef = useRef<number>(0);
+  const prevSessionIdForScrollRef = useRef<string | null>(null);
+
   useEffect(() => {
-    scrollToBottom();
-  }, [activeTab?.messages]);
+    const currentMessageCount = activeTab?.messages?.length ?? 0;
+    const currentSessionId = activeTab?.id ?? null;
+    const prevMessageCount = prevMessageCountRef.current;
+    const prevSessionId = prevSessionIdForScrollRef.current;
+
+    // Update refs for next render
+    prevMessageCountRef.current = currentMessageCount;
+    prevSessionIdForScrollRef.current = currentSessionId;
+
+    // Only scroll to bottom when:
+    // 1. New messages are added to the SAME session (message count increased)
+    // 2. NOT when switching sessions (session ID changed)
+    if (currentSessionId === prevSessionId && currentMessageCount > prevMessageCount) {
+      scrollToBottom();
+    } else if (currentSessionId !== prevSessionId && currentMessageCount > 0) {
+      // When switching sessions, instantly scroll to bottom (no animation)
+      // This preserves the "show end of conversation" behavior without the annoying animated scroll
+      scrollToBottom(true);
+    }
+  }, [activeTab?.messages, activeTab?.id]);
 
   // Resize handlers for side panels
   const handleResizeMouseDown = useCallback((e: React.MouseEvent, panel: 'left' | 'right') => {
