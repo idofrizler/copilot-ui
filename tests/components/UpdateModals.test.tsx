@@ -38,7 +38,7 @@ describe('UpdateAvailableModal', () => {
 
   it('renders when isOpen is true', async () => {
     render(<UpdateAvailableModal {...defaultProps} />)
-    expect(screen.getByText('Update Available')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('Update Available')).toBeInTheDocument())
   })
 
   it('does not render when isOpen is false', () => {
@@ -48,18 +48,22 @@ describe('UpdateAvailableModal', () => {
 
   it('displays current and new versions', async () => {
     render(<UpdateAvailableModal {...defaultProps} />)
-    expect(screen.getByText('1.0.0')).toBeInTheDocument()
-    expect(screen.getByText('1.1.0')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByText('1.0.0')).toBeInTheDocument()
+      expect(screen.getByText('1.1.0')).toBeInTheDocument()
+    })
   })
 
   it('calls onClose when Later button is clicked', async () => {
     render(<UpdateAvailableModal {...defaultProps} />)
+    await waitFor(() => expect(screen.getByText('Later')).toBeInTheDocument())
     fireEvent.click(screen.getByText('Later'))
     expect(defaultProps.onClose).toHaveBeenCalled()
   })
 
   it('calls onDontRemind and onClose when dismiss link is clicked', async () => {
     render(<UpdateAvailableModal {...defaultProps} />)
+    await waitFor(() => expect(screen.getByText("Don't remind me about this version")).toBeInTheDocument())
     fireEvent.click(screen.getByText("Don't remind me about this version"))
     expect(defaultProps.onDontRemind).toHaveBeenCalled()
     expect(defaultProps.onClose).toHaveBeenCalled()

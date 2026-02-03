@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, within, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import React from 'react'
 import { SessionHistory } from '../../src/renderer/components/SessionHistory/SessionHistory'
@@ -49,6 +49,20 @@ const createMockSessions = (): PreviousSession[] => [
   createMockSession('session-old-2', 'Archive cleanup', 60, '/Users/dev/archive'),
 ]
 
+// Helper render that waits for modal effects to settle when opened
+const renderAndSettle = async (ui: React.ReactElement) => {
+  render(ui)
+  // If this is the SessionHistory modal and open, wait for it to be fully rendered
+  try {
+    // @ts-ignore
+    if (ui?.props?.isOpen) {
+      await waitFor(() => expect(screen.getByText('Session History')).toBeInTheDocument())
+    }
+  } catch {
+    // ignore
+  }
+}
+
 describe('SessionHistory Component', () => {
   const mockOnClose = vi.fn()
   const mockOnResumeSession = vi.fn()
@@ -77,8 +91,8 @@ describe('SessionHistory Component', () => {
       expect(screen.queryByText('Session History')).not.toBeInTheDocument()
     })
 
-    it('renders modal when isOpen is true', () => {
-      render(
+    it('renders modal when isOpen is true', async () => {
+      await renderAndSettle(
         <SessionHistory
           isOpen={true}
           onClose={mockOnClose}
@@ -94,8 +108,8 @@ describe('SessionHistory Component', () => {
       expect(screen.getByText('Session History')).toBeInTheDocument()
     })
 
-    it('renders search input with correct placeholder', () => {
-      render(
+    it('renders search input with correct placeholder', async () => {
+      await renderAndSettle(
         <SessionHistory
           isOpen={true}
           onClose={mockOnClose}
@@ -111,9 +125,9 @@ describe('SessionHistory Component', () => {
       expect(screen.getByPlaceholderText('Search sessions...')).toBeInTheDocument()
     })
 
-    it('displays session count in footer', () => {
+    it('displays session count in footer', async () => {
       const sessions = createMockSessions()
-      render(
+      await renderAndSettle(
         <SessionHistory
           isOpen={true}
           onClose={mockOnClose}
@@ -131,8 +145,8 @@ describe('SessionHistory Component', () => {
   })
 
   describe('Empty State', () => {
-    it('shows empty state message when no sessions', () => {
-      render(
+    it('shows empty state message when no sessions', async () => {
+      await renderAndSettle(
         <SessionHistory
           isOpen={true}
           onClose={mockOnClose}
@@ -149,8 +163,8 @@ describe('SessionHistory Component', () => {
       expect(screen.getByText('Your session history will appear here')).toBeInTheDocument()
     })
 
-    it('shows zero count in footer when no sessions', () => {
-      render(
+    it('shows zero count in footer when no sessions', async () => {
+      await renderAndSettle(
         <SessionHistory
           isOpen={true}
           onClose={mockOnClose}
@@ -168,9 +182,9 @@ describe('SessionHistory Component', () => {
   })
 
   describe('Time-based Grouping', () => {
-    it('shows Today category for sessions from today', () => {
+    it('shows Today category for sessions from today', async () => {
       const todaySessions = [createMockSession('today-1', 'Today session', 0)]
-      render(
+      await renderAndSettle(
         <SessionHistory
           isOpen={true}
           onClose={mockOnClose}
@@ -186,9 +200,9 @@ describe('SessionHistory Component', () => {
       expect(screen.getByText('Today')).toBeInTheDocument()
     })
 
-    it('shows Yesterday category for sessions from yesterday', () => {
+    it('shows Yesterday category for sessions from yesterday', async () => {
       const yesterdaySessions = [createMockSession('yesterday-1', 'Yesterday session', 1)]
-      render(
+      await renderAndSettle(
         <SessionHistory
           isOpen={true}
           onClose={mockOnClose}
@@ -204,9 +218,9 @@ describe('SessionHistory Component', () => {
       expect(screen.getByText('Yesterday')).toBeInTheDocument()
     })
 
-    it('shows Last 7 Days category for sessions 2-7 days old', () => {
+    it('shows Last 7 Days category for sessions 2-7 days old', async () => {
       const weekSessions = [createMockSession('week-1', 'Week session', 5)]
-      render(
+      await renderAndSettle(
         <SessionHistory
           isOpen={true}
           onClose={mockOnClose}
@@ -222,9 +236,9 @@ describe('SessionHistory Component', () => {
       expect(screen.getByText('Last 7 Days')).toBeInTheDocument()
     })
 
-    it('shows Last 30 Days category for sessions 8-30 days old', () => {
+    it('shows Last 30 Days category for sessions 8-30 days old', async () => {
       const monthSessions = [createMockSession('month-1', 'Month session', 15)]
-      render(
+      await renderAndSettle(
         <SessionHistory
           isOpen={true}
           onClose={mockOnClose}
@@ -240,9 +254,9 @@ describe('SessionHistory Component', () => {
       expect(screen.getByText('Last 30 Days')).toBeInTheDocument()
     })
 
-    it('shows Older category for sessions more than 30 days old', () => {
+    it('shows Older category for sessions more than 30 days old', async () => {
       const oldSessions = [createMockSession('old-1', 'Old session', 45)]
-      render(
+      await renderAndSettle(
         <SessionHistory
           isOpen={true}
           onClose={mockOnClose}
@@ -258,8 +272,8 @@ describe('SessionHistory Component', () => {
       expect(screen.getByText('Older')).toBeInTheDocument()
     })
 
-    it('shows multiple categories when sessions span different time periods', () => {
-      render(
+    it('shows multiple categories when sessions span different time periods', async () => {
+      await renderAndSettle(
         <SessionHistory
           isOpen={true}
           onClose={mockOnClose}
@@ -281,8 +295,8 @@ describe('SessionHistory Component', () => {
   })
 
   describe('Session Display', () => {
-    it('displays session names', () => {
-      render(
+    it('displays session names', async () => {
+      await renderAndSettle(
         <SessionHistory
           isOpen={true}
           onClose={mockOnClose}
@@ -299,11 +313,11 @@ describe('SessionHistory Component', () => {
       expect(screen.getByText('Add user authentication')).toBeInTheDocument()
     })
 
-    it('displays fallback text for sessions without names', () => {
+    it('displays fallback text for sessions without names', async () => {
       const sessionsWithoutNames = [
         { sessionId: 'abc12345-full-id', modifiedTime: new Date().toISOString() },
       ]
-      render(
+      await renderAndSettle(
         <SessionHistory
           isOpen={true}
           onClose={mockOnClose}
@@ -319,7 +333,7 @@ describe('SessionHistory Component', () => {
       expect(screen.getByText('Session abc12345...')).toBeInTheDocument()
     })
 
-    it('displays session names and branch names for worktrees', () => {
+    it('displays session names and branch names for worktrees', async () => {
       const sessionsWithWorktree: PreviousSession[] = [
         createMockSession('session-1', 'Regular session', 0, '/Users/dev/project'),
         {
@@ -328,7 +342,7 @@ describe('SessionHistory Component', () => {
         },
       ]
       
-      render(
+      await renderAndSettle(
         <SessionHistory
           isOpen={true}
           onClose={mockOnClose}
@@ -351,7 +365,7 @@ describe('SessionHistory Component', () => {
   describe('Search Functionality', () => {
     it('filters sessions by name', async () => {
       const user = userEvent.setup()
-      render(
+      await renderAndSettle(
         <SessionHistory
           isOpen={true}
           onClose={mockOnClose}
@@ -376,7 +390,7 @@ describe('SessionHistory Component', () => {
 
     it('filters sessions by working directory', async () => {
       const user = userEvent.setup()
-      render(
+      await renderAndSettle(
         <SessionHistory
           isOpen={true}
           onClose={mockOnClose}
@@ -401,7 +415,7 @@ describe('SessionHistory Component', () => {
 
     it('filters sessions by session ID', async () => {
       const user = userEvent.setup()
-      render(
+      await renderAndSettle(
         <SessionHistory
           isOpen={true}
           onClose={mockOnClose}
@@ -423,7 +437,7 @@ describe('SessionHistory Component', () => {
 
     it('search is case-insensitive', async () => {
       const user = userEvent.setup()
-      render(
+      await renderAndSettle(
         <SessionHistory
           isOpen={true}
           onClose={mockOnClose}
@@ -444,7 +458,7 @@ describe('SessionHistory Component', () => {
 
     it('shows no results message when search matches nothing', async () => {
       const user = userEvent.setup()
-      render(
+      await renderAndSettle(
         <SessionHistory
           isOpen={true}
           onClose={mockOnClose}
@@ -467,7 +481,7 @@ describe('SessionHistory Component', () => {
     it('shows filtered count in footer during search', async () => {
       const user = userEvent.setup()
       const sessions = createMockSessions()
-      render(
+      await renderAndSettle(
         <SessionHistory
           isOpen={true}
           onClose={mockOnClose}
@@ -490,7 +504,7 @@ describe('SessionHistory Component', () => {
     it('restores all sessions when search is cleared', async () => {
       const user = userEvent.setup()
       const sessions = createMockSessions()
-      render(
+      await renderAndSettle(
         <SessionHistory
           isOpen={true}
           onClose={mockOnClose}
