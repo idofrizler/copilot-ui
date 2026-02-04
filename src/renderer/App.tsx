@@ -560,6 +560,7 @@ ${phaseInstructions[phase]}`;
 const App: React.FC = () => {
   const [status, setStatus] = useState<Status>("connecting");
   const [inputValue, setInputValue] = useState("");
+  const [hasInput, setHasInput] = useState(false);
   const [tabs, setTabs] = useState<TabState[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
@@ -887,6 +888,7 @@ const App: React.FC = () => {
       if (draft) {
         setInputValue(draft.text);
         inputValueRef.current = draft.text;
+        setHasInput(!!draft.text.trim());
         if (inputRef.current) inputRef.current.value = draft.text;
         setImageAttachments(draft.imageAttachments);
         setFileAttachments(draft.fileAttachments);
@@ -895,6 +897,7 @@ const App: React.FC = () => {
         // No draft saved for this tab - clear inputs
         setInputValue("");
         inputValueRef.current = "";
+        setHasInput(false);
         if (inputRef.current) inputRef.current.value = "";
         setImageAttachments([]);
         setFileAttachments([]);
@@ -2185,6 +2188,7 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       // Clear input immediately
       setInputValue("");
       inputValueRef.current = "";
+      setHasInput(false);
       if (inputRef.current) inputRef.current.value = "";
       setTerminalAttachment(null);
       setImageAttachments([]);
@@ -2380,6 +2384,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     });
     setInputValue("");
     inputValueRef.current = "";
+    setHasInput(false);
     if (inputRef.current) inputRef.current.value = "";
     setTerminalAttachment(null);
     setImageAttachments([]);
@@ -5270,8 +5275,10 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 ref={inputRef}
                 defaultValue={inputValue}
                 onChange={(e) => {
-                  // Update ref immediately for callbacks, but don't trigger re-render
                   inputValueRef.current = e.target.value;
+                  // Track if there's input for button state (lightweight boolean, minimal re-render)
+                  const hasText = !!e.target.value.trim();
+                  if (hasText !== hasInput) setHasInput(hasText);
                 }}
                 onKeyDown={handleKeyPress}
                 onPaste={handlePaste}
@@ -5326,14 +5333,16 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               {activeTab?.isProcessing ? (
                 <>
                   {/* Send button while processing - queues message */}
-                  <button
-                    onClick={handleSendMessage}
-                    disabled={status !== "connected"}
-                    className="shrink-0 px-3 py-2.5 text-copilot-warning hover:brightness-110 disabled:opacity-30 disabled:cursor-not-allowed text-xs font-medium transition-colors"
-                    title="Send message (will be queued until agent finishes)"
-                  >
-                    Send
-                  </button>
+                  {(hasInput || terminalAttachment || imageAttachments.length > 0 || fileAttachments.length > 0) && (
+                    <button
+                      onClick={handleSendMessage}
+                      disabled={status !== "connected"}
+                      className="shrink-0 px-3 py-2.5 text-copilot-warning hover:brightness-110 disabled:opacity-30 disabled:cursor-not-allowed text-xs font-medium transition-colors"
+                      title="Send message (will be queued until agent finishes)"
+                    >
+                      Send
+                    </button>
+                  )}
                   {/* Stop button */}
                   <button
                     onClick={handleStop}
@@ -5347,7 +5356,10 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               ) : (
                 <button
                   onClick={handleSendMessage}
-                  disabled={status !== "connected"}
+                  disabled={
+                    ((!hasInput && !terminalAttachment && imageAttachments.length === 0 && fileAttachments.length === 0) ||
+                    status !== "connected")
+                  }
                   className="shrink-0 px-4 py-2.5 text-copilot-accent hover:brightness-110 disabled:opacity-30 disabled:cursor-not-allowed text-xs font-medium transition-colors"
                 >
                   {lisaEnabled ? "Start Lisa Loop" : (ralphEnabled ? "Start Loop" : "Send")}
