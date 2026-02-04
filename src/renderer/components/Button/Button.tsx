@@ -1,32 +1,33 @@
-import React from 'react'
+import React from 'react';
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   /** Button variant */
-  variant?: 'primary' | 'secondary' | 'ghost'
+  variant?: 'primary' | 'secondary' | 'ghost';
   /** Button size */
-  size?: 'sm' | 'md'
+  size?: 'sm' | 'md';
   /** Loading state */
-  isLoading?: boolean
+  isLoading?: boolean;
   /** Left icon */
-  leftIcon?: React.ReactNode
+  leftIcon?: React.ReactNode;
   /** Right icon */
-  rightIcon?: React.ReactNode
+  rightIcon?: React.ReactNode;
   /** Full width button */
-  fullWidth?: boolean
+  fullWidth?: boolean;
   /** Test ID for automated testing */
-  testId?: string
+  testId?: string;
 }
 
 const variantClasses = {
   primary: 'bg-copilot-success hover:brightness-110 text-copilot-text-inverse font-medium',
-  secondary: 'bg-copilot-surface hover:bg-copilot-surface-hover text-copilot-text border border-copilot-border',
+  secondary:
+    'bg-copilot-surface hover:bg-copilot-surface-hover text-copilot-text border border-copilot-border',
   ghost: 'text-copilot-text-muted hover:text-copilot-text',
-}
+};
 
 const sizeClasses = {
   sm: 'px-3 py-1.5 text-xs',
   md: 'px-4 py-2 text-sm',
-}
+};
 
 export const Button: React.FC<ButtonProps> = ({
   variant = 'primary',
@@ -41,8 +42,9 @@ export const Button: React.FC<ButtonProps> = ({
   testId,
   ...props
 }) => {
-  const baseClasses = 'rounded transition-colors inline-flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed'
-  
+  const baseClasses =
+    'rounded transition-colors inline-flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed';
+
   return (
     <button
       className={`${baseClasses} ${variantClasses[variant]} ${sizeClasses[size]} ${fullWidth ? 'w-full' : ''} ${className}`}
@@ -58,7 +60,7 @@ export const Button: React.FC<ButtonProps> = ({
       {children}
       {!isLoading && rightIcon}
     </button>
-  )
-}
+  );
+};
 
-export default Button
+export default Button;

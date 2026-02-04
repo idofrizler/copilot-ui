@@ -1,16 +1,16 @@
-import React, { useState, useEffect } from 'react'
-import { Modal } from '../Modal'
-import { Button } from '../Button'
-import { Spinner } from '../Spinner'
+import React, { useState, useEffect } from 'react';
+import { Modal } from '../Modal';
+import { Button } from '../Button';
+import { Spinner } from '../Spinner';
 
-type UpdateStage = 'idle' | 'checking' | 'pulling' | 'installing' | 'building' | 'ready' | 'error'
+type UpdateStage = 'idle' | 'checking' | 'pulling' | 'installing' | 'building' | 'ready' | 'error';
 
 export interface UpdateAvailableModalProps {
-  isOpen: boolean
-  onClose: () => void
-  currentVersion: string
-  newVersion: string
-  onDontRemind: () => void
+  isOpen: boolean;
+  onClose: () => void;
+  currentVersion: string;
+  newVersion: string;
+  onDontRemind: () => void;
 }
 
 export const UpdateAvailableModal: React.FC<UpdateAvailableModalProps> = ({
@@ -20,70 +20,78 @@ export const UpdateAvailableModal: React.FC<UpdateAvailableModalProps> = ({
   newVersion,
   onDontRemind,
 }) => {
-  const [canAutoUpdate, setCanAutoUpdate] = useState<boolean | null>(null)
-  const [updateStage, setUpdateStage] = useState<UpdateStage>('idle')
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [canAutoUpdate, setCanAutoUpdate] = useState<boolean | null>(null);
+  const [updateStage, setUpdateStage] = useState<UpdateStage>('idle');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Check if auto-update is available when modal opens
   useEffect(() => {
     if (isOpen && canAutoUpdate === null) {
-      window.electronAPI.updates.canAutoUpdate().then(result => {
-        setCanAutoUpdate(result.canAutoUpdate)
-      })
+      window.electronAPI.updates.canAutoUpdate().then((result) => {
+        setCanAutoUpdate(result.canAutoUpdate);
+      });
     }
-  }, [isOpen, canAutoUpdate])
+  }, [isOpen, canAutoUpdate]);
 
   const handleDontRemind = () => {
-    onDontRemind()
-    onClose()
-  }
+    onDontRemind();
+    onClose();
+  };
 
   const handleUpdate = async () => {
     if (!canAutoUpdate) {
       // Fallback: open GitHub releases page
-      window.electronAPI.updates.openDownloadUrl(`https://github.com/idofrizler/copilot-ui/releases`)
-      return
+      window.electronAPI.updates.openDownloadUrl(
+        `https://github.com/idofrizler/copilot-ui/releases`
+      );
+      return;
     }
 
-    setUpdateStage('pulling')
-    setErrorMessage(null)
+    setUpdateStage('pulling');
+    setErrorMessage(null);
 
     try {
-      const result = await window.electronAPI.updates.performUpdate()
-      
+      const result = await window.electronAPI.updates.performUpdate();
+
       if (result.success) {
         if (result.needsRestart) {
-          setUpdateStage('ready')
+          setUpdateStage('ready');
         } else {
           // Already up to date
-          onClose()
+          onClose();
         }
       } else {
-        setUpdateStage('error')
-        setErrorMessage(result.error || 'Update failed')
+        setUpdateStage('error');
+        setErrorMessage(result.error || 'Update failed');
       }
     } catch (error) {
-      setUpdateStage('error')
-      setErrorMessage(String(error))
+      setUpdateStage('error');
+      setErrorMessage(String(error));
     }
-  }
+  };
 
   const handleRestart = () => {
-    window.electronAPI.updates.restartApp()
-  }
+    window.electronAPI.updates.restartApp();
+  };
 
   const getStageText = () => {
     switch (updateStage) {
-      case 'pulling': return 'Pulling latest changes...'
-      case 'installing': return 'Installing dependencies...'
-      case 'building': return 'Building application...'
-      case 'ready': return 'Update complete!'
-      case 'error': return 'Update failed'
-      default: return ''
+      case 'pulling':
+        return 'Pulling latest changes...';
+      case 'installing':
+        return 'Installing dependencies...';
+      case 'building':
+        return 'Building application...';
+      case 'ready':
+        return 'Update complete!';
+      case 'error':
+        return 'Update failed';
+      default:
+        return '';
     }
-  }
+  };
 
-  const isUpdating = ['pulling', 'installing', 'building'].includes(updateStage)
+  const isUpdating = ['pulling', 'installing', 'building'].includes(updateStage);
 
   return (
     <Modal
@@ -130,7 +138,7 @@ export const UpdateAvailableModal: React.FC<UpdateAvailableModalProps> = ({
               </div>
 
               <p className="text-copilot-text-muted text-xs text-center">
-                {canAutoUpdate 
+                {canAutoUpdate
                   ? 'Click Update to automatically pull, build, and restart with the new version.'
                   : 'Click Update to view the latest release on GitHub.'}
               </p>
@@ -163,7 +171,8 @@ export const UpdateAvailableModal: React.FC<UpdateAvailableModalProps> = ({
                 </svg>
               </div>
               <p className="text-copilot-text text-center">
-                Update complete! Restart to use <span className="font-semibold text-green-500">v{newVersion}</span>
+                Update complete! Restart to use{' '}
+                <span className="font-semibold text-green-500">v{newVersion}</span>
               </p>
             </div>
           )}
@@ -190,7 +199,11 @@ export const UpdateAvailableModal: React.FC<UpdateAvailableModalProps> = ({
                 {errorMessage}
               </p>
               <p className="text-copilot-text-muted text-xs text-center">
-                Try running <code className="bg-copilot-background px-1 rounded">git pull && npm install && npm run build</code> manually.
+                Try running{' '}
+                <code className="bg-copilot-background px-1 rounded">
+                  git pull && npm install && npm run build
+                </code>{' '}
+                manually.
               </p>
             </div>
           )}
@@ -243,7 +256,7 @@ export const UpdateAvailableModal: React.FC<UpdateAvailableModalProps> = ({
         </div>
       </Modal.Footer>
     </Modal>
-  )
-}
+  );
+};
 
-export default UpdateAvailableModal
+export default UpdateAvailableModal;

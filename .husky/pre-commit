@@ -1,3 +1,12 @@
+# Format staged files
+echo "Formatting staged files..."
+npx lint-staged
+
+if [ $? -ne 0 ]; then
+  echo "❌ Formatting failed. Please check your code."
+  exit 1
+fi
+
 # Run unit tests before committing
 echo "Running unit tests..."
 npm run test
@@ -7,4 +16,4 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-echo "✅ All tests passed!"
+echo "✅ All checks passed!"

@@ -1,44 +1,44 @@
-import React, { useEffect } from 'react'
-import { CloseIcon } from '../Icons'
+import React, { useEffect } from 'react';
+import { CloseIcon } from '../Icons';
 
 export interface ModalProps {
   /** Whether modal is visible */
-  isOpen: boolean
+  isOpen: boolean;
   /** Close handler */
-  onClose: () => void
+  onClose: () => void;
   /** Modal title */
-  title: string
+  title: string;
   /** Modal content */
-  children: React.ReactNode
+  children: React.ReactNode;
   /** Width of modal (default: 500px) */
-  width?: string
+  width?: string;
   /** Show close button in header (default: true) */
-  showCloseButton?: boolean
+  showCloseButton?: boolean;
   /** Test ID for automated testing */
-  testId?: string
+  testId?: string;
 }
 
 export interface ModalHeaderProps {
   /** Modal title */
-  title: string
+  title: string;
   /** Close handler */
-  onClose?: () => void
+  onClose?: () => void;
   /** Show close button (default: true) */
-  showCloseButton?: boolean
+  showCloseButton?: boolean;
 }
 
 export interface ModalBodyProps {
   /** Body content */
-  children: React.ReactNode
+  children: React.ReactNode;
   /** Additional CSS classes */
-  className?: string
+  className?: string;
 }
 
 export interface ModalFooterProps {
   /** Footer content (typically buttons) */
-  children: React.ReactNode
+  children: React.ReactNode;
   /** Additional CSS classes */
-  className?: string
+  className?: string;
 }
 
 const ModalHeader: React.FC<ModalHeaderProps> = ({ title, onClose, showCloseButton = true }) => (
@@ -54,39 +54,42 @@ const ModalHeader: React.FC<ModalHeaderProps> = ({ title, onClose, showCloseButt
       </button>
     )}
   </div>
-)
+);
 
 const ModalBody: React.FC<ModalBodyProps> = ({ children, className = '' }) => (
   <div className={`p-4 ${className}`}>{children}</div>
-)
+);
 
 const ModalFooter: React.FC<ModalFooterProps> = ({ children, className = '' }) => (
   <div className={`flex justify-end gap-2 ${className}`}>{children}</div>
-)
+);
 
 export const Modal: React.FC<ModalProps> & {
-  Header: typeof ModalHeader
-  Body: typeof ModalBody
-  Footer: typeof ModalFooter
+  Header: typeof ModalHeader;
+  Body: typeof ModalBody;
+  Footer: typeof ModalFooter;
 } = ({ isOpen, onClose, title, children, width = '500px', showCloseButton = true, testId }) => {
   // Handle Escape key to close modal
   useEffect(() => {
-    if (!isOpen) return
+    if (!isOpen) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose()
+        onClose();
       }
-    }
+    };
 
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, onClose])
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
-  if (!isOpen) return null
+  if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50" data-testid={testId}>
+    <div
+      className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50"
+      data-testid={testId}
+    >
       <div
         className="bg-copilot-surface border border-copilot-border rounded-lg shadow-xl max-w-[90%]"
         style={{ width }}
@@ -98,11 +101,11 @@ export const Modal: React.FC<ModalProps> & {
         {children}
       </div>
     </div>
-  )
-}
+  );
+};
 
-Modal.Header = ModalHeader
-Modal.Body = ModalBody
-Modal.Footer = ModalFooter
+Modal.Header = ModalHeader;
+Modal.Body = ModalBody;
+Modal.Footer = ModalFooter;
 
-export default Modal
+export default Modal;

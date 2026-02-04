@@ -1,35 +1,35 @@
-import { BrowserWindow } from 'electron'
-import * as os from 'os'
+import { BrowserWindow } from 'electron';
+import * as os from 'os';
 
 // Lazy-loaded node-pty module to improve startup time
 // node-pty is a native module that takes time to load
-let ptyModule: typeof import('node-pty') | null = null
+let ptyModule: typeof import('node-pty') | null = null;
 
 function getPtyModule(): typeof import('node-pty') {
   if (!ptyModule) {
     // Use require for CommonJS native module
-    ptyModule = require('node-pty')
+    ptyModule = require('node-pty');
   }
-  return ptyModule
+  return ptyModule;
 }
 
 // Import type only (doesn't load the module)
-import type * as pty from 'node-pty'
+import type * as pty from 'node-pty';
 
 interface PtyInstance {
-  pty: pty.IPty
-  outputBuffer: string[]
-  maxBufferLines: number
+  pty: pty.IPty;
+  outputBuffer: string[];
+  maxBufferLines: number;
 }
 
-const ptyInstances = new Map<string, PtyInstance>()
+const ptyInstances = new Map<string, PtyInstance>();
 
 // Get the default shell for the current platform
 function getDefaultShell(): string {
   if (process.platform === 'win32') {
-    return process.env.COMSPEC || 'cmd.exe'
+    return process.env.COMSPEC || 'cmd.exe';
   }
-  return process.env.SHELL || '/bin/bash'
+  return process.env.SHELL || '/bin/bash';
 }
 
 // Create a new PTY instance for a session
@@ -40,14 +40,14 @@ export function createPty(
 ): { success: boolean; error?: string } {
   // Close existing PTY for this session if any
   if (ptyInstances.has(sessionId)) {
-    closePty(sessionId)
+    closePty(sessionId);
   }
 
   try {
-    const shell = getDefaultShell()
-    const shellArgs = process.platform === 'win32' ? [] : ['-l']
+    const shell = getDefaultShell();
+    const shellArgs = process.platform === 'win32' ? [] : ['-l'];
 
-    const pty = getPtyModule()
+    const pty = getPtyModule();
     const ptyProcess = pty.spawn(shell, shellArgs, {
       name: 'xterm-256color',
       cols: 80,
@@ -58,59 +58,59 @@ export function createPty(
         TERM: 'xterm-256color',
         COLORTERM: 'truecolor',
       } as { [key: string]: string },
-    })
+    });
 
     const instance: PtyInstance = {
       pty: ptyProcess,
       outputBuffer: [],
       maxBufferLines: 1000,
-    }
+    };
 
     // Handle PTY data
     ptyProcess.onData((data: string) => {
       // Store in buffer for "send to agent" functionality
-      instance.outputBuffer.push(data)
+      instance.outputBuffer.push(data);
       // Trim buffer if too large
       if (instance.outputBuffer.length > instance.maxBufferLines) {
-        instance.outputBuffer = instance.outputBuffer.slice(-instance.maxBufferLines)
+        instance.outputBuffer = instance.outputBuffer.slice(-instance.maxBufferLines);
       }
 
       // Send data to renderer
       if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('pty:data', { sessionId, data })
+        mainWindow.webContents.send('pty:data', { sessionId, data });
       }
-    })
+    });
 
     // Handle PTY exit
     ptyProcess.onExit(({ exitCode }) => {
-      console.log(`PTY for session ${sessionId} exited with code ${exitCode}`)
-      ptyInstances.delete(sessionId)
+      console.log(`PTY for session ${sessionId} exited with code ${exitCode}`);
+      ptyInstances.delete(sessionId);
       if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('pty:exit', { sessionId, exitCode })
+        mainWindow.webContents.send('pty:exit', { sessionId, exitCode });
       }
-    })
+    });
 
-    ptyInstances.set(sessionId, instance)
-    return { success: true }
+    ptyInstances.set(sessionId, instance);
+    return { success: true };
   } catch (error) {
-    console.error('Failed to create PTY:', error)
-    return { success: false, error: String(error) }
+    console.error('Failed to create PTY:', error);
+    return { success: false, error: String(error) };
   }
 }
 
 // Write data to PTY
 export function writePty(sessionId: string, data: string): { success: boolean; error?: string } {
-  const instance = ptyInstances.get(sessionId)
+  const instance = ptyInstances.get(sessionId);
   if (!instance) {
-    return { success: false, error: 'PTY not found for session' }
+    return { success: false, error: 'PTY not found for session' };
   }
 
   try {
-    instance.pty.write(data)
-    return { success: true }
+    instance.pty.write(data);
+    return { success: true };
   } catch (error) {
-    console.error('Failed to write to PTY:', error)
-    return { success: false, error: String(error) }
+    console.error('Failed to write to PTY:', error);
+    return { success: false, error: String(error) };
   }
 }
 
@@ -120,69 +120,73 @@ export function resizePty(
   cols: number,
   rows: number
 ): { success: boolean; error?: string } {
-  const instance = ptyInstances.get(sessionId)
+  const instance = ptyInstances.get(sessionId);
   if (!instance) {
-    return { success: false, error: 'PTY not found for session' }
+    return { success: false, error: 'PTY not found for session' };
   }
 
   try {
-    instance.pty.resize(cols, rows)
-    return { success: true }
+    instance.pty.resize(cols, rows);
+    return { success: true };
   } catch (error) {
-    console.error('Failed to resize PTY:', error)
-    return { success: false, error: String(error) }
+    console.error('Failed to resize PTY:', error);
+    return { success: false, error: String(error) };
   }
 }
 
 // Get terminal output buffer for sending to agent
-export function getPtyOutput(sessionId: string): { success: boolean; output?: string; error?: string } {
-  const instance = ptyInstances.get(sessionId)
+export function getPtyOutput(sessionId: string): {
+  success: boolean;
+  output?: string;
+  error?: string;
+} {
+  const instance = ptyInstances.get(sessionId);
   if (!instance) {
-    return { success: false, error: 'PTY not found for session' }
+    return { success: false, error: 'PTY not found for session' };
   }
 
   // Join buffer and return
-  const output = instance.outputBuffer.join('')
-  return { success: true, output }
+  const output = instance.outputBuffer.join('');
+  return { success: true, output };
 }
 
 // Clear output buffer
 export function clearPtyBuffer(sessionId: string): { success: boolean; error?: string } {
-  const instance = ptyInstances.get(sessionId)
+  const instance = ptyInstances.get(sessionId);
   if (!instance) {
-    return { success: false, error: 'PTY not found for session' }
+    return { success: false, error: 'PTY not found for session' };
   }
 
-  instance.outputBuffer = []
-  return { success: true }
+  instance.outputBuffer = [];
+  return { success: true };
 }
 
 // Close PTY
 export function closePty(sessionId: string): { success: boolean; error?: string } {
-  const instance = ptyInstances.get(sessionId)
+  const instance = ptyInstances.get(sessionId);
   if (!instance) {
-    return { success: true } // Already closed
+    return { success: true }; // Already closed
   }
 
   try {
-    instance.pty.kill()
-    ptyInstances.delete(sessionId)
-    return { success: true }
+    instance.pty.kill();
+    ptyInstances.delete(sessionId);
+    return { success: true };
   } catch (error) {
-    console.error('Failed to close PTY:', error)
-    ptyInstances.delete(sessionId)
-    return { success: false, error: String(error) }
+    console.error('Failed to close PTY:', error);
+    ptyInstances.delete(sessionId);
+    return { success: false, error: String(error) };
   }
 }
 
 // Check if PTY exists for session
 export function hasPty(sessionId: string): boolean {
-  return ptyInstances.has(sessionId)
+  return ptyInstances.has(sessionId);
 }
 
 // Close all PTY instances
 export function closeAllPtys(): void {
   for (const sessionId of ptyInstances.keys()) {
-    closePty(sessionId)
+    closePty(sessionId);
   }
 }

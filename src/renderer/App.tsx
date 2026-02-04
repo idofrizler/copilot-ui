@@ -1,9 +1,9 @@
-import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import logo from "./assets/logo.png";
-import { useTheme } from "./context/ThemeContext";
-import { trackEvent, TelemetryEvents } from "./utils/telemetry";
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import logo from './assets/logo.png';
+import { useTheme } from './context/ThemeContext';
+import { trackEvent, TelemetryEvents } from './utils/telemetry';
 import {
   Spinner,
   GitBranchWidget,
@@ -54,7 +54,7 @@ import {
   WarningIcon,
   ArchiveIcon,
   UnarchiveIcon,
-} from "./components";
+} from './components';
 import {
   Status,
   Message,
@@ -82,34 +82,29 @@ import {
   LISA_REVIEW_APPROVE_SIGNAL,
   LISA_REVIEW_REJECT_PREFIX,
   Skill,
-} from "./types";
-import {
-  generateId,
-  generateTabName,
-  formatToolOutput,
-  setTabCounter,
-} from "./utils/session";
-import { playNotificationSound } from "./utils/sound";
-import { LONG_OUTPUT_LINE_THRESHOLD } from "./utils/cliOutputCompression";
-import { isAsciiDiagram, extractTextContent } from "./utils/isAsciiDiagram";
-import { isCliCommand } from "./utils/isCliCommand";
-import { useClickOutside } from "./hooks";
-import buildInfo from "./build-info.json";
-import { TerminalProvider } from "./context/TerminalContext";
+} from './types';
+import { generateId, generateTabName, formatToolOutput, setTabCounter } from './utils/session';
+import { playNotificationSound } from './utils/sound';
+import { LONG_OUTPUT_LINE_THRESHOLD } from './utils/cliOutputCompression';
+import { isAsciiDiagram, extractTextContent } from './utils/isAsciiDiagram';
+import { isCliCommand } from './utils/isCliCommand';
+import { useClickOutside } from './hooks';
+import buildInfo from './build-info.json';
+import { TerminalProvider } from './context/TerminalContext';
 
 // Helper function to deduplicate and filter edited files
 const getCleanEditedFiles = (files: string[]): string[] => {
-  return Array.from(new Set(files.filter(f => f?.trim())));
+  return Array.from(new Set(files.filter((f) => f?.trim())));
 };
 
-const enrichSessionsWithWorktreeData = async (sessions: PreviousSession[]): Promise<PreviousSession[]> => {
+const enrichSessionsWithWorktreeData = async (
+  sessions: PreviousSession[]
+): Promise<PreviousSession[]> => {
   try {
     const worktreeSessions = await window.electronAPI.worktree.listSessions();
-    const worktreeMap = new Map(
-      worktreeSessions.sessions.map(wt => [wt.worktreePath, wt])
-    );
-    
-    return sessions.map(session => {
+    const worktreeMap = new Map(worktreeSessions.sessions.map((wt) => [wt.worktreePath, wt]));
+
+    return sessions.map((session) => {
       const worktree = session.cwd ? worktreeMap.get(session.cwd) : null;
       if (worktree) {
         return {
@@ -120,7 +115,7 @@ const enrichSessionsWithWorktreeData = async (sessions: PreviousSession[]): Prom
             worktreePath: worktree.worktreePath,
             status: worktree.status,
             diskUsage: worktree.diskUsage,
-          }
+          },
         };
       }
       // Worktree no longer exists - clear stale worktree data
@@ -142,25 +137,25 @@ function buildLisaPhasePrompt(
   lastResponse: string,
   reviewerFeedback?: string
 ): string {
-  const phaseEmoji: Record<LisaPhase, string> = { 
-    'plan': '📋', 
-    'plan-review': '👀', 
-    'execute': '💻', 
-    'code-review': '👀', 
-    'validate': '🧪', 
-    'final-review': '👀' 
+  const phaseEmoji: Record<LisaPhase, string> = {
+    plan: '📋',
+    'plan-review': '👀',
+    execute: '💻',
+    'code-review': '👀',
+    validate: '🧪',
+    'final-review': '👀',
   };
-  const phaseName: Record<LisaPhase, string> = { 
-    'plan': 'PLANNER', 
-    'plan-review': 'PLAN REVIEW', 
-    'execute': 'CODE', 
-    'code-review': 'CODE REVIEW', 
-    'validate': 'TEST', 
-    'final-review': 'FINAL REVIEW' 
+  const phaseName: Record<LisaPhase, string> = {
+    plan: 'PLANNER',
+    'plan-review': 'PLAN REVIEW',
+    execute: 'CODE',
+    'code-review': 'CODE REVIEW',
+    validate: 'TEST',
+    'final-review': 'FINAL REVIEW',
   };
-  
-  const feedbackSection = reviewerFeedback 
-    ? `\n---\n\n## Reviewer Feedback (ADDRESS THIS):\n\n${reviewerFeedback}\n` 
+
+  const feedbackSection = reviewerFeedback
+    ? `\n---\n\n## Reviewer Feedback (ADDRESS THIS):\n\n${reviewerFeedback}\n`
     : '';
 
   // Show visit count only if revisiting (more than once)
@@ -175,7 +170,7 @@ function buildLisaPhasePrompt(
 `;
 
   const phaseInstructions: Record<LisaPhase, string> = {
-    'plan': `## 📋 PLANNER PHASE${visitLabel}
+    plan: `## 📋 PLANNER PHASE${visitLabel}
 ${noCommitWarning}
 You are the **Planner** agent. Your job is to create a comprehensive plan for the task.
 
@@ -244,7 +239,7 @@ ${LISA_REVIEW_REJECT_PREFIX}plan</lisa-review>
 
 **Always include specific feedback** - what's missing, what's unclear, what needs to change.`,
 
-    'execute': `## 💻 CODER PHASE${visitLabel}
+    execute: `## 💻 CODER PHASE${visitLabel}
 ${noCommitWarning}
 You are the **Coder** agent. The plan has been reviewed and approved. Now implement it.
 
@@ -307,7 +302,7 @@ ${LISA_REVIEW_REJECT_PREFIX}plan</lisa-review>
 
 **Always include specific feedback** - what's wrong, line numbers, what needs to change.`,
 
-    'validate': `## 🧪 TEST PHASE${visitLabel}
+    validate: `## 🧪 TEST PHASE${visitLabel}
 ${noCommitWarning}
 You are the **Tester** agent. Code has been reviewed. Now thoroughly validate it works.
 
@@ -540,7 +535,7 @@ ${LISA_REVIEW_REJECT_PREFIX}execute</lisa-review>
 OR
 ${LISA_REVIEW_REJECT_PREFIX}plan</lisa-review>
 
-**Include detailed feedback on what was reviewed and the decision rationale.**`
+**Include detailed feedback on what was reviewed and the decision rationale.**`,
   };
 
   return `${phaseEmoji[phase]} **Lisa Simpson Loop - ${phaseName[phase]}**
@@ -563,37 +558,42 @@ ${phaseInstructions[phase]}`;
 }
 
 const App: React.FC = () => {
-  const [status, setStatus] = useState<Status>("connecting");
-  const [inputValue, setInputValue] = useState("");
+  const [status, setStatus] = useState<Status>('connecting');
+  const [inputValue, setInputValue] = useState('');
   const [tabs, setTabs] = useState<TabState[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
-  const [previousSessions, setPreviousSessions] = useState<PreviousSession[]>(
-    [],
-  );
+  const [previousSessions, setPreviousSessions] = useState<PreviousSession[]>([]);
   const [showSessionHistory, setShowSessionHistory] = useState(false);
   const [showAllowedCommands, setShowAllowedCommands] = useState(false);
   const [globalSafeCommands, setGlobalSafeCommands] = useState<string[]>([]);
   const [showAddAllowedCommand, setShowAddAllowedCommand] = useState(false);
-  const [addCommandScope, setAddCommandScope] = useState<"session" | "global">("session");
-  const [addCommandValue, setAddCommandValue] = useState("");
+  const [addCommandScope, setAddCommandScope] = useState<'session' | 'global'>('session');
+  const [addCommandValue, setAddCommandValue] = useState('');
   const [showEditedFiles, setShowEditedFiles] = useState(false);
   const [filePreviewPath, setFilePreviewPath] = useState<string | null>(null);
   const [isGitRepo, setIsGitRepo] = useState<boolean>(true);
   const [showCommitModal, setShowCommitModal] = useState(false);
-  const [commitMessage, setCommitMessage] = useState("");
+  const [commitMessage, setCommitMessage] = useState('');
   const [isCommitting, setIsCommitting] = useState(false);
   const [commitError, setCommitError] = useState<string | null>(null);
   const [commitAction, setCommitAction] = useState<'push' | 'merge' | 'pr'>('push');
   const [removeWorktreeAfterMerge, setRemoveWorktreeAfterMerge] = useState(false);
-  const [pendingMergeInfo, setPendingMergeInfo] = useState<{ incomingFiles: string[]; targetBranch: string } | null>(null);
-  const [mainAheadInfo, setMainAheadInfo] = useState<{ isAhead: boolean; commits: string[]; targetBranch?: string } | null>(null);
+  const [pendingMergeInfo, setPendingMergeInfo] = useState<{
+    incomingFiles: string[];
+    targetBranch: string;
+  } | null>(null);
+  const [mainAheadInfo, setMainAheadInfo] = useState<{
+    isAhead: boolean;
+    commits: string[];
+    targetBranch?: string;
+  } | null>(null);
   const [isMergingMain, setIsMergingMain] = useState(false);
   const [conflictedFiles, setConflictedFiles] = useState<string[]>([]);
-  const [allowMode, setAllowMode] = useState<"once" | "session" | "global">("once");
+  const [allowMode, setAllowMode] = useState<'once' | 'session' | 'global'>('once');
   const [showAllowDropdown, setShowAllowDropdown] = useState(false);
   const allowDropdownRef = useRef<HTMLDivElement>(null);
-  
+
   // Target branch selection state
   const [targetBranch, setTargetBranch] = useState<string | null>(null);
   const [availableBranches, setAvailableBranches] = useState<string[]>([]);
@@ -606,12 +606,17 @@ const App: React.FC = () => {
   useClickOutside(allowDropdownRef, closeAllowDropdown, showAllowDropdown);
 
   // Session context menu state (for right-click "Mark for Review")
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; tabId: string } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; tabId: string } | null>(
+    null
+  );
   // Note input modal state
-  const [noteInputModal, setNoteInputModal] = useState<{ tabId: string; currentNote?: string } | null>(null);
-  const [noteInputValue, setNoteInputValue] = useState("");
+  const [noteInputModal, setNoteInputModal] = useState<{
+    tabId: string;
+    currentNote?: string;
+  } | null>(null);
+  const [noteInputValue, setNoteInputValue] = useState('');
   const contextMenuRef = useRef<HTMLDivElement>(null);
-  
+
   // Close context menu when clicking outside
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);
@@ -619,17 +624,9 @@ const App: React.FC = () => {
   useClickOutside(contextMenuRef, closeContextMenu, contextMenu !== null);
 
   // Theme context
-  const {
-    themePreference,
-    activeTheme,
-    availableThemes,
-    setTheme,
-    importTheme,
-  } = useTheme();
+  const { themePreference, activeTheme, availableThemes, setTheme, importTheme } = useTheme();
   // MCP Server state
-  const [mcpServers, setMcpServers] = useState<Record<string, MCPServerConfig>>(
-    {},
-  );
+  const [mcpServers, setMcpServers] = useState<Record<string, MCPServerConfig>>({});
   const [showMcpServers, setShowMcpServers] = useState(false);
   const [showMcpModal, setShowMcpModal] = useState(false);
   const [showMcpJsonModal, setShowMcpJsonModal] = useState(false);
@@ -638,12 +635,12 @@ const App: React.FC = () => {
     server: MCPServerConfig;
   } | null>(null);
   const [mcpFormData, setMcpFormData] = useState({
-    name: "",
-    type: "local" as "local" | "http" | "sse",
-    command: "",
-    args: "",
-    url: "",
-    tools: "*",
+    name: '',
+    type: 'local' as 'local' | 'http' | 'sse',
+    command: '',
+    args: '',
+    url: '',
+    tools: '*',
   });
 
   // Agent Skills state
@@ -663,16 +660,24 @@ const App: React.FC = () => {
 
   // Worktree session state
   const [showCreateWorktree, setShowCreateWorktree] = useState(false);
-  const [worktreeRepoPath, setWorktreeRepoPath] = useState("");
+  const [worktreeRepoPath, setWorktreeRepoPath] = useState('');
 
   // Terminal panel state - track which session has terminal open
   const [terminalOpenForSession, setTerminalOpenForSession] = useState<string | null>(null);
   // Track which sessions have had a terminal initialized (so we keep them alive)
-  const [terminalInitializedSessions, setTerminalInitializedSessions] = useState<Set<string>>(new Set());
+  const [terminalInitializedSessions, setTerminalInitializedSessions] = useState<Set<string>>(
+    new Set()
+  );
   // Terminal output attachment state
-  const [terminalAttachment, setTerminalAttachment] = useState<{output: string; lineCount: number} | null>(null);
+  const [terminalAttachment, setTerminalAttachment] = useState<{
+    output: string;
+    lineCount: number;
+  } | null>(null);
   // Terminal output shrink modal state (for long outputs)
-  const [pendingTerminalOutput, setPendingTerminalOutput] = useState<{output: string; lineCount: number} | null>(null);
+  const [pendingTerminalOutput, setPendingTerminalOutput] = useState<{
+    output: string;
+    lineCount: number;
+  } | null>(null);
 
   // Image attachment state
   const [imageAttachments, setImageAttachments] = useState<ImageAttachment[]>([]);
@@ -690,7 +695,7 @@ const App: React.FC = () => {
 
   // Track user-attached file paths per session for auto-approval
   const userAttachedPathsRef = useRef<Map<string, Set<string>>>(new Map());
-  
+
   // Track last processed idle timestamp per session to prevent duplicate handling
   const lastIdleTimestampRef = useRef<Map<string, number>>(new Map());
 
@@ -709,7 +714,7 @@ const App: React.FC = () => {
     downloadUrl: string;
   } | null>(null);
   const [showReleaseNotesModal, setShowReleaseNotesModal] = useState(false);
-  
+
   // Welcome wizard state
   const [showWelcomeWizard, setShowWelcomeWizard] = useState(false);
   const [shouldShowWizardWhenReady, setShouldShowWizardWhenReady] = useState(false);
@@ -734,39 +739,39 @@ const App: React.FC = () => {
         setTabs,
         setActiveTabId,
         getTabs: () => tabs,
-        getActiveTab: () => tabs.find(t => t.id === activeTabId),
+        getActiveTab: () => tabs.find((t) => t.id === activeTabId),
         injectMessages: (messages: Message[]) => {
-          setTabs(prev => {
+          setTabs((prev) => {
             if (prev.length === 0) {
               // Create a new tab with the messages
-              return [{
-                id: 'test-tab-1',
-                name: 'Test Conversation',
-                messages,
-                model: 'gpt-4',
-                cwd: '/tmp/test',
-                isProcessing: false,
-                activeTools: [],
-                hasUnreadCompletion: false,
-                pendingConfirmations: [],
-                needsTitle: false,
-                alwaysAllowed: [],
-                editedFiles: [],
-                untrackedFiles: [],
-                fileViewMode: 'flat',
-                currentIntent: null,
-                currentIntentTimestamp: null,
-                gitBranchRefresh: 0,
-              }];
+              return [
+                {
+                  id: 'test-tab-1',
+                  name: 'Test Conversation',
+                  messages,
+                  model: 'gpt-4',
+                  cwd: '/tmp/test',
+                  isProcessing: false,
+                  activeTools: [],
+                  hasUnreadCompletion: false,
+                  pendingConfirmations: [],
+                  needsTitle: false,
+                  alwaysAllowed: [],
+                  editedFiles: [],
+                  untrackedFiles: [],
+                  fileViewMode: 'flat',
+                  currentIntent: null,
+                  currentIntentTimestamp: null,
+                  gitBranchRefresh: 0,
+                },
+              ];
             }
-            return prev.map((tab, i) => 
-              i === 0 ? { ...tab, messages } : tab
-            );
+            return prev.map((tab, i) => (i === 0 ? { ...tab, messages } : tab));
           });
           if (!activeTabId) {
             setActiveTabId('test-tab-1');
           }
-        }
+        },
       };
     }
     return () => {
@@ -783,7 +788,7 @@ const App: React.FC = () => {
         // Check if this is a new version (show release notes)
         const { version: lastSeenVersion } = await window.electronAPI.updates.getLastSeenVersion();
         const currentVersion = buildInfo.baseVersion;
-        
+
         if (lastSeenVersion !== currentVersion && buildInfo.releaseNotes) {
           // New version - show release notes
           setShowReleaseNotesModal(true);
@@ -858,15 +863,18 @@ const App: React.FC = () => {
   // Fetch model capabilities when active tab changes
   useEffect(() => {
     if (activeTab && activeTab.model && !modelCapabilities[activeTab.model]) {
-      window.electronAPI.copilot.getModelCapabilities(activeTab.model).then(capabilities => {
-        setModelCapabilities(prev => ({
-          ...prev,
-          [activeTab.model]: {
-            supportsVision: capabilities.supportsVision,
-            visionLimits: capabilities.visionLimits
-          }
-        }));
-      }).catch(console.error);
+      window.electronAPI.copilot
+        .getModelCapabilities(activeTab.model)
+        .then((capabilities) => {
+          setModelCapabilities((prev) => ({
+            ...prev,
+            [activeTab.model]: {
+              supportsVision: capabilities.supportsVision,
+              visionLimits: capabilities.visionLimits,
+            },
+          }));
+        })
+        .catch(console.error);
     }
   }, [activeTab?.model]);
 
@@ -903,7 +911,7 @@ const App: React.FC = () => {
         setTerminalAttachment(draft.terminalAttachment);
       } else {
         // No draft saved for this tab - clear inputs
-        setInputValue("");
+        setInputValue('');
         setImageAttachments([]);
         setFileAttachments([]);
         setTerminalAttachment(null);
@@ -932,15 +940,19 @@ const App: React.FC = () => {
 
   // Save message attachments whenever tabs/messages change
   useEffect(() => {
-    tabs.forEach(tab => {
+    tabs.forEach((tab) => {
       const attachments = tab.messages
         .map((msg, index) => ({
           messageIndex: index,
           imageAttachments: msg.imageAttachments,
           fileAttachments: msg.fileAttachments,
         }))
-        .filter(a => (a.imageAttachments && a.imageAttachments.length > 0) || (a.fileAttachments && a.fileAttachments.length > 0));
-      
+        .filter(
+          (a) =>
+            (a.imageAttachments && a.imageAttachments.length > 0) ||
+            (a.fileAttachments && a.fileAttachments.length > 0)
+        );
+
       if (attachments.length > 0) {
         window.electronAPI.copilot.saveMessageAttachments(tab.id, attachments);
       }
@@ -948,7 +960,7 @@ const App: React.FC = () => {
   }, [tabs]);
 
   const scrollToBottom = (instant?: boolean) => {
-    messagesEndRef.current?.scrollIntoView({ behavior: instant ? "instant" : "smooth" });
+    messagesEndRef.current?.scrollIntoView({ behavior: instant ? 'instant' : 'smooth' });
   };
 
   // Track previous message count and session ID for scroll logic
@@ -978,23 +990,26 @@ const App: React.FC = () => {
   }, [activeTab?.messages, activeTab?.id]);
 
   // Resize handlers for side panels
-  const handleResizeMouseDown = useCallback((e: React.MouseEvent, panel: 'left' | 'right') => {
-    e.preventDefault();
-    resizingPanel.current = panel;
-    resizeStartX.current = e.clientX;
-    resizeStartWidth.current = panel === 'left' ? leftPanelWidth : rightPanelWidth;
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-  }, [leftPanelWidth, rightPanelWidth]);
+  const handleResizeMouseDown = useCallback(
+    (e: React.MouseEvent, panel: 'left' | 'right') => {
+      e.preventDefault();
+      resizingPanel.current = panel;
+      resizeStartX.current = e.clientX;
+      resizeStartWidth.current = panel === 'left' ? leftPanelWidth : rightPanelWidth;
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    },
+    [leftPanelWidth, rightPanelWidth]
+  );
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!resizingPanel.current) return;
-      
+
       const delta = e.clientX - resizeStartX.current;
       const minWidth = 120;
       const maxWidth = 400;
-      
+
       if (resizingPanel.current === 'left') {
         const newWidth = Math.min(maxWidth, Math.max(minWidth, resizeStartWidth.current + delta));
         setLeftPanelWidth(newWidth);
@@ -1022,10 +1037,10 @@ const App: React.FC = () => {
     };
   }, []);
 
-   // Reset textarea height when input is cleared
+  // Reset textarea height when input is cleared
   useEffect(() => {
     if (!inputValue && inputRef.current) {
-      inputRef.current.style.height = "auto";
+      inputRef.current.style.height = 'auto';
     }
   }, [inputValue]);
 
@@ -1036,15 +1051,12 @@ const App: React.FC = () => {
         const config = await window.electronAPI.mcp.getConfig();
         setMcpServers(config.mcpServers || {});
         const serverCount = Object.keys(config.mcpServers || {}).length;
-        console.log(
-          "Loaded MCP servers:",
-          Object.keys(config.mcpServers || {}),
-        );
+        console.log('Loaded MCP servers:', Object.keys(config.mcpServers || {}));
         if (serverCount > 0) {
           trackEvent(TelemetryEvents.FEATURE_MCP_CONNECTED);
         }
       } catch (error) {
-        console.error("Failed to load MCP config:", error);
+        console.error('Failed to load MCP config:', error);
       }
     };
     loadMcpConfig();
@@ -1058,11 +1070,11 @@ const App: React.FC = () => {
         const result = await window.electronAPI.skills.getAll(cwd);
         setSkills(result.skills || []);
         if (result.errors?.length > 0) {
-          console.warn("Some skills had errors:", result.errors);
+          console.warn('Some skills had errors:', result.errors);
         }
-        console.log("Loaded skills:", result.skills?.length || 0);
+        console.log('Loaded skills:', result.skills?.length || 0);
       } catch (error) {
-        console.error("Failed to load skills:", error);
+        console.error('Failed to load skills:', error);
       }
     };
     loadSkills();
@@ -1070,14 +1082,12 @@ const App: React.FC = () => {
 
   // Helper to update a specific tab
   const updateTab = useCallback((tabId: string, updates: Partial<TabState>) => {
-    setTabs((prev) =>
-      prev.map((tab) => (tab.id === tabId ? { ...tab, ...updates } : tab)),
-    );
+    setTabs((prev) => prev.map((tab) => (tab.id === tabId ? { ...tab, ...updates } : tab)));
   }, []);
 
   // Persist lisaConfig to sessionStorage when it changes
   useEffect(() => {
-    tabs.forEach(tab => {
+    tabs.forEach((tab) => {
       if (tab.lisaConfig) {
         sessionStorage.setItem(`lisaConfig-${tab.id}`, JSON.stringify(tab.lisaConfig));
       }
@@ -1086,183 +1096,108 @@ const App: React.FC = () => {
 
   // Set up IPC listeners
   useEffect(() => {
-    const unsubscribeReady = window.electronAPI.copilot.onReady(
-      async (data) => {
-        console.log(
-          "Copilot ready with sessions:",
-          data.sessions.length,
-          "previous:",
-          data.previousSessions.length,
-        );
-        setStatus("connected");
-        setAvailableModels(data.models);
-        
-        // Set previous sessions immediately (without worktree enrichment for fast startup)
-        setPreviousSessions(data.previousSessions);
-        
-        // Enrich previous sessions with worktree metadata in background (non-blocking)
-        enrichSessionsWithWorktreeData(data.previousSessions).then(enrichedSessions => {
+    const unsubscribeReady = window.electronAPI.copilot.onReady(async (data) => {
+      console.log(
+        'Copilot ready with sessions:',
+        data.sessions.length,
+        'previous:',
+        data.previousSessions.length
+      );
+      setStatus('connected');
+      setAvailableModels(data.models);
+
+      // Set previous sessions immediately (without worktree enrichment for fast startup)
+      setPreviousSessions(data.previousSessions);
+
+      // Enrich previous sessions with worktree metadata in background (non-blocking)
+      enrichSessionsWithWorktreeData(data.previousSessions)
+        .then((enrichedSessions) => {
           setPreviousSessions(enrichedSessions);
-        }).catch(err => {
-          console.error("Failed to enrich sessions with worktree data:", err);
+        })
+        .catch((err) => {
+          console.error('Failed to enrich sessions with worktree data:', err);
         });
 
-        // Load global safe commands in background (non-blocking)
-        window.electronAPI.copilot.getGlobalSafeCommands().then(globalCommands => {
+      // Load global safe commands in background (non-blocking)
+      window.electronAPI.copilot
+        .getGlobalSafeCommands()
+        .then((globalCommands) => {
           setGlobalSafeCommands(globalCommands);
-        }).catch(error => {
-          console.error("Failed to load global safe commands:", error);
+        })
+        .catch((error) => {
+          console.error('Failed to load global safe commands:', error);
         });
 
-        // If no sessions exist, we need to create one (with trust check)
-        if (data.sessions.length === 0) {
-          // Check trust for current directory
-          const cwd = await window.electronAPI.copilot.getCwd();
-          const trustResult =
-            await window.electronAPI.copilot.checkDirectoryTrust(cwd);
-          if (!trustResult.trusted) {
-            // User declined trust and no sessions to show - quit the app
-            window.electronAPI.window.quit();
-            return;
-          }
-
-          // Create initial session
-          try {
-            const result = await window.electronAPI.copilot.createSession();
-            trackEvent(TelemetryEvents.SESSION_CREATED);
-            const newTab: TabState = {
-              id: result.sessionId,
-              name: generateTabName(),
-              messages: [],
-              model: result.model,
-              cwd: result.cwd,
-              isProcessing: false,
-              activeTools: [],
-              hasUnreadCompletion: false,
-              pendingConfirmations: [],
-              needsTitle: true,
-              alwaysAllowed: [],
-              editedFiles: [],
-              untrackedFiles: [],
-              fileViewMode: 'flat',
-              currentIntent: null,
-              currentIntentTimestamp: null,
-              gitBranchRefresh: 0,
-            };
-            setTabs([newTab]);
-            setActiveTabId(result.sessionId);
-          } catch (error) {
-            console.error("Failed to create initial session:", error);
-            setStatus("error");
-          }
+      // If no sessions exist, we need to create one (with trust check)
+      if (data.sessions.length === 0) {
+        // Check trust for current directory
+        const cwd = await window.electronAPI.copilot.getCwd();
+        const trustResult = await window.electronAPI.copilot.checkDirectoryTrust(cwd);
+        if (!trustResult.trusted) {
+          // User declined trust and no sessions to show - quit the app
+          window.electronAPI.window.quit();
           return;
         }
 
-        // Create tabs for all resumed/created sessions
-        // Note: These are "pending" sessions - they will be fully resumed asynchronously
-        // Message loading happens in the copilot:sessionResumed handler below
-        // IMPORTANT: We must preserve any existing tabs that may have already been created
-        // by early sessionResumed events (with pre-loaded messages)
-        setTabs((existingTabs) => {
-          const existingTabIds = new Set(existingTabs.map(t => t.id));
-          
-          // Create new tabs only for sessions that don't already have a tab
-          const newTabs: TabState[] = data.sessions
-            .filter(s => !existingTabIds.has(s.sessionId))
-            .map((s, idx) => {
-              // Restore lisaConfig from sessionStorage if available
-              const storedLisaConfig = sessionStorage.getItem(`lisaConfig-${s.sessionId}`);
-              const lisaConfig = storedLisaConfig ? JSON.parse(storedLisaConfig) : undefined;
-              
-              return {
-                id: s.sessionId,
-                name: s.name || `Session ${existingTabs.length + idx + 1}`,
-                messages: [], // Will be loaded when session is actually resumed (copilot:sessionResumed)
-                model: s.model,
-                cwd: s.cwd,
-                isProcessing: false,
-                activeTools: [],
-                hasUnreadCompletion: false,
-                pendingConfirmations: [],
-                needsTitle: !s.name, // Only need title if no name provided
-                alwaysAllowed: s.alwaysAllowed || [],
-                editedFiles: s.editedFiles || [],
-                untrackedFiles: s.untrackedFiles || [],
-                fileViewMode: s.fileViewMode || 'flat',
-                currentIntent: null,
-                currentIntentTimestamp: null,
-                gitBranchRefresh: 0,
-                lisaConfig,
-                markedForReview: s.markedForReview,
-                reviewNote: s.reviewNote,
-              };
-            });
-          
-          // Merge: keep existing tabs (with their messages), add new ones
-          return [...existingTabs, ...newTabs];
-        });
+        // Create initial session
+        try {
+          const result = await window.electronAPI.copilot.createSession();
+          trackEvent(TelemetryEvents.SESSION_CREATED);
+          const newTab: TabState = {
+            id: result.sessionId,
+            name: generateTabName(),
+            messages: [],
+            model: result.model,
+            cwd: result.cwd,
+            isProcessing: false,
+            activeTools: [],
+            hasUnreadCompletion: false,
+            pendingConfirmations: [],
+            needsTitle: true,
+            alwaysAllowed: [],
+            editedFiles: [],
+            untrackedFiles: [],
+            fileViewMode: 'flat',
+            currentIntent: null,
+            currentIntentTimestamp: null,
+            gitBranchRefresh: 0,
+          };
+          setTabs([newTab]);
+          setActiveTabId(result.sessionId);
+        } catch (error) {
+          console.error('Failed to create initial session:', error);
+          setStatus('error');
+        }
+        return;
+      }
 
-        // Update tab counter to avoid duplicate names
-        setTabCounter(data.sessions.length);
+      // Create tabs for all resumed/created sessions
+      // Note: These are "pending" sessions - they will be fully resumed asynchronously
+      // Message loading happens in the copilot:sessionResumed handler below
+      // IMPORTANT: We must preserve any existing tabs that may have already been created
+      // by early sessionResumed events (with pre-loaded messages)
+      setTabs((existingTabs) => {
+        const existingTabIds = new Set(existingTabs.map((t) => t.id));
 
-        // Set active tab if not already set
-        setActiveTabId((currentActive) => currentActive || data.sessions[0]?.sessionId || null);
+        // Create new tabs only for sessions that don't already have a tab
+        const newTabs: TabState[] = data.sessions
+          .filter((s) => !existingTabIds.has(s.sessionId))
+          .map((s, idx) => {
+            // Restore lisaConfig from sessionStorage if available
+            const storedLisaConfig = sessionStorage.getItem(`lisaConfig-${s.sessionId}`);
+            const lisaConfig = storedLisaConfig ? JSON.parse(storedLisaConfig) : undefined;
 
-        // Don't load messages here - sessions are still pending resumption
-        // The copilot:sessionResumed handler below will load messages when each session is actually ready
-        
-        // Mark data as loaded for wizard
-        setDataLoaded(true);
-      },
-    );
-
-    const unsubscribeSessionResumed = window.electronAPI.copilot.onSessionResumed(
-      (data) => {
-        const s = data.session;
-        
-        // Check if messages were pre-loaded (early resumption includes them)
-        const preloadedMessages = s.messages || [];
-        
-        // Add tab if it doesn't exist yet (this can happen if session was resumed before copilot:ready)
-        setTabs((prev) => {
-          if (prev.some((tab) => tab.id === s.sessionId)) {
-            // Tab exists, update with pre-loaded messages if available
-            if (preloadedMessages.length > 0) {
-              return prev.map((tab) =>
-                tab.id === s.sessionId
-                  ? {
-                      ...tab,
-                      messages: preloadedMessages.map((m, i) => ({
-                        id: `hist-${i}`,
-                        ...m,
-                        isStreaming: false,
-                      })),
-                      needsTitle: false,
-                    }
-                  : tab,
-              );
-            }
-            return prev;
-          }
-          const storedLisaConfig = sessionStorage.getItem(`lisaConfig-${s.sessionId}`);
-          const lisaConfig = storedLisaConfig ? JSON.parse(storedLisaConfig) : undefined;
-          return [
-            ...prev,
-            {
+            return {
               id: s.sessionId,
-              name: s.name || `Session ${prev.length + 1}`,
-              messages: preloadedMessages.map((m, i) => ({
-                id: `hist-${i}`,
-                ...m,
-                isStreaming: false,
-              })),
+              name: s.name || `Session ${existingTabs.length + idx + 1}`,
+              messages: [], // Will be loaded when session is actually resumed (copilot:sessionResumed)
               model: s.model,
               cwd: s.cwd,
               isProcessing: false,
               activeTools: [],
               hasUnreadCompletion: false,
               pendingConfirmations: [],
-              needsTitle: !s.name && preloadedMessages.length === 0,
+              needsTitle: !s.name, // Only need title if no name provided
               alwaysAllowed: s.alwaysAllowed || [],
               editedFiles: s.editedFiles || [],
               untrackedFiles: s.untrackedFiles || [],
@@ -1271,93 +1206,169 @@ const App: React.FC = () => {
               currentIntentTimestamp: null,
               gitBranchRefresh: 0,
               lisaConfig,
-            },
-          ];
-        });
+              markedForReview: s.markedForReview,
+              reviewNote: s.reviewNote,
+            };
+          });
 
-        // Only set active tab if none is set yet (don't switch tabs when loading in background)
-        setActiveTabId((currentActive) => currentActive || s.sessionId);
+        // Merge: keep existing tabs (with their messages), add new ones
+        return [...existingTabs, ...newTabs];
+      });
 
-        // Only fetch messages if they weren't pre-loaded
-        if (preloadedMessages.length === 0) {
-          // Load messages now that the session is actually resumed and ready
-          Promise.all([
-            window.electronAPI.copilot.getMessages(s.sessionId),
-            window.electronAPI.copilot.loadMessageAttachments(s.sessionId),
-          ])
-            .then(([messages, attachmentsResult]) => {
-              if (messages.length > 0) {
-                const attachmentMap = new Map(
-                  attachmentsResult.attachments.map((a) => [a.messageIndex, a]),
-                );
-                setTabs((prev) =>
-                  prev.map((tab) =>
-                    tab.id === s.sessionId
-                      ? {
-                          ...tab,
-                          messages: messages.map((m, i) => {
-                            const att = attachmentMap.get(i);
-                            return {
-                              id: `hist-${i}`,
-                              ...m,
-                              isStreaming: false,
-                              imageAttachments: att?.imageAttachments,
-                              fileAttachments: att?.fileAttachments,
-                            };
-                          }),
-                          needsTitle: false,
-                        }
-                      : tab,
-                  ),
-                );
-              }
-            })
-            .catch((err) =>
-              console.error(`Failed to load history for ${s.sessionId}:`, err),
+      // Update tab counter to avoid duplicate names
+      setTabCounter(data.sessions.length);
+
+      // Set active tab if not already set
+      setActiveTabId((currentActive) => currentActive || data.sessions[0]?.sessionId || null);
+
+      // Don't load messages here - sessions are still pending resumption
+      // The copilot:sessionResumed handler below will load messages when each session is actually ready
+
+      // Mark data as loaded for wizard
+      setDataLoaded(true);
+    });
+
+    const unsubscribeSessionResumed = window.electronAPI.copilot.onSessionResumed((data) => {
+      const s = data.session;
+
+      // Check if messages were pre-loaded (early resumption includes them)
+      const preloadedMessages = s.messages || [];
+
+      // Add tab if it doesn't exist yet (this can happen if session was resumed before copilot:ready)
+      setTabs((prev) => {
+        if (prev.some((tab) => tab.id === s.sessionId)) {
+          // Tab exists, update with pre-loaded messages if available
+          if (preloadedMessages.length > 0) {
+            return prev.map((tab) =>
+              tab.id === s.sessionId
+                ? {
+                    ...tab,
+                    messages: preloadedMessages.map((m, i) => ({
+                      id: `hist-${i}`,
+                      ...m,
+                      isStreaming: false,
+                    })),
+                    needsTitle: false,
+                  }
+                : tab
             );
-        } else {
-          // Still load attachments for pre-loaded messages
-          window.electronAPI.copilot.loadMessageAttachments(s.sessionId)
-            .then((attachmentsResult) => {
-              if (attachmentsResult.attachments.length > 0) {
-                const attachmentMap = new Map(
-                  attachmentsResult.attachments.map((a) => [a.messageIndex, a]),
-                );
-                setTabs((prev) =>
-                  prev.map((tab) =>
-                    tab.id === s.sessionId
-                      ? {
-                          ...tab,
-                          messages: tab.messages.map((m, i) => {
-                            const att = attachmentMap.get(i);
-                            return att ? { ...m, imageAttachments: att.imageAttachments, fileAttachments: att.fileAttachments } : m;
-                          }),
-                        }
-                      : tab,
-                  ),
-                );
-              }
-            })
-            .catch((err) =>
-              console.error(`Failed to load attachments for ${s.sessionId}:`, err),
-            );
+          }
+          return prev;
         }
-      },
-    );
+        const storedLisaConfig = sessionStorage.getItem(`lisaConfig-${s.sessionId}`);
+        const lisaConfig = storedLisaConfig ? JSON.parse(storedLisaConfig) : undefined;
+        return [
+          ...prev,
+          {
+            id: s.sessionId,
+            name: s.name || `Session ${prev.length + 1}`,
+            messages: preloadedMessages.map((m, i) => ({
+              id: `hist-${i}`,
+              ...m,
+              isStreaming: false,
+            })),
+            model: s.model,
+            cwd: s.cwd,
+            isProcessing: false,
+            activeTools: [],
+            hasUnreadCompletion: false,
+            pendingConfirmations: [],
+            needsTitle: !s.name && preloadedMessages.length === 0,
+            alwaysAllowed: s.alwaysAllowed || [],
+            editedFiles: s.editedFiles || [],
+            untrackedFiles: s.untrackedFiles || [],
+            fileViewMode: s.fileViewMode || 'flat',
+            currentIntent: null,
+            currentIntentTimestamp: null,
+            gitBranchRefresh: 0,
+            lisaConfig,
+          },
+        ];
+      });
+
+      // Only set active tab if none is set yet (don't switch tabs when loading in background)
+      setActiveTabId((currentActive) => currentActive || s.sessionId);
+
+      // Only fetch messages if they weren't pre-loaded
+      if (preloadedMessages.length === 0) {
+        // Load messages now that the session is actually resumed and ready
+        Promise.all([
+          window.electronAPI.copilot.getMessages(s.sessionId),
+          window.electronAPI.copilot.loadMessageAttachments(s.sessionId),
+        ])
+          .then(([messages, attachmentsResult]) => {
+            if (messages.length > 0) {
+              const attachmentMap = new Map(
+                attachmentsResult.attachments.map((a) => [a.messageIndex, a])
+              );
+              setTabs((prev) =>
+                prev.map((tab) =>
+                  tab.id === s.sessionId
+                    ? {
+                        ...tab,
+                        messages: messages.map((m, i) => {
+                          const att = attachmentMap.get(i);
+                          return {
+                            id: `hist-${i}`,
+                            ...m,
+                            isStreaming: false,
+                            imageAttachments: att?.imageAttachments,
+                            fileAttachments: att?.fileAttachments,
+                          };
+                        }),
+                        needsTitle: false,
+                      }
+                    : tab
+                )
+              );
+            }
+          })
+          .catch((err) => console.error(`Failed to load history for ${s.sessionId}:`, err));
+      } else {
+        // Still load attachments for pre-loaded messages
+        window.electronAPI.copilot
+          .loadMessageAttachments(s.sessionId)
+          .then((attachmentsResult) => {
+            if (attachmentsResult.attachments.length > 0) {
+              const attachmentMap = new Map(
+                attachmentsResult.attachments.map((a) => [a.messageIndex, a])
+              );
+              setTabs((prev) =>
+                prev.map((tab) =>
+                  tab.id === s.sessionId
+                    ? {
+                        ...tab,
+                        messages: tab.messages.map((m, i) => {
+                          const att = attachmentMap.get(i);
+                          return att
+                            ? {
+                                ...m,
+                                imageAttachments: att.imageAttachments,
+                                fileAttachments: att.fileAttachments,
+                              }
+                            : m;
+                        }),
+                      }
+                    : tab
+                )
+              );
+            }
+          })
+          .catch((err) => console.error(`Failed to load attachments for ${s.sessionId}:`, err));
+      }
+    });
 
     // Also fetch models in case ready event was missed (baseline list only)
     window.electronAPI.copilot
       .getModels()
       .then((data) => {
-        console.log("Fetched models:", data);
+        console.log('Fetched models:', data);
         if (data.models && data.models.length > 0) {
           setAvailableModels(data.models);
-          setStatus("connected");
+          setStatus('connected');
         }
       })
-      .catch((err) =>
-        console.log("getModels failed (SDK may still be initializing):", err),
-      );
+      .catch((err) => console.log('getModels failed (SDK may still be initializing):', err));
 
     const unsubscribeDelta = window.electronAPI.copilot.onDelta((data) => {
       const { sessionId, content } = data;
@@ -1365,7 +1376,7 @@ const App: React.FC = () => {
         prev.map((tab) => {
           if (tab.id !== sessionId) return tab;
           const last = tab.messages[tab.messages.length - 1];
-          if (last && last.role === "assistant" && last.isStreaming) {
+          if (last && last.role === 'assistant' && last.isStreaming) {
             return {
               ...tab,
               messages: [
@@ -1375,7 +1386,7 @@ const App: React.FC = () => {
             };
           }
           return tab;
-        }),
+        })
       );
     });
 
@@ -1384,14 +1395,14 @@ const App: React.FC = () => {
       setTabs((prev) =>
         prev.map((tab) => {
           if (tab.id !== sessionId) return tab;
-          
+
           // Clear pending injection flags on all user messages since agent has now responded
-          const messagesWithClearedPending = tab.messages.map(msg => 
+          const messagesWithClearedPending = tab.messages.map((msg) =>
             msg.isPendingInjection ? { ...msg, isPendingInjection: false } : msg
           );
-          
+
           const last = messagesWithClearedPending[messagesWithClearedPending.length - 1];
-          if (last && last.role === "assistant" && last.isStreaming) {
+          if (last && last.role === 'assistant' && last.isStreaming) {
             return {
               ...tab,
               messages: [
@@ -1406,26 +1417,28 @@ const App: React.FC = () => {
               ...messagesWithClearedPending,
               {
                 id: generateId(),
-                role: "assistant",
+                role: 'assistant',
                 content,
                 isStreaming: false,
                 timestamp: Date.now(),
               },
             ],
           };
-        }),
+        })
       );
     });
 
     const unsubscribeIdle = window.electronAPI.copilot.onIdle((data) => {
       const { sessionId } = data;
-      
+
       // Deduplicate idle events - if we processed one very recently for this session, skip
       // This prevents double-processing from React StrictMode or rapid duplicate events
       const now = Date.now();
       const lastIdle = lastIdleTimestampRef.current.get(sessionId) || 0;
       if (now - lastIdle < 500) {
-        console.log(`[Idle] Skipping duplicate idle event for session ${sessionId} (${now - lastIdle}ms since last)`);
+        console.log(
+          `[Idle] Skipping duplicate idle event for session ${sessionId} (${now - lastIdle}ms since last)`
+        );
         return;
       }
       lastIdleTimestampRef.current.set(sessionId, now);
@@ -1440,28 +1453,26 @@ const App: React.FC = () => {
         // Check for Ralph loop continuation
         if (tab?.ralphConfig?.active) {
           const lastMessage = tab.messages[tab.messages.length - 1];
-          const hasCompletionPromise = lastMessage?.content?.includes(
-            RALPH_COMPLETION_SIGNAL
-          );
+          const hasCompletionPromise = lastMessage?.content?.includes(RALPH_COMPLETION_SIGNAL);
           const maxReached = tab.ralphConfig.currentIteration >= tab.ralphConfig.maxIterations;
 
           if (!hasCompletionPromise && !maxReached) {
             // Continue Ralph loop
             const nextIteration = tab.ralphConfig.currentIteration + 1;
             console.log(`[Ralph] Iteration ${nextIteration}/${tab.ralphConfig.maxIterations}`);
-            
-            const screenshotChecklistItem = tab.ralphConfig.requireScreenshot 
-              ? '\n- [ ] Screenshot taken of the delivered feature' 
+
+            const screenshotChecklistItem = tab.ralphConfig.requireScreenshot
+              ? '\n- [ ] Screenshot taken of the delivered feature'
               : '';
-            
+
             // Build continuation prompt based on context clearing setting
             // If clearContextBetweenIterations is true, we provide minimal context (like Gemini Ralph)
             // and instruct the agent to re-read files for state (reduces context pollution)
             const clearContext = tab.ralphConfig.clearContextBetweenIterations ?? true;
             const lastResponseContent = lastMessage?.content || '';
-            
+
             let continuationPrompt: string;
-            
+
             if (clearContext) {
               // Gemini-style: Clear context, rely on file state
               // This forces agent to read ralph-progress.md and git status for context
@@ -1546,7 +1557,7 @@ COMPLETION CHECKLIST (verify ALL before signaling complete):
 
 Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complete.`;
             }
-            
+
             // Schedule the re-send after state update
             // If clearing context, we may want to reset the session in the future
             // For now, we just use a fresh prompt that instructs reading files
@@ -1571,7 +1582,9 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
             });
           } else {
             // Ralph loop complete - stop it and close settings
-            console.log(`[Ralph] Loop complete. Reason: ${hasCompletionPromise ? 'completion promise found' : 'max iterations reached'}`);
+            console.log(
+              `[Ralph] Loop complete. Reason: ${hasCompletionPromise ? 'completion promise found' : 'max iterations reached'}`
+            );
             setShowRalphSettings(false);
             setShowLisaSettings(false);
           }
@@ -1590,31 +1603,33 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
           // New phase flow: plan → plan-review → execute → code-review → validate → final-review → COMPLETE
           const getNextPhase = (phase: LisaPhase): LisaPhase | null => {
             const phaseFlow: Record<LisaPhase, LisaPhase | null> = {
-              'plan': 'plan-review',
-              'plan-review': 'execute',      // After plan approved
-              'execute': 'code-review',
-              'code-review': 'validate',     // After code approved
-              'validate': 'final-review',
-              'final-review': null           // Loop complete after final approval
+              plan: 'plan-review',
+              'plan-review': 'execute', // After plan approved
+              execute: 'code-review',
+              'code-review': 'validate', // After code approved
+              validate: 'final-review',
+              'final-review': null, // Loop complete after final approval
             };
             return phaseFlow[phase];
           };
 
           // Helper to get phase display name
           const getPhaseDisplayName = (phase: LisaPhase): string => {
-            const names: Record<LisaPhase, string> = { 
-              'plan': 'Planner', 
-              'plan-review': 'Plan Review', 
-              'execute': 'Coder', 
-              'code-review': 'Code Review', 
-              'validate': 'Tester', 
-              'final-review': 'Final Review' 
+            const names: Record<LisaPhase, string> = {
+              plan: 'Planner',
+              'plan-review': 'Plan Review',
+              execute: 'Coder',
+              'code-review': 'Code Review',
+              validate: 'Tester',
+              'final-review': 'Final Review',
             };
             return names[phase];
           };
 
           // Is this a review phase?
-          const isReviewPhase = ['plan-review', 'code-review', 'final-review'].includes(currentPhase);
+          const isReviewPhase = ['plan-review', 'code-review', 'final-review'].includes(
+            currentPhase
+          );
 
           // Check if we should continue or transition
           let shouldContinue = false;
@@ -1625,7 +1640,9 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
             // Review approved - move to next phase (or complete if final-review)
             nextPhase = getNextPhase(currentPhase);
             if (nextPhase) {
-              console.log(`[Lisa] ${getPhaseDisplayName(currentPhase)} approved! Moving to ${getPhaseDisplayName(nextPhase)}`);
+              console.log(
+                `[Lisa] ${getPhaseDisplayName(currentPhase)} approved! Moving to ${getPhaseDisplayName(nextPhase)}`
+              );
               shouldContinue = true;
             } else {
               // Final review approved - Lisa loop complete!
@@ -1634,17 +1651,25 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
             }
           } else if (isReviewPhase && hasReviewReject) {
             // Review rejected - extract phase to return to
-            const rejectMatch = lastContent.match(new RegExp(`${LISA_REVIEW_REJECT_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*(plan|execute|validate)`));
+            const rejectMatch = lastContent.match(
+              new RegExp(
+                `${LISA_REVIEW_REJECT_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*(plan|execute|validate)`
+              )
+            );
             if (rejectMatch) {
               rejectToPhase = rejectMatch[1] as LisaPhase;
-              console.log(`[Lisa] ${getPhaseDisplayName(currentPhase)} rejected, returning to ${getPhaseDisplayName(rejectToPhase)}`);
+              console.log(
+                `[Lisa] ${getPhaseDisplayName(currentPhase)} rejected, returning to ${getPhaseDisplayName(rejectToPhase)}`
+              );
               shouldContinue = true;
             }
           } else if (hasPhaseComplete && !isReviewPhase) {
             // Non-review phase complete - move to its review phase
             nextPhase = getNextPhase(currentPhase);
             if (nextPhase) {
-              console.log(`[Lisa] ${getPhaseDisplayName(currentPhase)} complete, moving to ${getPhaseDisplayName(nextPhase)}`);
+              console.log(
+                `[Lisa] ${getPhaseDisplayName(currentPhase)} complete, moving to ${getPhaseDisplayName(nextPhase)}`
+              );
               shouldContinue = true;
             }
           } else if (!hasPhaseComplete && !hasReviewApprove && !hasReviewReject) {
@@ -1656,7 +1681,7 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
             const targetPhase = rejectToPhase || nextPhase || currentPhase;
             const isNewPhase = targetPhase !== currentPhase;
             const targetVisitCount = isNewPhase ? 1 : currentVisitCount + 1;
-            
+
             console.log(`[Lisa] ${getPhaseDisplayName(targetPhase)} - Visit #${targetVisitCount}`);
 
             // Build phase-specific continuation prompt
@@ -1690,7 +1715,7 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
                   phaseIterations: newPhaseIterations,
                   phaseHistory: [
                     ...t.lisaConfig!.phaseHistory,
-                    { phase: targetPhase, iteration: targetVisitCount, timestamp: Date.now() }
+                    { phase: targetPhase, iteration: targetVisitCount, timestamp: Date.now() },
                   ],
                 },
                 messages: t.messages.map((msg) =>
@@ -1700,7 +1725,9 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
             });
           } else {
             // Lisa loop complete - close settings
-            console.log(`[Lisa] Loop complete. Phase: ${currentPhase}, Reason: ${hasReviewApprove ? 'final review approved' : 'no continuation needed'}`);
+            console.log(
+              `[Lisa] Loop complete. Phase: ${currentPhase}, Reason: ${hasReviewApprove ? 'final review approved' : 'no continuation needed'}`
+            );
             setShowRalphSettings(false);
             setShowLisaSettings(false);
           }
@@ -1713,36 +1740,27 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
             .filter((m) => m.content.trim())
             .slice(0, 4) // First few messages only
             .map((m) => `${m.role}: ${m.content.slice(0, 200)}`)
-            .join("\n");
+            .join('\n');
 
           // Generate title async (don't await here)
           window.electronAPI.copilot
             .generateTitle(conversation)
             .then((title) => {
               setTabs((p) =>
-                p.map((t) =>
-                  t.id === sessionId
-                    ? { ...t, name: title, needsTitle: false }
-                    : t,
-                ),
+                p.map((t) => (t.id === sessionId ? { ...t, name: title, needsTitle: false } : t))
               );
             })
             .catch((err) => {
-              console.error("Failed to generate title:", err);
+              console.error('Failed to generate title:', err);
               // Fall back to truncated first message
-              const firstUserMsg = tab.messages.find(
-                (m) => m.role === "user",
-              )?.content;
+              const firstUserMsg = tab.messages.find((m) => m.role === 'user')?.content;
               if (firstUserMsg) {
                 const fallback =
-                  firstUserMsg.slice(0, 30) +
-                  (firstUserMsg.length > 30 ? "..." : "");
+                  firstUserMsg.slice(0, 30) + (firstUserMsg.length > 30 ? '...' : '');
                 setTabs((p) =>
                   p.map((t) =>
-                    t.id === sessionId
-                      ? { ...t, name: fallback, needsTitle: false }
-                      : t,
-                  ),
+                    t.id === sessionId ? { ...t, name: fallback, needsTitle: false } : t
+                  )
                 );
               }
             });
@@ -1750,7 +1768,9 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
 
         // Detect if the last assistant message contains choice options
         if (tab) {
-          const lastAssistantMsg = [...tab.messages].reverse().find(m => m.role === "assistant" && m.content.trim());
+          const lastAssistantMsg = [...tab.messages]
+            .reverse()
+            .find((m) => m.role === 'assistant' && m.content.trim());
           if (lastAssistantMsg?.content) {
             window.electronAPI.copilot
               .detectChoices(lastAssistantMsg.content)
@@ -1758,15 +1778,13 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
                 if (result.isChoice && result.options) {
                   setTabs((p) =>
                     p.map((t) =>
-                      t.id === sessionId
-                        ? { ...t, detectedChoices: result.options }
-                        : t,
-                    ),
+                      t.id === sessionId ? { ...t, detectedChoices: result.options } : t
+                    )
                   );
                 }
               })
               .catch((err) => {
-                console.error("Failed to detect choices:", err);
+                console.error('Failed to detect choices:', err);
               });
           }
         }
@@ -1780,20 +1798,18 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
             currentIntent: null,
             currentIntentTimestamp: null,
             // Deactivate Ralph if it was active
-            ralphConfig: tab.ralphConfig?.active 
+            ralphConfig: tab.ralphConfig?.active
               ? { ...tab.ralphConfig, active: false }
               : tab.ralphConfig,
             // Deactivate Lisa if it was active
-            lisaConfig: tab.lisaConfig?.active 
+            lisaConfig: tab.lisaConfig?.active
               ? { ...tab.lisaConfig, active: false }
               : tab.lisaConfig,
             // Mark as unread if this tab is not currently active
             hasUnreadCompletion: tab.id !== activeTabIdRef.current,
             messages: tab.messages
-              .filter((msg) => msg.content.trim() || msg.role === "user")
-              .map((msg) =>
-                msg.isStreaming ? { ...msg, isStreaming: false } : msg,
-              ),
+              .filter((msg) => msg.content.trim() || msg.role === 'user')
+              .map((msg) => (msg.isStreaming ? { ...msg, isStreaming: false } : msg)),
           };
         });
       });
@@ -1801,8 +1817,8 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       // Focus textarea when response completes for the active tab
       // (but not if there are pending confirmations requiring user action)
       if (sessionId === activeTabIdRef.current) {
-        setTabs(currentTabs => {
-          const tab = currentTabs.find(t => t.id === sessionId);
+        setTabs((currentTabs) => {
+          const tab = currentTabs.find((t) => t.id === sessionId);
           if (tab && tab.pendingConfirmations.length === 0) {
             inputRef.current?.focus();
           }
@@ -1811,69 +1827,63 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       }
     });
 
-    const unsubscribeToolStart = window.electronAPI.copilot.onToolStart(
-      (data) => {
-        const { sessionId, toolCallId, toolName, input } = data;
-        const name = toolName || "unknown";
-        const id = toolCallId || generateId();
+    const unsubscribeToolStart = window.electronAPI.copilot.onToolStart((data) => {
+      const { sessionId, toolCallId, toolName, input } = data;
+      const name = toolName || 'unknown';
+      const id = toolCallId || generateId();
 
-        console.log(
-          `[Tool Start] ${name}: toolCallId=${toolCallId}, id=${id}, input=`,
-          input,
-        );
+      console.log(`[Tool Start] ${name}: toolCallId=${toolCallId}, id=${id}, input=`, input);
 
-        // Capture intent from report_intent tool
-        if (name === "report_intent") {
-          const intent = input?.intent as string | undefined;
-          if (intent) {
-            setTabs((prev) =>
-              prev.map((tab) =>
-                tab.id === sessionId ? { ...tab, currentIntent: intent, currentIntentTimestamp: Date.now() } : tab,
-              ),
-            );
-          }
-          return;
+      // Capture intent from report_intent tool
+      if (name === 'report_intent') {
+        const intent = input?.intent as string | undefined;
+        if (intent) {
+          setTabs((prev) =>
+            prev.map((tab) =>
+              tab.id === sessionId
+                ? { ...tab, currentIntent: intent, currentIntentTimestamp: Date.now() }
+                : tab
+            )
+          );
         }
+        return;
+      }
 
-        // Skip other internal tools
-        if (name === "update_todo") return;
+      // Skip other internal tools
+      if (name === 'update_todo') return;
 
-        // Track edited/created files at start time (we have reliable input here)
-        const isFileOperation = name === "edit" || name === "create";
+      // Track edited/created files at start time (we have reliable input here)
+      const isFileOperation = name === 'edit' || name === 'create';
 
-        setTabs((prev) =>
-          prev.map((tab) => {
-            if (tab.id !== sessionId) return tab;
+      setTabs((prev) =>
+        prev.map((tab) => {
+          if (tab.id !== sessionId) return tab;
 
-            // Track edited/created files at start time (we have reliable input here)
-            let newEditedFiles = tab.editedFiles;
-            if (isFileOperation && input) {
-              const path = input.path as string | undefined;
-              if (path && !tab.editedFiles.includes(path)) {
-                newEditedFiles = [...tab.editedFiles, path];
-                console.log(
-                  `[Tool Start] Added to editedFiles:`,
-                  newEditedFiles,
-                );
-              }
+          // Track edited/created files at start time (we have reliable input here)
+          let newEditedFiles = tab.editedFiles;
+          if (isFileOperation && input) {
+            const path = input.path as string | undefined;
+            if (path && !tab.editedFiles.includes(path)) {
+              newEditedFiles = [...tab.editedFiles, path];
+              console.log(`[Tool Start] Added to editedFiles:`, newEditedFiles);
             }
+          }
 
-            return {
-              ...tab,
-              editedFiles: newEditedFiles,
-              activeTools: [
-                ...tab.activeTools,
-                { toolCallId: id, toolName: name, status: "running", input },
-              ],
-            };
-          }),
-        );
-      },
-    );
+          return {
+            ...tab,
+            editedFiles: newEditedFiles,
+            activeTools: [
+              ...tab.activeTools,
+              { toolCallId: id, toolName: name, status: 'running', input },
+            ],
+          };
+        })
+      );
+    });
 
     const unsubscribeToolEnd = window.electronAPI.copilot.onToolEnd((data) => {
       const { sessionId, toolCallId, toolName, input, output } = data;
-      const name = toolName || "unknown";
+      const name = toolName || 'unknown';
 
       console.log(`[Tool End] ${name}:`, {
         toolCallId,
@@ -1882,16 +1892,14 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       });
 
       // Skip internal tools
-      if (name === "report_intent" || name === "update_todo") return;
+      if (name === 'report_intent' || name === 'update_todo') return;
 
       setTabs((prev) =>
         prev.map((tab) => {
           if (tab.id !== sessionId) return tab;
 
           // Get the tool's input from activeTools (more reliable than event data)
-          const activeTool = tab.activeTools.find(
-            (t) => t.toolCallId === toolCallId,
-          );
+          const activeTool = tab.activeTools.find((t) => t.toolCallId === toolCallId);
           const toolInput = input || activeTool?.input;
 
           return {
@@ -1900,169 +1908,163 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
               t.toolCallId === toolCallId
                 ? {
                     ...t,
-                    status: "done" as const,
+                    status: 'done' as const,
                     input: toolInput || t.input,
                     output,
                   }
-                : t,
+                : t
             ),
           };
-        }),
+        })
       );
     });
 
     // Listen for permission requests
-    const unsubscribePermission = window.electronAPI.copilot.onPermission(
-      (data) => {
-        console.log(
-          "Permission requested (full data):",
-          JSON.stringify(data, null, 2),
-        );
-        const sessionId = data.sessionId as string;
-        const requestPath = data.path as string | undefined;
-        
-        // Auto-approve reads for user-attached files (files user explicitly uploaded)
-        if (requestPath && (data.kind === 'read' || data.kind === 'file-read')) {
-          const sessionPaths = userAttachedPathsRef.current.get(sessionId);
-          if (sessionPaths?.has(requestPath)) {
-            console.log('Auto-approving read for user-attached file:', requestPath);
-            window.electronAPI.copilot.respondPermission({
-              requestId: data.requestId,
-              decision: 'approved'
-            });
-            return;
-          }
-        }
-        
-        // Play notification sound when permission is needed
-        playNotificationSound();
+    const unsubscribePermission = window.electronAPI.copilot.onPermission((data) => {
+      console.log('Permission requested (full data):', JSON.stringify(data, null, 2));
+      const sessionId = data.sessionId as string;
+      const requestPath = data.path as string | undefined;
 
-        // Spread all data to preserve any extra fields from SDK
-        const confirmation: PendingConfirmation = {
-          ...data,
-          requestId: data.requestId,
-          sessionId,
-          kind: data.kind,
-          executable: data.executable,
-          toolCallId: data.toolCallId as string | undefined,
-          fullCommandText: data.fullCommandText as string | undefined,
-          intention: data.intention as string | undefined,
-          path: data.path as string | undefined,
-          url: data.url as string | undefined,
-          serverName: data.serverName as string | undefined,
-          toolName: data.toolName as string | undefined,
-          toolTitle: data.toolTitle as string | undefined,
-          isOutOfScope: data.isOutOfScope as boolean | undefined,
-          content: data.content as string | undefined,
-        };
-        // Add to pending confirmations queue (don't replace existing ones)
-        setTabs((prev) =>
-          prev.map((tab) =>
-            tab.id === sessionId
-              ? {
-                  ...tab,
-                  pendingConfirmations: [
-                    ...tab.pendingConfirmations,
-                    confirmation,
-                  ],
-                }
-              : tab,
-          ),
-        );
-      },
-    );
+      // Auto-approve reads for user-attached files (files user explicitly uploaded)
+      if (requestPath && (data.kind === 'read' || data.kind === 'file-read')) {
+        const sessionPaths = userAttachedPathsRef.current.get(sessionId);
+        if (sessionPaths?.has(requestPath)) {
+          console.log('Auto-approving read for user-attached file:', requestPath);
+          window.electronAPI.copilot.respondPermission({
+            requestId: data.requestId,
+            decision: 'approved',
+          });
+          return;
+        }
+      }
+
+      // Play notification sound when permission is needed
+      playNotificationSound();
+
+      // Spread all data to preserve any extra fields from SDK
+      const confirmation: PendingConfirmation = {
+        ...data,
+        requestId: data.requestId,
+        sessionId,
+        kind: data.kind,
+        executable: data.executable,
+        toolCallId: data.toolCallId as string | undefined,
+        fullCommandText: data.fullCommandText as string | undefined,
+        intention: data.intention as string | undefined,
+        path: data.path as string | undefined,
+        url: data.url as string | undefined,
+        serverName: data.serverName as string | undefined,
+        toolName: data.toolName as string | undefined,
+        toolTitle: data.toolTitle as string | undefined,
+        isOutOfScope: data.isOutOfScope as boolean | undefined,
+        content: data.content as string | undefined,
+      };
+      // Add to pending confirmations queue (don't replace existing ones)
+      setTabs((prev) =>
+        prev.map((tab) =>
+          tab.id === sessionId
+            ? {
+                ...tab,
+                pendingConfirmations: [...tab.pendingConfirmations, confirmation],
+              }
+            : tab
+        )
+      );
+    });
 
     const unsubscribeError = window.electronAPI.copilot.onError((data) => {
       const { sessionId, message } = data;
-      console.error("Copilot error:", message);
+      console.error('Copilot error:', message);
 
       setTabs((prev) =>
         prev.map((tab) => {
           if (tab.id !== sessionId) return tab;
-          const newMessages = !message.includes("invalid_request_body")
+          const newMessages = !message.includes('invalid_request_body')
             ? [
                 ...tab.messages,
                 {
                   id: generateId(),
-                  role: "assistant" as const,
+                  role: 'assistant' as const,
                   content: `⚠️ ${message}`,
                   timestamp: Date.now(),
                 },
               ]
             : tab.messages;
           return { ...tab, isProcessing: false, messages: newMessages };
-        }),
+        })
       );
     });
 
     // Listen for verified models update (async verification after startup)
-    const unsubscribeModelsVerified = window.electronAPI.copilot.onModelsVerified(
-      (data) => {
-        console.log("Models verified:", data.models.length, "available");
-        setAvailableModels(data.models);
-      },
-    );
+    const unsubscribeModelsVerified = window.electronAPI.copilot.onModelsVerified((data) => {
+      console.log('Models verified:', data.models.length, 'available');
+      setAvailableModels(data.models);
+    });
 
     // Listen for context usage info updates
-    const unsubscribeUsageInfo = window.electronAPI.copilot.onUsageInfo(
-      (data) => {
-        const { sessionId, tokenLimit, currentTokens, messagesLength } = data;
-        setTabs((prev) =>
-          prev.map((tab) =>
-            tab.id === sessionId
-              ? {
-                  ...tab,
-                  contextUsage: { tokenLimit, currentTokens, messagesLength },
-                }
-              : tab,
-          ),
-        );
-      },
-    );
+    const unsubscribeUsageInfo = window.electronAPI.copilot.onUsageInfo((data) => {
+      const { sessionId, tokenLimit, currentTokens, messagesLength } = data;
+      setTabs((prev) =>
+        prev.map((tab) =>
+          tab.id === sessionId
+            ? {
+                ...tab,
+                contextUsage: { tokenLimit, currentTokens, messagesLength },
+              }
+            : tab
+        )
+      );
+    });
 
     // Listen for compaction start
-    const unsubscribeCompactionStart = window.electronAPI.copilot.onCompactionStart(
-      (data) => {
-        const { sessionId } = data;
-        setTabs((prev) =>
-          prev.map((tab) =>
-            tab.id === sessionId
-              ? {
-                  ...tab,
-                  compactionStatus: "compacting" as const,
-                }
-              : tab,
-          ),
-        );
-      },
-    );
+    const unsubscribeCompactionStart = window.electronAPI.copilot.onCompactionStart((data) => {
+      const { sessionId } = data;
+      setTabs((prev) =>
+        prev.map((tab) =>
+          tab.id === sessionId
+            ? {
+                ...tab,
+                compactionStatus: 'compacting' as const,
+              }
+            : tab
+        )
+      );
+    });
 
     // Listen for compaction complete
     const unsubscribeCompactionComplete = window.electronAPI.copilot.onCompactionComplete(
       (data) => {
-        const { sessionId, success, preCompactionTokens, postCompactionTokens, tokensRemoved, summaryContent, error } = data;
+        const {
+          sessionId,
+          success,
+          preCompactionTokens,
+          postCompactionTokens,
+          tokensRemoved,
+          summaryContent,
+          error,
+        } = data;
         setTabs((prev) =>
           prev.map((tab) => {
             if (tab.id !== sessionId) return tab;
-            
+
             // Add a system message about the compaction
             const compactionMessage: Message = {
               id: generateId(),
-              role: "system",
+              role: 'system',
               content: success
                 ? `📦 Context compacted: ${(tokensRemoved || 0).toLocaleString()} tokens removed (${((preCompactionTokens || 0) / 1000).toFixed(0)}K → ${((postCompactionTokens || 0) / 1000).toFixed(0)}K)${summaryContent ? `\n\n**Summary:**\n${summaryContent}` : ''}`
                 : `⚠️ Context compaction failed: ${error || 'Unknown error'}`,
               timestamp: Date.now(),
             };
-            
+
             return {
               ...tab,
-              compactionStatus: "idle" as const,
+              compactionStatus: 'idle' as const,
               messages: [...tab.messages, compactionMessage],
             };
-          }),
+          })
         );
-      },
+      }
     );
 
     return () => {
@@ -2082,9 +2084,14 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
     };
   }, []);
 
-
   const handleSendMessage = useCallback(async () => {
-    if (!inputValue.trim() && !terminalAttachment && imageAttachments.length === 0 && fileAttachments.length === 0) return;
+    if (
+      !inputValue.trim() &&
+      !terminalAttachment &&
+      imageAttachments.length === 0 &&
+      fileAttachments.length === 0
+    )
+      return;
     if (!activeTab) return;
 
     // If there are pending confirmations, automatically deny them when sending a new message
@@ -2092,45 +2099,45 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
     // This matches the behavior of handleConfirmation which also processes one at a time
     if (activeTab.pendingConfirmations.length > 0) {
       const pendingConfirmation = activeTab.pendingConfirmations[0];
-      
+
       // Deny the pending confirmation
       try {
         await window.electronAPI.copilot.respondPermission({
           requestId: pendingConfirmation.requestId,
-          decision: "denied",
+          decision: 'denied',
         });
       } catch (error) {
-        console.error("Error denying pending confirmation:", error);
+        console.error('Error denying pending confirmation:', error);
       }
 
       // Remove this confirmation from the queue
       const remainingConfirmations = activeTab.pendingConfirmations.slice(1);
 
       // Add a system message showing what was denied
-      let deniedContent = "🚫 **Denied:** ";
-      if (pendingConfirmation.kind === "command" || pendingConfirmation.kind === "bash") {
+      let deniedContent = '🚫 **Denied:** ';
+      if (pendingConfirmation.kind === 'command' || pendingConfirmation.kind === 'bash') {
         deniedContent += `Command execution`;
         if (pendingConfirmation.fullCommandText) {
           deniedContent += `\n\`\`\`\n${pendingConfirmation.fullCommandText}\n\`\`\``;
         } else if (pendingConfirmation.executable) {
           deniedContent += ` \`${pendingConfirmation.executable}\``;
         }
-      } else if (pendingConfirmation.kind === "mcp") {
-        deniedContent += `MCP tool \`${pendingConfirmation.toolName || pendingConfirmation.toolTitle || "unknown"}\``;
+      } else if (pendingConfirmation.kind === 'mcp') {
+        deniedContent += `MCP tool \`${pendingConfirmation.toolName || pendingConfirmation.toolTitle || 'unknown'}\``;
         if (pendingConfirmation.serverName) {
           deniedContent += ` from server \`${pendingConfirmation.serverName}\``;
         }
-      } else if (pendingConfirmation.kind === "url") {
+      } else if (pendingConfirmation.kind === 'url') {
         deniedContent += `URL fetch`;
         if (pendingConfirmation.url) {
           deniedContent += `: ${pendingConfirmation.url}`;
         }
-      } else if (pendingConfirmation.kind === "write" || pendingConfirmation.kind === "edit") {
+      } else if (pendingConfirmation.kind === 'write' || pendingConfirmation.kind === 'edit') {
         deniedContent += `File ${pendingConfirmation.kind}`;
         if (pendingConfirmation.path) {
           deniedContent += `: \`${pendingConfirmation.path}\``;
         }
-      } else if (pendingConfirmation.kind === "read") {
+      } else if (pendingConfirmation.kind === 'read') {
         deniedContent += `File read`;
         if (pendingConfirmation.path) {
           deniedContent += `: \`${pendingConfirmation.path}\``;
@@ -2144,7 +2151,7 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
 
       const deniedMessage: Message = {
         id: generateId(),
-        role: "system",
+        role: 'system',
         content: deniedContent,
         timestamp: Date.now(),
       };
@@ -2159,7 +2166,7 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
     let messageContent = inputValue.trim();
     if (terminalAttachment) {
       const terminalBlock = `\`\`\`\n${terminalAttachment.output}\n\`\`\``;
-      messageContent = messageContent 
+      messageContent = messageContent
         ? `${messageContent}\n\nTerminal output:\n${terminalBlock}`
         : `Terminal output:\n${terminalBlock}`;
     }
@@ -2169,20 +2176,36 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
     if (activeTab.ralphConfig?.active && messageContent.trim()) {
       const originalPrompt = activeTab.ralphConfig.originalPrompt;
       const currentMessage = messageContent.trim().toLowerCase();
-      
+
       // Common continuation phrases that should NOT trigger ghost protection
       const continuationPhrases = [
-        'continue', 'keep going', 'proceed', 'go ahead', 'yes', 'ok', 'okay',
-        'fix', 'try again', 'retry', 'debug', 'help', 'stop', 'cancel', 'abort'
+        'continue',
+        'keep going',
+        'proceed',
+        'go ahead',
+        'yes',
+        'ok',
+        'okay',
+        'fix',
+        'try again',
+        'retry',
+        'debug',
+        'help',
+        'stop',
+        'cancel',
+        'abort',
       ];
-      
+
       // Check if this looks like a completely new task (not a continuation)
-      const isNewTask = !continuationPhrases.some(phrase => currentMessage.includes(phrase)) &&
-                        currentMessage.length > 50 && // Substantial new message
-                        !currentMessage.includes(RALPH_COMPLETION_SIGNAL.toLowerCase());
-      
+      const isNewTask =
+        !continuationPhrases.some((phrase) => currentMessage.includes(phrase)) &&
+        currentMessage.length > 50 && // Substantial new message
+        !currentMessage.includes(RALPH_COMPLETION_SIGNAL.toLowerCase());
+
       if (isNewTask) {
-        console.log('[Ralph] 👻 Ghost protection triggered - new task detected, cancelling Ralph loop');
+        console.log(
+          '[Ralph] 👻 Ghost protection triggered - new task detected, cancelling Ralph loop'
+        );
         // Cancel the Ralph loop
         updateTab(activeTab.id, {
           ralphConfig: { ...activeTab.ralphConfig, active: false },
@@ -2202,61 +2225,61 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
         fileAttachments: fileAttachments.length > 0 ? [...fileAttachments] : undefined,
         terminalAttachment: terminalAttachment ? { ...terminalAttachment } : undefined,
       };
-      
+
       // Build SDK attachments
       const sdkAttachments = [
-        ...imageAttachments.map(img => ({
+        ...imageAttachments.map((img) => ({
           type: 'file' as const,
           path: img.path,
-          displayName: img.name
+          displayName: img.name,
         })),
-        ...fileAttachments.map(file => ({
+        ...fileAttachments.map((file) => ({
           type: 'file' as const,
           path: file.path,
-          displayName: file.name
-        }))
+          displayName: file.name,
+        })),
       ];
-      
+
       // Track attached paths for auto-approval
       if (sdkAttachments.length > 0) {
         const sessionPaths = userAttachedPathsRef.current.get(activeTab.id) || new Set<string>();
-        sdkAttachments.forEach(att => sessionPaths.add(att.path));
+        sdkAttachments.forEach((att) => sessionPaths.add(att.path));
         userAttachedPathsRef.current.set(activeTab.id, sessionPaths);
       }
-      
+
       // Create user message for display - mark as pending injection
       const userMessage: Message = {
         id: generateId(),
-        role: "user",
+        role: 'user',
         content: messageContent,
         imageAttachments: imageAttachments.length > 0 ? [...imageAttachments] : undefined,
         fileAttachments: fileAttachments.length > 0 ? [...fileAttachments] : undefined,
         isPendingInjection: true, // Mark as pending until agent acknowledges
       };
-      
+
       // Add user message to conversation (but don't add assistant placeholder since agent is already working)
-      updateTab(activeTab.id, { 
+      updateTab(activeTab.id, {
         messages: [...activeTab.messages, userMessage],
         draftInput: undefined, // Clear draft after sending
       });
-      
+
       // Clear input immediately
-      setInputValue("");
+      setInputValue('');
       setTerminalAttachment(null);
       setImageAttachments([]);
       setFileAttachments([]);
-      
+
       // Send with enqueue mode to inject into agent's processing queue
       try {
         console.log(`[Injection] Sending enqueued message to session ${activeTab.id}`);
         await window.electronAPI.copilot.send(
-          activeTab.id, 
-          messageContent, 
+          activeTab.id,
+          messageContent,
           sdkAttachments.length > 0 ? sdkAttachments : undefined,
           'enqueue'
         );
       } catch (error) {
-        console.error("Send injection error:", error);
+        console.error('Send injection error:', error);
         // Message is already shown to user, just log the error
       }
       return;
@@ -2264,7 +2287,7 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
 
     const userMessage: Message = {
       id: generateId(),
-      role: "user",
+      role: 'user',
       content: messageContent,
       imageAttachments: imageAttachments.length > 0 ? [...imageAttachments] : undefined,
       fileAttachments: fileAttachments.length > 0 ? [...fileAttachments] : undefined,
@@ -2274,9 +2297,13 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
 
     // Set up Ralph config if enabled - auto-inject completion instruction
     const startedAt = new Date().toISOString();
-    const progressFilePath = activeTab?.cwd ? `${activeTab.cwd}/${RALPH_PROGRESS_FILENAME}` : RALPH_PROGRESS_FILENAME;
-    const stateFilePath = activeTab?.cwd ? `${activeTab.cwd}/${RALPH_STATE_FILENAME}` : RALPH_STATE_FILENAME;
-    
+    const progressFilePath = activeTab?.cwd
+      ? `${activeTab.cwd}/${RALPH_PROGRESS_FILENAME}`
+      : RALPH_PROGRESS_FILENAME;
+    const stateFilePath = activeTab?.cwd
+      ? `${activeTab.cwd}/${RALPH_STATE_FILENAME}`
+      : RALPH_STATE_FILENAME;
+
     const ralphConfig: RalphConfig | undefined = ralphEnabled
       ? {
           originalPrompt: userMessage.content,
@@ -2296,20 +2323,20 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       ? {
           originalPrompt: userMessage.content,
           currentPhase: 'plan',
-          phaseIterations: { 
-            'plan': 1, 
-            'plan-review': 0, 
-            'execute': 0, 
-            'code-review': 0, 
-            'validate': 0, 
-            'final-review': 0 
+          phaseIterations: {
+            plan: 1,
+            'plan-review': 0,
+            execute: 0,
+            'code-review': 0,
+            validate: 0,
+            'final-review': 0,
           },
           active: true,
           phaseHistory: [{ phase: 'plan', iteration: 1, timestamp: Date.now() }],
           evidenceFolderPath: activeTab?.cwd ? `${activeTab.cwd}/evidence` : 'evidence',
         }
       : undefined;
-    
+
     // Build screenshot requirement text if enabled
     const screenshotRequirement = ralphRequireScreenshot
       ? `
@@ -2396,22 +2423,22 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
     // Build SDK attachments from image and file attachments
     const sdkAttachments = [
-      ...imageAttachments.map(img => ({
+      ...imageAttachments.map((img) => ({
         type: 'file' as const,
         path: img.path,
-        displayName: img.name
+        displayName: img.name,
       })),
-      ...fileAttachments.map(file => ({
+      ...fileAttachments.map((file) => ({
         type: 'file' as const,
         path: file.path,
-        displayName: file.name
-      }))
+        displayName: file.name,
+      })),
     ];
 
     // Track attached paths for auto-approval of permission requests
     if (sdkAttachments.length > 0) {
       const sessionPaths = userAttachedPathsRef.current.get(tabId) || new Set();
-      sdkAttachments.forEach(att => sessionPaths.add(att.path));
+      sdkAttachments.forEach((att) => sessionPaths.add(att.path));
       userAttachedPathsRef.current.set(tabId, sessionPaths);
     }
 
@@ -2421,8 +2448,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         userMessage,
         {
           id: generateId(),
-          role: "assistant",
-          content: "",
+          role: 'assistant',
+          content: '',
           isStreaming: true,
           timestamp: Date.now(),
         },
@@ -2434,11 +2461,11 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       detectedChoices: undefined, // Clear any detected choices
       draftInput: undefined, // Clear draft after sending
     });
-    setInputValue("");
+    setInputValue('');
     setTerminalAttachment(null);
     setImageAttachments([]);
     setFileAttachments([]);
-    
+
     // Reset Ralph UI state after sending
     if (ralphEnabled) {
       setRalphEnabled(false);
@@ -2453,18 +2480,34 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     }
 
     try {
-      await window.electronAPI.copilot.send(tabId, promptToSend, sdkAttachments.length > 0 ? sdkAttachments : undefined);
+      await window.electronAPI.copilot.send(
+        tabId,
+        promptToSend,
+        sdkAttachments.length > 0 ? sdkAttachments : undefined
+      );
     } catch (error) {
-      console.error("Send error:", error);
+      console.error('Send error:', error);
       updateTab(tabId, { isProcessing: false, ralphConfig: undefined, lisaConfig: undefined });
     }
-  }, [inputValue, activeTab, updateTab, ralphEnabled, ralphMaxIterations, ralphRequireScreenshot, ralphClearContext, lisaEnabled, terminalAttachment, imageAttachments, fileAttachments]);
+  }, [
+    inputValue,
+    activeTab,
+    updateTab,
+    ralphEnabled,
+    ralphMaxIterations,
+    ralphRequireScreenshot,
+    ralphClearContext,
+    lisaEnabled,
+    terminalAttachment,
+    imageAttachments,
+    fileAttachments,
+  ]);
 
   // Handle sending terminal output to the agent
   const handleSendTerminalOutput = useCallback((output: string, lineCount: number) => {
     if (!output.trim()) return;
     const trimmedOutput = output.trim();
-    
+
     // If output exceeds threshold, show shrink modal
     if (lineCount > LONG_OUTPUT_LINE_THRESHOLD) {
       setPendingTerminalOutput({ output: trimmedOutput, lineCount });
@@ -2485,23 +2528,26 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
   // Cancel a specific pending injection by index, or all if index not provided
   // Get model capabilities (with caching)
-  const getModelCapabilitiesForModel = useCallback(async (modelId: string): Promise<ModelCapabilities> => {
-    if (modelCapabilities[modelId]) {
-      return modelCapabilities[modelId];
-    }
-    try {
-      const capabilities = await window.electronAPI.copilot.getModelCapabilities(modelId);
-      const newCapabilities: ModelCapabilities = {
-        supportsVision: capabilities.supportsVision,
-        visionLimits: capabilities.visionLimits
-      };
-      setModelCapabilities(prev => ({ ...prev, [modelId]: newCapabilities }));
-      return newCapabilities;
-    } catch (error) {
-      console.error('Failed to get model capabilities:', error);
-      return { supportsVision: false };
-    }
-  }, [modelCapabilities]);
+  const getModelCapabilitiesForModel = useCallback(
+    async (modelId: string): Promise<ModelCapabilities> => {
+      if (modelCapabilities[modelId]) {
+        return modelCapabilities[modelId];
+      }
+      try {
+        const capabilities = await window.electronAPI.copilot.getModelCapabilities(modelId);
+        const newCapabilities: ModelCapabilities = {
+          supportsVision: capabilities.supportsVision,
+          visionLimits: capabilities.visionLimits,
+        };
+        setModelCapabilities((prev) => ({ ...prev, [modelId]: newCapabilities }));
+        return newCapabilities;
+      } catch (error) {
+        console.error('Failed to get model capabilities:', error);
+        return { supportsVision: false };
+      }
+    },
+    [modelCapabilities]
+  );
 
   // Check if current model supports vision
   const currentModelSupportsVision = useCallback((): boolean => {
@@ -2514,9 +2560,9 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
   const handleImageSelect = useCallback(async (files: FileList | null) => {
     console.log('handleImageSelect called with files:', files?.length);
     if (!files || files.length === 0) return;
-    
+
     const newAttachments: ImageAttachment[] = [];
-    
+
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       console.log('Processing file:', file.name, 'type:', file.type);
@@ -2524,7 +2570,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         console.log('Skipping non-image file:', file.name, file.type);
         continue;
       }
-      
+
       // Read file as data URL for preview
       const reader = new FileReader();
       const dataUrl = await new Promise<string>((resolve) => {
@@ -2532,12 +2578,12 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         reader.readAsDataURL(file);
       });
       console.log('Read dataUrl, length:', dataUrl.length);
-      
+
       // Save to temp file for SDK
       const filename = `image-${Date.now()}-${i}${file.name.substring(file.name.lastIndexOf('.'))}`;
       const result = await window.electronAPI.copilot.saveImageToTemp(dataUrl, filename);
       console.log('saveImageToTemp result:', result);
-      
+
       if (result.success && result.path) {
         newAttachments.push({
           id: generateId(),
@@ -2545,35 +2591,35 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           previewUrl: dataUrl,
           name: file.name,
           size: file.size,
-          mimeType: file.type
+          mimeType: file.type,
         });
       }
     }
-    
+
     console.log('newAttachments:', newAttachments.length);
     if (newAttachments.length > 0) {
-      setImageAttachments(prev => [...prev, ...newAttachments]);
+      setImageAttachments((prev) => [...prev, ...newAttachments]);
       inputRef.current?.focus();
     }
   }, []);
 
   // Handle removing an image attachment
   const handleRemoveImage = useCallback((id: string) => {
-    setImageAttachments(prev => prev.filter(img => img.id !== id));
+    setImageAttachments((prev) => prev.filter((img) => img.id !== id));
   }, []);
 
   // Handle file selection (non-image files)
   const handleFileSelect = useCallback(async (files: FileList | null) => {
     console.log('handleFileSelect called with files:', files?.length);
     if (!files || files.length === 0) return;
-    
+
     const newAttachments: FileAttachment[] = [];
-    
+
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       console.log('Processing file:', file.name, 'type:', file.type);
       // Note: We allow all files including images - users can attach images as files if they prefer
-      
+
       // In Electron, File objects from file picker have a path property
       // Use it directly to avoid copying and trust issues
       const electronFile = file as File & { path?: string };
@@ -2584,11 +2630,11 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           path: electronFile.path,
           name: file.name,
           size: file.size,
-          mimeType: file.type || 'application/octet-stream'
+          mimeType: file.type || 'application/octet-stream',
         });
         continue;
       }
-      
+
       // Fallback: Read file as data URL and save to temp (for pasted/dropped files without path)
       const reader = new FileReader();
       const dataUrl = await new Promise<string>((resolve) => {
@@ -2596,87 +2642,90 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         reader.readAsDataURL(file);
       });
       console.log('Read dataUrl, length:', dataUrl.length);
-      
+
       // Save to temp file for SDK
       const ext = file.name.includes('.') ? file.name.substring(file.name.lastIndexOf('.')) : '';
       const filename = `file-${Date.now()}-${i}${ext}`;
       const mimeType = file.type || 'application/octet-stream';
       const result = await window.electronAPI.copilot.saveFileToTemp(dataUrl, filename, mimeType);
       console.log('saveFileToTemp result:', result);
-      
+
       if (result.success && result.path) {
         newAttachments.push({
           id: generateId(),
           path: result.path,
           name: file.name,
           size: result.size || file.size,
-          mimeType: mimeType
+          mimeType: mimeType,
         });
       }
     }
-    
+
     console.log('newAttachments:', newAttachments.length);
     if (newAttachments.length > 0) {
-      setFileAttachments(prev => [...prev, ...newAttachments]);
+      setFileAttachments((prev) => [...prev, ...newAttachments]);
       inputRef.current?.focus();
     }
   }, []);
 
   // Handle removing a file attachment
   const handleRemoveFile = useCallback((id: string) => {
-    setFileAttachments(prev => prev.filter(f => f.id !== id));
+    setFileAttachments((prev) => prev.filter((f) => f.id !== id));
   }, []);
 
   // Handle paste event for images and files
-  const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-    
-    const imageFiles: File[] = [];
-    const otherFiles: File[] = [];
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      if (item.kind === 'file') {
-        const file = item.getAsFile();
-        if (file) {
-          if (item.type.startsWith('image/')) {
-            imageFiles.push(file);
-          } else {
-            otherFiles.push(file);
+  const handlePaste = useCallback(
+    async (e: React.ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      const imageFiles: File[] = [];
+      const otherFiles: File[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.kind === 'file') {
+          const file = item.getAsFile();
+          if (file) {
+            if (item.type.startsWith('image/')) {
+              imageFiles.push(file);
+            } else {
+              otherFiles.push(file);
+            }
           }
         }
       }
-    }
-    
-    if (imageFiles.length > 0 || otherFiles.length > 0) {
-      e.preventDefault();
-      
-      if (imageFiles.length > 0) {
-        const dataTransfer = new DataTransfer();
-        imageFiles.forEach(f => dataTransfer.items.add(f));
-        await handleImageSelect(dataTransfer.files);
+
+      if (imageFiles.length > 0 || otherFiles.length > 0) {
+        e.preventDefault();
+
+        if (imageFiles.length > 0) {
+          const dataTransfer = new DataTransfer();
+          imageFiles.forEach((f) => dataTransfer.items.add(f));
+          await handleImageSelect(dataTransfer.files);
+        }
+
+        if (otherFiles.length > 0) {
+          const dataTransfer = new DataTransfer();
+          otherFiles.forEach((f) => dataTransfer.items.add(f));
+          await handleFileSelect(dataTransfer.files);
+        }
       }
-      
-      if (otherFiles.length > 0) {
-        const dataTransfer = new DataTransfer();
-        otherFiles.forEach(f => dataTransfer.items.add(f));
-        await handleFileSelect(dataTransfer.files);
-      }
-    }
-  }, [handleImageSelect, handleFileSelect]);
+    },
+    [handleImageSelect, handleFileSelect]
+  );
 
   // Handle drag events for images and files
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    
+
     const hasImages = Array.from(e.dataTransfer.items).some(
-      item => item.kind === 'file' && item.type.startsWith('image/')
+      (item) => item.kind === 'file' && item.type.startsWith('image/')
     );
     const hasFiles = Array.from(e.dataTransfer.items).some(
-      item => item.kind === 'file' && !item.type.startsWith('image/')
+      (item) => item.kind === 'file' && !item.type.startsWith('image/')
     );
-    
+
     if (hasImages) {
       setIsDraggingImage(true);
     }
@@ -2692,191 +2741,199 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     setIsDraggingFile(false);
   }, []);
 
-  const handleDrop = useCallback(async (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDraggingImage(false);
-    setIsDraggingFile(false);
-    
-    // In Electron, we need to get file paths differently
-    const files = e.dataTransfer.files;
-    
-    // Try to get files from dataTransfer.files first - separate images and other files
-    if (files.length > 0) {
-      console.log('Drop event - using files:', files.length);
-      const imageFiles: File[] = [];
-      const otherFiles: File[] = [];
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        if (file.type.startsWith('image/') || file.name.match(/\.(png|jpg|jpeg|gif|webp|bmp)$/i)) {
-          imageFiles.push(file);
-        } else {
-          otherFiles.push(file);
-        }
-      }
-      if (imageFiles.length > 0) {
-        const dataTransfer = new DataTransfer();
-        imageFiles.forEach(f => dataTransfer.items.add(f));
-        await handleImageSelect(dataTransfer.files);
-      }
-      if (otherFiles.length > 0) {
-        const dataTransfer = new DataTransfer();
-        otherFiles.forEach(f => dataTransfer.items.add(f));
-        await handleFileSelect(dataTransfer.files);
-      }
-      return;
-    }
-    
-    // Try getting files from items
-    const items = e.dataTransfer.items;
-    if (items && items.length > 0) {
-      const imageFiles: File[] = [];
-      const otherFiles: File[] = [];
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        console.log('Item:', item.kind, item.type);
-        if (item.kind === 'file') {
-          const file = item.getAsFile();
-          console.log('File from item:', file?.name, file?.type, file?.size);
-          if (file) {
-            if (file.type.startsWith('image/') || file.name.match(/\.(png|jpg|jpeg|gif|webp|bmp)$/i)) {
-              imageFiles.push(file);
-            } else {
-              otherFiles.push(file);
-            }
+  const handleDrop = useCallback(
+    async (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDraggingImage(false);
+      setIsDraggingFile(false);
+
+      // In Electron, we need to get file paths differently
+      const files = e.dataTransfer.files;
+
+      // Try to get files from dataTransfer.files first - separate images and other files
+      if (files.length > 0) {
+        console.log('Drop event - using files:', files.length);
+        const imageFiles: File[] = [];
+        const otherFiles: File[] = [];
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          if (
+            file.type.startsWith('image/') ||
+            file.name.match(/\.(png|jpg|jpeg|gif|webp|bmp)$/i)
+          ) {
+            imageFiles.push(file);
+          } else {
+            otherFiles.push(file);
           }
         }
-      }
-      if (imageFiles.length > 0) {
-        const dataTransfer = new DataTransfer();
-        imageFiles.forEach(f => dataTransfer.items.add(f));
-        await handleImageSelect(dataTransfer.files);
-      }
-      if (otherFiles.length > 0) {
-        const dataTransfer = new DataTransfer();
-        otherFiles.forEach(f => dataTransfer.items.add(f));
-        await handleFileSelect(dataTransfer.files);
-      }
-      if (imageFiles.length > 0 || otherFiles.length > 0) {
+        if (imageFiles.length > 0) {
+          const dataTransfer = new DataTransfer();
+          imageFiles.forEach((f) => dataTransfer.items.add(f));
+          await handleImageSelect(dataTransfer.files);
+        }
+        if (otherFiles.length > 0) {
+          const dataTransfer = new DataTransfer();
+          otherFiles.forEach((f) => dataTransfer.items.add(f));
+          await handleFileSelect(dataTransfer.files);
+        }
         return;
       }
-    }
-    
-    // Try getting file paths from URI list
-    const uriList = e.dataTransfer.getData('text/uri-list');
-    console.log('URI list:', uriList);
-    if (uriList) {
-      const urls = uriList.split('\n').filter(uri => uri.trim());
-      
-      // Handle http/https image URLs - fetch via main process (bypasses CSP)
-      const httpUrls = urls.filter(uri => uri.startsWith('http://') || uri.startsWith('https://'));
-      if (httpUrls.length > 0) {
-        console.log('Fetching images from URLs:', httpUrls);
-        const newAttachments: ImageAttachment[] = [];
-        for (const url of httpUrls) {
-          try {
-            const result = await window.electronAPI.copilot.fetchImageFromUrl(url);
-            console.log('fetchImageFromUrl result:', result);
-            if (result.success && result.path && result.dataUrl) {
-              newAttachments.push({
-                id: generateId(),
-                path: result.path,
-                previewUrl: result.dataUrl,
-                name: result.filename || 'image.png',
-                size: result.size || 0,
-                mimeType: result.mimeType || 'image/png'
-              });
+
+      // Try getting files from items
+      const items = e.dataTransfer.items;
+      if (items && items.length > 0) {
+        const imageFiles: File[] = [];
+        const otherFiles: File[] = [];
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+          console.log('Item:', item.kind, item.type);
+          if (item.kind === 'file') {
+            const file = item.getAsFile();
+            console.log('File from item:', file?.name, file?.type, file?.size);
+            if (file) {
+              if (
+                file.type.startsWith('image/') ||
+                file.name.match(/\.(png|jpg|jpeg|gif|webp|bmp)$/i)
+              ) {
+                imageFiles.push(file);
+              } else {
+                otherFiles.push(file);
+              }
             }
-          } catch (err) {
-            console.error('Failed to fetch image from URL:', url, err);
           }
         }
-        if (newAttachments.length > 0) {
-          setImageAttachments(prev => [...prev, ...newAttachments]);
-          inputRef.current?.focus();
+        if (imageFiles.length > 0) {
+          const dataTransfer = new DataTransfer();
+          imageFiles.forEach((f) => dataTransfer.items.add(f));
+          await handleImageSelect(dataTransfer.files);
+        }
+        if (otherFiles.length > 0) {
+          const dataTransfer = new DataTransfer();
+          otherFiles.forEach((f) => dataTransfer.items.add(f));
+          await handleFileSelect(dataTransfer.files);
+        }
+        if (imageFiles.length > 0 || otherFiles.length > 0) {
           return;
         }
       }
-      
-      // Handle file:// URLs
-      const filePaths = urls
-        .filter(uri => uri.startsWith('file://'))
-        .map(uri => decodeURIComponent(uri.replace('file://', '')));
-      console.log('File paths from URI:', filePaths);
-    }
-  }, [handleImageSelect, handleFileSelect]);
+
+      // Try getting file paths from URI list
+      const uriList = e.dataTransfer.getData('text/uri-list');
+      console.log('URI list:', uriList);
+      if (uriList) {
+        const urls = uriList.split('\n').filter((uri) => uri.trim());
+
+        // Handle http/https image URLs - fetch via main process (bypasses CSP)
+        const httpUrls = urls.filter(
+          (uri) => uri.startsWith('http://') || uri.startsWith('https://')
+        );
+        if (httpUrls.length > 0) {
+          console.log('Fetching images from URLs:', httpUrls);
+          const newAttachments: ImageAttachment[] = [];
+          for (const url of httpUrls) {
+            try {
+              const result = await window.electronAPI.copilot.fetchImageFromUrl(url);
+              console.log('fetchImageFromUrl result:', result);
+              if (result.success && result.path && result.dataUrl) {
+                newAttachments.push({
+                  id: generateId(),
+                  path: result.path,
+                  previewUrl: result.dataUrl,
+                  name: result.filename || 'image.png',
+                  size: result.size || 0,
+                  mimeType: result.mimeType || 'image/png',
+                });
+              }
+            } catch (err) {
+              console.error('Failed to fetch image from URL:', url, err);
+            }
+          }
+          if (newAttachments.length > 0) {
+            setImageAttachments((prev) => [...prev, ...newAttachments]);
+            inputRef.current?.focus();
+            return;
+          }
+        }
+
+        // Handle file:// URLs
+        const filePaths = urls
+          .filter((uri) => uri.startsWith('file://'))
+          .map((uri) => decodeURIComponent(uri.replace('file://', '')));
+        console.log('File paths from URI:', filePaths);
+      }
+    },
+    [handleImageSelect, handleFileSelect]
+  );
 
   const handleStop = useCallback(() => {
     if (!activeTab) return;
     window.electronAPI.copilot.abort(activeTab.id);
     // Also stop Ralph and Lisa loops if active
-    updateTab(activeTab.id, { 
+    updateTab(activeTab.id, {
       isProcessing: false,
-      ralphConfig: activeTab.ralphConfig 
-        ? { ...activeTab.ralphConfig, active: false }
-        : undefined,
-      lisaConfig: activeTab.lisaConfig 
-        ? { ...activeTab.lisaConfig, active: false }
-        : undefined,
+      ralphConfig: activeTab.ralphConfig ? { ...activeTab.ralphConfig, active: false } : undefined,
+      lisaConfig: activeTab.lisaConfig ? { ...activeTab.lisaConfig, active: false } : undefined,
     });
   }, [activeTab, updateTab]);
 
   // Handle selecting a choice from the choice selector
-  const handleChoiceSelect = useCallback(async (choice: DetectedChoice) => {
-    if (!activeTab || activeTab.isProcessing) return;
+  const handleChoiceSelect = useCallback(
+    async (choice: DetectedChoice) => {
+      if (!activeTab || activeTab.isProcessing) return;
 
-    const userMessage: Message = {
-      id: generateId(),
-      role: "user",
-      content: choice.label,
-    };
+      const userMessage: Message = {
+        id: generateId(),
+        role: 'user',
+        content: choice.label,
+      };
 
-    const tabId = activeTab.id;
+      const tabId = activeTab.id;
 
-    updateTab(tabId, {
-      messages: [
-        ...activeTab.messages,
-        userMessage,
-        {
-          id: generateId(),
-          role: "assistant",
-          content: "",
-          isStreaming: true,
-          timestamp: Date.now(),
-        },
-      ],
-      isProcessing: true,
-      activeTools: [],
-      detectedChoices: undefined, // Clear choices
-    });
+      updateTab(tabId, {
+        messages: [
+          ...activeTab.messages,
+          userMessage,
+          {
+            id: generateId(),
+            role: 'assistant',
+            content: '',
+            isStreaming: true,
+            timestamp: Date.now(),
+          },
+        ],
+        isProcessing: true,
+        activeTools: [],
+        detectedChoices: undefined, // Clear choices
+      });
 
-    try {
-      await window.electronAPI.copilot.send(tabId, choice.label);
-    } catch (error) {
-      console.error("Send error:", error);
-      updateTab(tabId, { isProcessing: false });
-    }
-  }, [activeTab, updateTab]);
+      try {
+        await window.electronAPI.copilot.send(tabId, choice.label);
+      } catch (error) {
+        console.error('Send error:', error);
+        updateTab(tabId, { isProcessing: false });
+      }
+    },
+    [activeTab, updateTab]
+  );
 
   const handleKeyPress = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === "Enter" && !e.shiftKey) {
+      if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         handleSendMessage();
       }
     },
-    [handleSendMessage],
+    [handleSendMessage]
   );
 
-  const handleConfirmation = async (
-    decision: "approved" | "always" | "global" | "denied",
-  ) => {
+  const handleConfirmation = async (decision: 'approved' | 'always' | 'global' | 'denied') => {
     // Get the first pending confirmation from the queue
     const pendingConfirmation = activeTab?.pendingConfirmations?.[0];
     if (!pendingConfirmation || !activeTab) return;
 
     // Always reset to "once" for next command (safety measure)
-    setAllowMode("once");
+    setAllowMode('once');
     setShowAllowDropdown(false);
 
     try {
@@ -2889,31 +2946,31 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       const remainingConfirmations = activeTab.pendingConfirmations.slice(1);
 
       // If denied, add a system message showing what was denied
-      if (decision === "denied") {
-        let deniedContent = "🚫 **Denied:** ";
-        if (pendingConfirmation.kind === "command" || pendingConfirmation.kind === "bash") {
+      if (decision === 'denied') {
+        let deniedContent = '🚫 **Denied:** ';
+        if (pendingConfirmation.kind === 'command' || pendingConfirmation.kind === 'bash') {
           deniedContent += `Command execution`;
           if (pendingConfirmation.fullCommandText) {
             deniedContent += `\n\`\`\`\n${pendingConfirmation.fullCommandText}\n\`\`\``;
           } else if (pendingConfirmation.executable) {
             deniedContent += ` \`${pendingConfirmation.executable}\``;
           }
-        } else if (pendingConfirmation.kind === "mcp") {
-          deniedContent += `MCP tool \`${pendingConfirmation.toolName || pendingConfirmation.toolTitle || "unknown"}\``;
+        } else if (pendingConfirmation.kind === 'mcp') {
+          deniedContent += `MCP tool \`${pendingConfirmation.toolName || pendingConfirmation.toolTitle || 'unknown'}\``;
           if (pendingConfirmation.serverName) {
             deniedContent += ` from server \`${pendingConfirmation.serverName}\``;
           }
-        } else if (pendingConfirmation.kind === "url") {
+        } else if (pendingConfirmation.kind === 'url') {
           deniedContent += `URL fetch`;
           if (pendingConfirmation.url) {
             deniedContent += `: ${pendingConfirmation.url}`;
           }
-        } else if (pendingConfirmation.kind === "write" || pendingConfirmation.kind === "edit") {
+        } else if (pendingConfirmation.kind === 'write' || pendingConfirmation.kind === 'edit') {
           deniedContent += `File ${pendingConfirmation.kind}`;
           if (pendingConfirmation.path) {
             deniedContent += `: \`${pendingConfirmation.path}\``;
           }
-        } else if (pendingConfirmation.kind === "read") {
+        } else if (pendingConfirmation.kind === 'read') {
           deniedContent += `File read`;
           if (pendingConfirmation.path) {
             deniedContent += `: \`${pendingConfirmation.path}\``;
@@ -2927,7 +2984,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
         const deniedMessage: Message = {
           id: generateId(),
-          role: "system",
+          role: 'system',
           content: deniedContent,
           timestamp: Date.now(),
         };
@@ -2940,21 +2997,17 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       }
 
       // If "global" was selected, update the global safe commands list
-      if (decision === "global" && pendingConfirmation.executable) {
-        const newExecutables = pendingConfirmation.executable
-          .split(", ")
-          .filter((e) => e.trim());
-        setGlobalSafeCommands(prev => [...new Set([...prev, ...newExecutables])]);
+      if (decision === 'global' && pendingConfirmation.executable) {
+        const newExecutables = pendingConfirmation.executable.split(', ').filter((e) => e.trim());
+        setGlobalSafeCommands((prev) => [...new Set([...prev, ...newExecutables])]);
         updateTab(activeTab.id, { pendingConfirmations: remainingConfirmations });
         return;
       }
 
       // If "always" was selected, update the local alwaysAllowed list
-      if (decision === "always" && pendingConfirmation.executable) {
+      if (decision === 'always' && pendingConfirmation.executable) {
         // Split comma-separated executables into individual entries
-        const newExecutables = pendingConfirmation.executable
-          .split(", ")
-          .filter((e) => e.trim());
+        const newExecutables = pendingConfirmation.executable.split(', ').filter((e) => e.trim());
         updateTab(activeTab.id, {
           pendingConfirmations: remainingConfirmations,
           alwaysAllowed: [...activeTab.alwaysAllowed, ...newExecutables],
@@ -2963,7 +3016,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       }
       updateTab(activeTab.id, { pendingConfirmations: remainingConfirmations });
     } catch (error) {
-      console.error("Permission response failed:", error);
+      console.error('Permission response failed:', error);
       // Still remove from queue on error to avoid being stuck
       updateTab(activeTab.id, {
         pendingConfirmations: activeTab.pendingConfirmations.slice(1),
@@ -2974,44 +3027,36 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
   const handleRemoveAlwaysAllowed = async (executable: string) => {
     if (!activeTab) return;
     try {
-      await window.electronAPI.copilot.removeAlwaysAllowed(
-        activeTab.id,
-        executable,
-      );
+      await window.electronAPI.copilot.removeAlwaysAllowed(activeTab.id, executable);
       updateTab(activeTab.id, {
         alwaysAllowed: activeTab.alwaysAllowed.filter((e) => e !== executable),
       });
     } catch (error) {
-      console.error("Failed to remove always-allowed:", error);
+      console.error('Failed to remove always-allowed:', error);
     }
   };
 
   const refreshAlwaysAllowed = async () => {
     if (!activeTab) return;
     try {
-      const list = await window.electronAPI.copilot.getAlwaysAllowed(
-        activeTab.id,
-      );
+      const list = await window.electronAPI.copilot.getAlwaysAllowed(activeTab.id);
       updateTab(activeTab.id, { alwaysAllowed: list });
     } catch (error) {
-      console.error("Failed to fetch always-allowed:", error);
+      console.error('Failed to fetch always-allowed:', error);
     }
   };
 
   const handleAddAlwaysAllowed = async () => {
     if (!activeTab || !addCommandValue.trim()) return;
     try {
-      await window.electronAPI.copilot.addAlwaysAllowed(
-        activeTab.id,
-        addCommandValue.trim(),
-      );
+      await window.electronAPI.copilot.addAlwaysAllowed(activeTab.id, addCommandValue.trim());
       updateTab(activeTab.id, {
         alwaysAllowed: [...activeTab.alwaysAllowed, addCommandValue.trim()],
       });
-      setAddCommandValue("");
+      setAddCommandValue('');
       setShowAddAllowedCommand(false);
     } catch (error) {
-      console.error("Failed to add always-allowed:", error);
+      console.error('Failed to add always-allowed:', error);
     }
   };
 
@@ -3021,31 +3066,29 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       const list = await window.electronAPI.copilot.getGlobalSafeCommands();
       setGlobalSafeCommands(list);
     } catch (error) {
-      console.error("Failed to fetch global safe commands:", error);
+      console.error('Failed to fetch global safe commands:', error);
     }
   };
 
   const handleAddGlobalSafeCommand = async () => {
     if (!addCommandValue.trim()) return;
     // Block "write" commands from being added as global (file changes should not have global option)
-    if (addCommandValue.trim().toLowerCase().startsWith("write")) {
-      console.warn("File change commands cannot be added as global");
+    if (addCommandValue.trim().toLowerCase().startsWith('write')) {
+      console.warn('File change commands cannot be added as global');
       return;
     }
     try {
-      await window.electronAPI.copilot.addGlobalSafeCommand(
-        addCommandValue.trim(),
-      );
-      setGlobalSafeCommands(prev => [...prev, addCommandValue.trim()]);
-      setAddCommandValue("");
+      await window.electronAPI.copilot.addGlobalSafeCommand(addCommandValue.trim());
+      setGlobalSafeCommands((prev) => [...prev, addCommandValue.trim()]);
+      setAddCommandValue('');
       setShowAddAllowedCommand(false);
     } catch (error) {
-      console.error("Failed to add global safe command:", error);
+      console.error('Failed to add global safe command:', error);
     }
   };
 
   const handleAddAllowedCommand = async () => {
-    if (addCommandScope === "global") {
+    if (addCommandScope === 'global') {
       await handleAddGlobalSafeCommand();
     } else {
       await handleAddAlwaysAllowed();
@@ -3055,9 +3098,9 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
   const handleRemoveGlobalSafeCommand = async (command: string) => {
     try {
       await window.electronAPI.copilot.removeGlobalSafeCommand(command);
-      setGlobalSafeCommands(prev => prev.filter(c => c !== command));
+      setGlobalSafeCommands((prev) => prev.filter((c) => c !== command));
     } catch (error) {
-      console.error("Failed to remove global safe command:", error);
+      console.error('Failed to remove global safe command:', error);
     }
   };
 
@@ -3065,27 +3108,26 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
   const openAddMcpModal = () => {
     setEditingMcpServer(null);
     setMcpFormData({
-      name: "",
-      type: "local",
-      command: "",
-      args: "",
-      url: "",
-      tools: "*",
+      name: '',
+      type: 'local',
+      command: '',
+      args: '',
+      url: '',
+      tools: '*',
     });
     setShowMcpModal(true);
   };
 
   const openEditMcpModal = (name: string, server: MCPServerConfig) => {
     setEditingMcpServer({ name, server });
-    const isLocal =
-      !server.type || server.type === "local" || server.type === "stdio";
+    const isLocal = !server.type || server.type === 'local' || server.type === 'stdio';
     setMcpFormData({
       name,
-      type: isLocal ? "local" : (server.type as "http" | "sse"),
-      command: isLocal ? (server as MCPLocalServerConfig).command : "",
-      args: isLocal ? (server as MCPLocalServerConfig).args.join(" ") : "",
-      url: !isLocal ? (server as MCPRemoteServerConfig).url : "",
-      tools: server.tools[0] === "*" ? "*" : server.tools.join(", "),
+      type: isLocal ? 'local' : (server.type as 'http' | 'sse'),
+      command: isLocal ? (server as MCPLocalServerConfig).command : '',
+      args: isLocal ? (server as MCPLocalServerConfig).args.join(' ') : '',
+      url: !isLocal ? (server as MCPRemoteServerConfig).url : '',
+      tools: server.tools[0] === '*' ? '*' : server.tools.join(', '),
     });
     setShowMcpModal(true);
   };
@@ -3095,24 +3137,24 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     if (!name.trim()) return;
 
     const toolsArray =
-      tools === "*"
-        ? ["*"]
+      tools === '*'
+        ? ['*']
         : tools
-            .split(",")
+            .split(',')
             .map((t) => t.trim())
             .filter(Boolean);
 
     let serverConfig: MCPServerConfig;
-    if (type === "local") {
+    if (type === 'local') {
       serverConfig = {
-        type: "local",
+        type: 'local',
         command: command.trim(),
-        args: args.split(" ").filter((a) => a.trim()),
+        args: args.split(' ').filter((a) => a.trim()),
         tools: toolsArray,
       };
     } else {
       serverConfig = {
-        type: type as "http" | "sse",
+        type: type as 'http' | 'sse',
         url: url.trim(),
         tools: toolsArray,
       };
@@ -3134,7 +3176,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       setMcpServers(config.mcpServers || {});
       setShowMcpModal(false);
     } catch (error) {
-      console.error("Failed to save MCP server:", error);
+      console.error('Failed to save MCP server:', error);
     }
   };
 
@@ -3144,7 +3186,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       const config = await window.electronAPI.mcp.getConfig();
       setMcpServers(config.mcpServers || {});
     } catch (error) {
-      console.error("Failed to delete MCP server:", error);
+      console.error('Failed to delete MCP server:', error);
     }
   };
 
@@ -3152,9 +3194,9 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     try {
       const config = await window.electronAPI.mcp.getConfig();
       setMcpServers(config.mcpServers || {});
-      console.log("Refreshed MCP servers:", Object.keys(config.mcpServers || {}));
+      console.log('Refreshed MCP servers:', Object.keys(config.mcpServers || {}));
     } catch (error) {
-      console.error("Failed to refresh MCP servers:", error);
+      console.error('Failed to refresh MCP servers:', error);
     }
   };
 
@@ -3163,10 +3205,10 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       const { path } = await window.electronAPI.mcp.getConfigPath();
       const result = await window.electronAPI.file.openFile(path);
       if (!result.success) {
-        console.error("Failed to open MCP config file:", result.error);
+        console.error('Failed to open MCP config file:', result.error);
       }
     } catch (error) {
-      console.error("Failed to open MCP config in editor:", error);
+      console.error('Failed to open MCP config in editor:', error);
     }
   };
 
@@ -3175,21 +3217,21 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
   const handleToggleEditedFiles = async () => {
     const newShowState = !showEditedFiles;
     setShowEditedFiles(newShowState);
-    
+
     // When expanding, refresh the edited files list and check if in git repo
     if (newShowState && activeTab) {
       try {
         // Check if we're in a git repo
         const repoCheck = await window.electronAPI.git.isGitRepo(activeTab.cwd);
         setIsGitRepo(repoCheck.isGitRepo);
-        
+
         if (repoCheck.isGitRepo) {
           const changedResult = await window.electronAPI.git.getChangedFiles(
             activeTab.cwd,
             activeTab.editedFiles,
-            true, // includeAll: get all changed files
+            true // includeAll: get all changed files
           );
-          
+
           if (changedResult.success) {
             // Deduplicate and filter out empty filenames
             const uniqueFiles = getCleanEditedFiles(changedResult.files);
@@ -3197,7 +3239,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           }
         }
       } catch (error) {
-        console.error("Failed to refresh edited files:", error);
+        console.error('Failed to refresh edited files:', error);
       }
     }
   };
@@ -3205,26 +3247,26 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
   // Auto-refresh edited files every 1 minute when expanded and in a git repo
   useEffect(() => {
     if (!showEditedFiles || !activeTab || !isGitRepo) return;
-    
+
     const refreshEditedFiles = async () => {
       try {
         const changedResult = await window.electronAPI.git.getChangedFiles(
           activeTab.cwd,
           activeTab.editedFiles,
-          true,
+          true
         );
-        
+
         if (changedResult.success) {
           const uniqueFiles = getCleanEditedFiles(changedResult.files);
           updateTab(activeTab.id, { editedFiles: uniqueFiles });
         }
       } catch (error) {
-        console.error("Auto-refresh edited files failed:", error);
+        console.error('Auto-refresh edited files failed:', error);
       }
     };
-    
+
     const intervalId = setInterval(refreshEditedFiles, 60000); // 1 minute
-    
+
     return () => clearInterval(intervalId);
   }, [showEditedFiles, activeTab?.id, activeTab?.cwd, isGitRepo]);
 
@@ -3239,7 +3281,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         const result = await window.electronAPI.git.isGitRepo(activeTab.cwd);
         setIsGitRepo(result.isGitRepo);
       } catch (error) {
-        console.error("Failed to check git repo:", error);
+        console.error('Failed to check git repo:', error);
         setIsGitRepo(false);
       }
     };
@@ -3251,7 +3293,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
     setCommitError(null);
     setIsCommitting(false);
-    setCommitMessage("Checking files...");
+    setCommitMessage('Checking files...');
     setIsGeneratingMessage(true);
     setMainAheadInfo(null);
     setShowCommitModal(true);
@@ -3261,21 +3303,23 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       // Load branches and persisted target branch in parallel with other checks
       const branchesPromise = window.electronAPI.git.listBranches(activeTab.cwd);
       const savedTargetBranchPromise = window.electronAPI.settings.getTargetBranch(activeTab.cwd);
-      
+
       // Get ALL changed files in the repo, not just the ones we tracked
       const changedResult = await window.electronAPI.git.getChangedFiles(
         activeTab.cwd,
         activeTab.editedFiles,
-        true, // includeAll: get all changed files, including package-lock.json etc.
+        true // includeAll: get all changed files, including package-lock.json etc.
       );
-      
-      const actualChangedFiles = changedResult.success ? changedResult.files : activeTab.editedFiles;
-      
+
+      const actualChangedFiles = changedResult.success
+        ? changedResult.files
+        : activeTab.editedFiles;
+
       // Update the tab's editedFiles list with all changed files
       if (changedResult.success) {
         updateTab(activeTab.id, { editedFiles: actualChangedFiles });
       }
-      
+
       // Load branches
       try {
         const branchesResult = await branchesPromise;
@@ -3286,7 +3330,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         // Ignore branch loading errors
       }
       setIsLoadingBranches(false);
-      
+
       // Load persisted target branch first, then check if it's ahead
       let effectiveTargetBranch = 'main';
       try {
@@ -3300,26 +3344,29 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       } catch {
         setTargetBranch('main');
       }
-      
+
       // Now check if target branch is ahead using the persisted target branch
       const checkTargetAhead = async () => {
         try {
-          const mainAheadResult = await window.electronAPI.git.checkMainAhead(activeTab.cwd, effectiveTargetBranch);
+          const mainAheadResult = await window.electronAPI.git.checkMainAhead(
+            activeTab.cwd,
+            effectiveTargetBranch
+          );
           if (mainAheadResult.success && mainAheadResult.isAhead) {
-            setMainAheadInfo({ 
-              isAhead: true, 
+            setMainAheadInfo({
+              isAhead: true,
               commits: mainAheadResult.commits,
-              targetBranch: effectiveTargetBranch
+              targetBranch: effectiveTargetBranch,
             });
           }
         } catch {
           // Ignore errors checking target branch ahead
         }
       };
-      
+
       // If no files have changes, allow merge/PR without commit
       if (actualChangedFiles.length === 0) {
-        setCommitMessage("");
+        setCommitMessage('');
         setIsGeneratingMessage(false);
         // Default to merge when no files, since "push" alone doesn't make sense
         if (commitAction === 'push') {
@@ -3330,32 +3377,23 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       }
 
       // Get diff for actual changed files
-      setCommitMessage("Generating commit message...");
-      const diffResult = await window.electronAPI.git.getDiff(
-        activeTab.cwd,
-        actualChangedFiles,
-      );
+      setCommitMessage('Generating commit message...');
+      const diffResult = await window.electronAPI.git.getDiff(activeTab.cwd, actualChangedFiles);
       if (diffResult.success && diffResult.diff) {
         // Generate AI commit message from diff
-        const message = await window.electronAPI.git.generateCommitMessage(
-          diffResult.diff,
-        );
+        const message = await window.electronAPI.git.generateCommitMessage(diffResult.diff);
         setCommitMessage(message);
       } else {
         // Fallback to simple message
-        const fileNames = actualChangedFiles
-          .map((f) => f.split(/[/\\]/).pop())
-          .join(", ");
+        const fileNames = actualChangedFiles.map((f) => f.split(/[/\\]/).pop()).join(', ');
         setCommitMessage(`Update ${fileNames}`);
       }
-      
+
       // Check if target branch is ahead
       await checkTargetAhead();
     } catch (error) {
-      console.error("Failed to generate commit message:", error);
-      const fileNames = activeTab.editedFiles
-        .map((f) => f.split(/[/\\]/).pop())
-        .join(", ");
+      console.error('Failed to generate commit message:', error);
+      const fileNames = activeTab.editedFiles.map((f) => f.split(/[/\\]/).pop()).join(', ');
       setCommitMessage(`Update ${fileNames}`);
     } finally {
       setIsGeneratingMessage(false);
@@ -3367,14 +3405,14 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
     // Filter out untracked files from the commit
     const filesToCommit = activeTab.editedFiles.filter(
-      f => !(activeTab.untrackedFiles || []).includes(f)
+      (f) => !(activeTab.untrackedFiles || []).includes(f)
     );
     const hasFilesToCommit = filesToCommit.length > 0;
     const effectiveTargetBranch = targetBranch || 'main';
-    
+
     // Require commit message only if there are files to commit
     if (hasFilesToCommit && !commitMessage.trim()) return;
-    
+
     // If no files and just "push" action, nothing to do
     if (!hasFilesToCommit && commitAction === 'push') return;
 
@@ -3388,26 +3426,26 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           activeTab.cwd,
           filesToCommit, // Use filtered list without stashed files
           commitMessage.trim(),
-          commitAction === 'merge',
+          commitAction === 'merge'
         );
 
         if (!result.success) {
-          setCommitError(result.error || "Commit failed");
+          setCommitError(result.error || 'Commit failed');
           setIsCommitting(false);
           return;
         }
 
         // If merge synced with main and brought in changes, notify user to test first
         if (result.mainSyncedWithChanges && commitAction === 'merge') {
-          setPendingMergeInfo({ 
-            incomingFiles: result.incomingFiles || [], 
-            targetBranch: effectiveTargetBranch 
+          setPendingMergeInfo({
+            incomingFiles: result.incomingFiles || [],
+            targetBranch: effectiveTargetBranch,
           });
           // Clear only the committed files, keep untracked files in editedFiles
           const remainingEditedFiles = activeTab.untrackedFiles || [];
-          updateTab(activeTab.id, { 
+          updateTab(activeTab.id, {
             editedFiles: remainingEditedFiles,
-            gitBranchRefresh: (activeTab.gitBranchRefresh || 0) + 1
+            gitBranchRefresh: (activeTab.gitBranchRefresh || 0) + 1,
           });
           setShowCommitModal(false);
           setCommitMessage('');
@@ -3415,11 +3453,11 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           return;
         }
       }
-      
+
       // Handle merge/PR actions (whether or not there was a commit)
       if (commitAction === 'pr') {
         const prResult = await window.electronAPI.git.createPullRequest(
-          activeTab.cwd, 
+          activeTab.cwd,
           commitMessage.split('\n')[0] || undefined,
           undefined, // draft
           effectiveTargetBranch,
@@ -3433,12 +3471,12 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           return;
         }
       }
-      
+
       // If merge was selected and removeWorktreeAfterMerge is checked, remove the worktree and close session
-      const isWorktreePath = activeTab.cwd.includes('.copilot-sessions')
+      const isWorktreePath = activeTab.cwd.includes('.copilot-sessions');
       if (commitAction === 'merge') {
         const mergeResult = await window.electronAPI.git.mergeToMain(
-          activeTab.cwd, 
+          activeTab.cwd,
           false,
           effectiveTargetBranch,
           activeTab.untrackedFiles || []
@@ -3448,34 +3486,34 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           setIsCommitting(false);
           return;
         }
-        
+
         if (removeWorktreeAfterMerge && isWorktreePath) {
           // Find the worktree session by path
-          const sessionId = activeTab.cwd.split(/[/\\]/).pop() || ''
+          const sessionId = activeTab.cwd.split(/[/\\]/).pop() || '';
           if (sessionId) {
-            await window.electronAPI.worktree.removeSession({ sessionId, force: true })
+            await window.electronAPI.worktree.removeSession({ sessionId, force: true });
             // Close this tab
-            handleCloseTab(activeTab.id)
-            setShowCommitModal(false)
-            setCommitMessage('')
-            setCommitAction('push')
-            setRemoveWorktreeAfterMerge(false)
-            setIsCommitting(false)
-            return
+            handleCloseTab(activeTab.id);
+            setShowCommitModal(false);
+            setCommitMessage('');
+            setCommitAction('push');
+            setRemoveWorktreeAfterMerge(false);
+            setIsCommitting(false);
+            return;
           }
         }
       }
-      
+
       // Clear only the committed files, keep untracked files in editedFiles
       const remainingEditedFiles = activeTab.untrackedFiles || [];
-      updateTab(activeTab.id, { 
+      updateTab(activeTab.id, {
         editedFiles: remainingEditedFiles,
-        gitBranchRefresh: (activeTab.gitBranchRefresh || 0) + 1
-      })
-      setShowCommitModal(false)
-      setCommitMessage('')
-      setCommitAction('push')
-      setRemoveWorktreeAfterMerge(false)
+        gitBranchRefresh: (activeTab.gitBranchRefresh || 0) + 1,
+      });
+      setShowCommitModal(false);
+      setCommitMessage('');
+      setCommitAction('push');
+      setRemoveWorktreeAfterMerge(false);
     } catch (error) {
       setCommitError(String(error));
     } finally {
@@ -3492,14 +3530,12 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       }
 
       // Check trust for the selected directory
-      const trustResult = await window.electronAPI.copilot.checkDirectoryTrust(
-        folderResult.path,
-      );
+      const trustResult = await window.electronAPI.copilot.checkDirectoryTrust(folderResult.path);
       if (!trustResult.trusted) {
         return; // User declined to trust, don't create session
       }
 
-      setStatus("connecting");
+      setStatus('connecting');
       const result = await window.electronAPI.copilot.createSession({
         cwd: folderResult.path,
       });
@@ -3525,10 +3561,10 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       };
       setTabs((prev) => [...prev, newTab]);
       setActiveTabId(result.sessionId);
-      setStatus("connected");
+      setStatus('connected');
     } catch (error) {
-      console.error("Failed to create new tab:", error);
-      setStatus("connected");
+      console.error('Failed to create new tab:', error);
+      setStatus('connected');
     }
   };
 
@@ -3542,7 +3578,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       setWorktreeRepoPath(folderResult.path);
       setShowCreateWorktree(true);
     } catch (error) {
-      console.error("Failed to pick folder for worktree:", error);
+      console.error('Failed to pick folder for worktree:', error);
     }
   };
 
@@ -3550,7 +3586,17 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
   const handleWorktreeSessionCreated = async (
     worktreePath: string,
     branch: string,
-    autoStart?: { issueInfo: { url: string; title: string; body: string | null; comments?: Array<{ body: string; user: { login: string }; created_at: string }> }; useRalphWiggum?: boolean; ralphMaxIterations?: number; useLisaSimpson?: boolean }
+    autoStart?: {
+      issueInfo: {
+        url: string;
+        title: string;
+        body: string | null;
+        comments?: Array<{ body: string; user: { login: string }; created_at: string }>;
+      };
+      useRalphWiggum?: boolean;
+      ralphMaxIterations?: number;
+      useLisaSimpson?: boolean;
+    }
   ) => {
     try {
       // Check trust for the worktree directory
@@ -3562,7 +3608,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         return;
       }
 
-      setStatus("connecting");
+      setStatus('connecting');
       const result = await window.electronAPI.copilot.createSession({
         cwd: worktreePath,
       });
@@ -3572,7 +3618,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       // Pre-approve file writes, mkdir (for evidence folders), and GitHub web fetches for all worktree sessions
       // This enables smooth operation in both Ralph Wiggum and Lisa Simpson modes
       const preApprovedCommands = ['write', 'mkdir', 'url:github.com'];
-      
+
       // Add pre-approved commands to the session
       for (const cmd of preApprovedCommands) {
         await window.electronAPI.copilot.addAlwaysAllowed(result.sessionId, cmd);
@@ -3599,23 +3645,23 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       };
       setTabs((prev) => [...prev, newTab]);
       setActiveTabId(result.sessionId);
-      setStatus("connected");
+      setStatus('connected');
 
       // If autoStart is enabled, send the initial prompt with issue context
       if (autoStart) {
         const issueContext = autoStart.issueInfo.body
           ? `## Issue Description\n\n${autoStart.issueInfo.body}`
           : '';
-        
+
         // Format comments if available
         let commentsContext = '';
         if (autoStart.issueInfo.comments && autoStart.issueInfo.comments.length > 0) {
           const formattedComments = autoStart.issueInfo.comments
-            .map(comment => `### Comment by @${comment.user.login}\n\n${comment.body}`)
+            .map((comment) => `### Comment by @${comment.user.login}\n\n${comment.body}`)
             .join('\n\n');
           commentsContext = `\n\n## Issue Comments\n\n${formattedComments}`;
         }
-        
+
         const initialPrompt = `Please implement the following GitHub issue:
 
 **Issue URL:** ${autoStart.issueInfo.url}
@@ -3642,13 +3688,13 @@ Start by exploring the codebase to understand the current implementation, then m
           lisaConfig = {
             originalPrompt: initialPrompt,
             currentPhase: 'plan',
-            phaseIterations: { 
-              'plan': 1, 
-              'plan-review': 0, 
-              'execute': 0, 
-              'code-review': 0, 
-              'validate': 0, 
-              'final-review': 0 
+            phaseIterations: {
+              plan: 1,
+              'plan-review': 0,
+              execute: 0,
+              'code-review': 0,
+              validate: 0,
+              'final-review': 0,
             },
             active: true,
             phaseHistory: [{ phase: 'plan', iteration: 1, timestamp: Date.now() }],
@@ -3686,7 +3732,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
         const userMessage: Message = {
           id: generateId(),
-          role: "user",
+          role: 'user',
           content: initialPrompt, // Show original prompt in UI, not the expanded Lisa/Ralph instructions
         };
 
@@ -3700,8 +3746,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     userMessage,
                     {
                       id: generateId(),
-                      role: "assistant",
-                      content: "",
+                      role: 'assistant',
+                      content: '',
                       isStreaming: true,
                     },
                   ],
@@ -3717,7 +3763,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         try {
           await window.electronAPI.copilot.send(result.sessionId, promptToSend);
         } catch (error) {
-          console.error("Failed to send initial prompt:", error);
+          console.error('Failed to send initial prompt:', error);
           setTabs((prev) =>
             prev.map((tab) =>
               tab.id === result.sessionId
@@ -3728,53 +3774,59 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         }
       }
     } catch (error) {
-      console.error("Failed to create worktree session tab:", error);
-      setStatus("connected");
+      console.error('Failed to create worktree session tab:', error);
+      setStatus('connected');
     }
   };
 
   // Handle opening an existing worktree session
   const handleOpenWorktreeSession = async (session: { worktreePath: string; branch: string }) => {
     // Check if this worktree is already open in an existing tab
-    const existingTab = tabs.find(tab => tab.cwd === session.worktreePath);
+    const existingTab = tabs.find((tab) => tab.cwd === session.worktreePath);
     if (existingTab) {
       // Switch to the existing tab instead of opening a new one
       setActiveTabId(existingTab.id);
       setShowSessionHistory(false);
       return;
     }
-    
+
     // Check if there's a previous session for this worktree path
-    const existingPreviousSession = previousSessions.find(s => s.cwd === session.worktreePath);
+    const existingPreviousSession = previousSessions.find((s) => s.cwd === session.worktreePath);
     if (existingPreviousSession) {
       // Resume the existing session instead of creating a new one
       setShowSessionHistory(false);
       await handleResumePreviousSession(existingPreviousSession);
       return;
     }
-    
+
     setShowSessionHistory(false);
     await handleWorktreeSessionCreated(session.worktreePath, session.branch);
   };
 
   // Handle removing a worktree session
-  const handleRemoveWorktreeSession = async (worktreeId: string, worktreePath: string): Promise<{ success: boolean; error?: string }> => {
+  const handleRemoveWorktreeSession = async (
+    worktreeId: string,
+    worktreePath: string
+  ): Promise<{ success: boolean; error?: string }> => {
     try {
       // Close any tab that has this worktree path as cwd
-      const tabToClose = tabs.find(tab => tab.cwd === worktreePath);
+      const tabToClose = tabs.find((tab) => tab.cwd === worktreePath);
       if (tabToClose) {
         await handleCloseTab(tabToClose.id);
       }
 
       // Remove the worktree
-      const result = await window.electronAPI.worktree.removeSession({ sessionId: worktreeId, force: true });
-      
+      const result = await window.electronAPI.worktree.removeSession({
+        sessionId: worktreeId,
+        force: true,
+      });
+
       if (result.success) {
         // Re-enrich sessions to update the list
         const enrichedSessions = await enrichSessionsWithWorktreeData(previousSessions);
         setPreviousSessions(enrichedSessions);
       }
-      
+
       return result;
     } catch (err) {
       return { success: false, error: String(err) };
@@ -3788,7 +3840,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     const closingTab = tabs.find((t) => t.id === tabId);
 
     // Clean up terminal state for this tab
-    setTerminalInitializedSessions(prev => {
+    setTerminalInitializedSessions((prev) => {
       const next = new Set(prev);
       next.delete(tabId);
       return next;
@@ -3800,9 +3852,9 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     // If closing the last tab, delete it and create a new one
     if (tabs.length === 1) {
       try {
-        setStatus("connecting");
+        setStatus('connecting');
         await window.electronAPI.copilot.closeSession(tabId);
-        
+
         // Add closed session to previous sessions
         if (closingTab) {
           setPreviousSessions((prev) => [
@@ -3817,7 +3869,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
             ...prev,
           ]);
         }
-        
+
         const result = await window.electronAPI.copilot.createSession();
         trackEvent(TelemetryEvents.SESSION_CREATED);
         const newTab: TabState = {
@@ -3841,10 +3893,10 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         };
         setTabs([newTab]);
         setActiveTabId(result.sessionId);
-        setStatus("connected");
+        setStatus('connected');
       } catch (error) {
-        console.error("Failed to replace tab:", error);
-        setStatus("connected");
+        console.error('Failed to replace tab:', error);
+        setStatus('connected');
       }
       return;
     }
@@ -3876,7 +3928,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
       setTabs((prev) => prev.filter((t) => t.id !== tabId));
     } catch (error) {
-      console.error("Failed to close tab:", error);
+      console.error('Failed to close tab:', error);
     }
   };
 
@@ -3888,7 +3940,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     try {
       await window.electronAPI.copilot.switchSession(tabId);
     } catch (error) {
-      console.error("Failed to switch session:", error);
+      console.error('Failed to switch session:', error);
     }
   };
 
@@ -3903,7 +3955,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab) return;
     const newMarked = !tab.markedForReview;
-    updateTab(tabId, { 
+    updateTab(tabId, {
       markedForReview: newMarked,
       // Clear note if unmarking
       reviewNote: newMarked ? tab.reviewNote : undefined,
@@ -3914,20 +3966,22 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
   const handleOpenNoteModal = (tabId: string) => {
     const tab = tabs.find((t) => t.id === tabId);
     setNoteInputModal({ tabId, currentNote: tab?.reviewNote });
-    setNoteInputValue(tab?.reviewNote || "");
+    setNoteInputValue(tab?.reviewNote || '');
     setContextMenu(null);
   };
 
   const handleSaveNote = () => {
     if (!noteInputModal) return;
     const note = noteInputValue.trim();
-    updateTab(noteInputModal.tabId, { 
+    updateTab(noteInputModal.tabId, {
       reviewNote: note || undefined,
       // Auto-mark for review when adding a note
-      markedForReview: note ? true : tabs.find(t => t.id === noteInputModal.tabId)?.markedForReview,
+      markedForReview: note
+        ? true
+        : tabs.find((t) => t.id === noteInputModal.tabId)?.markedForReview,
     });
     setNoteInputModal(null);
-    setNoteInputValue("");
+    setNoteInputValue('');
     // Scroll to show the note banner at the bottom
     if (note) {
       setTimeout(() => {
@@ -3942,10 +3996,10 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
   const handleResumePreviousSession = async (prevSession: PreviousSession) => {
     try {
-      setStatus("connecting");
+      setStatus('connecting');
       const result = await window.electronAPI.copilot.resumePreviousSession(
         prevSession.sessionId,
-        prevSession.cwd,
+        prevSession.cwd
       );
 
       // Create new tab for this session
@@ -3975,24 +4029,27 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       setActiveTabId(result.sessionId);
 
       // Remove from previous sessions list
-      setPreviousSessions((prev) =>
-        prev.filter((s) => s.sessionId !== prevSession.sessionId),
-      );
+      setPreviousSessions((prev) => prev.filter((s) => s.sessionId !== prevSession.sessionId));
 
       // Load message history and attachments
       const [messagesResult, attachmentsResult] = await Promise.all([
         window.electronAPI.copilot.getMessages(result.sessionId),
         window.electronAPI.copilot.loadMessageAttachments(result.sessionId),
       ]);
-      
-      console.log('Resume session - loaded messages:', messagesResult.length, 'attachments:', attachmentsResult.attachments.length);
-      
+
+      console.log(
+        'Resume session - loaded messages:',
+        messagesResult.length,
+        'attachments:',
+        attachmentsResult.attachments.length
+      );
+
       if (messagesResult.length > 0) {
         const attachmentMap = new Map(
-          attachmentsResult.attachments.map(a => [a.messageIndex, a])
+          attachmentsResult.attachments.map((a) => [a.messageIndex, a])
         );
         console.log('Attachment map entries:', Array.from(attachmentMap.entries()));
-        
+
         setTabs((prev) =>
           prev.map((tab) =>
             tab.id === result.sessionId
@@ -4010,15 +4067,15 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   }),
                   needsTitle: false,
                 }
-              : tab,
-          ),
+              : tab
+          )
         );
       }
 
-      setStatus("connected");
+      setStatus('connected');
     } catch (error) {
-      console.error("Failed to resume previous session:", error);
-      setStatus("connected");
+      console.error('Failed to resume previous session:', error);
+      setStatus('connected');
     }
   };
 
@@ -4027,14 +4084,12 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       const result = await window.electronAPI.copilot.deleteSessionFromHistory(sessionId);
       if (result.success) {
         // Remove from previous sessions list
-        setPreviousSessions((prev) =>
-          prev.filter((s) => s.sessionId !== sessionId),
-        );
+        setPreviousSessions((prev) => prev.filter((s) => s.sessionId !== sessionId));
       } else {
-        console.error("Failed to delete session:", result.error);
+        console.error('Failed to delete session:', result.error);
       }
     } catch (error) {
-      console.error("Failed to delete session from history:", error);
+      console.error('Failed to delete session from history:', error);
     }
   };
 
@@ -4043,7 +4098,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       return;
     }
 
-    setStatus("connecting");
+    setStatus('connecting');
 
     try {
       // If current tab has messages, create a new tab with the new model instead of replacing
@@ -4051,10 +4106,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         const result = await window.electronAPI.copilot.createSession();
         trackEvent(TelemetryEvents.SESSION_CREATED);
         // Now change the model on the new session
-        const modelResult = await window.electronAPI.copilot.setModel(
-          result.sessionId,
-          model,
-        );
+        const modelResult = await window.electronAPI.copilot.setModel(result.sessionId, model);
         trackEvent(TelemetryEvents.FEATURE_MODEL_CHANGED);
 
         const newTab: TabState = {
@@ -4078,15 +4130,12 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         };
         setTabs((prev) => [...prev, newTab]);
         setActiveTabId(modelResult.sessionId);
-        setStatus("connected");
+        setStatus('connected');
         return;
       }
 
       // Empty tab - replace the session with the new model
-      const result = await window.electronAPI.copilot.setModel(
-        activeTab.id,
-        model,
-      );
+      const result = await window.electronAPI.copilot.setModel(activeTab.id, model);
       trackEvent(TelemetryEvents.FEATURE_MODEL_CHANGED);
       // Update the tab with new session ID and model, clear messages
       setTabs((prev) => {
@@ -4115,10 +4164,10 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         ];
       });
       setActiveTabId(result.sessionId);
-      setStatus("connected");
+      setStatus('connected');
     } catch (error) {
-      console.error("Failed to change model:", error);
-      setStatus("connected");
+      console.error('Failed to change model:', error);
+      setStatus('connected');
     }
   };
 
@@ -4137,7 +4186,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
   const handleInitializeTerminal = useCallback(() => {
     if (activeTab) {
-      setTerminalInitializedSessions(prev => new Set(prev).add(activeTab.id));
+      setTerminalInitializedSessions((prev) => new Set(prev).add(activeTab.id));
     }
   }, [activeTab]);
 
@@ -4148,71 +4197,65 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       onOpenTerminal={handleOpenTerminal}
       onInitializeTerminal={handleInitializeTerminal}
     >
-    <div className="h-screen w-screen flex flex-col overflow-hidden bg-copilot-bg rounded-xl">
-      {/* Title Bar */}
-      <div className="drag-region flex items-center justify-between px-4 py-2.5 bg-copilot-surface border-b border-copilot-border shrink-0">
-        <div className="flex items-center gap-3">
-          <WindowControls />
+      <div className="h-screen w-screen flex flex-col overflow-hidden bg-copilot-bg rounded-xl">
+        {/* Title Bar */}
+        <div className="drag-region flex items-center justify-between px-4 py-2.5 bg-copilot-surface border-b border-copilot-border shrink-0">
+          <div className="flex items-center gap-3">
+            <WindowControls />
 
-          <div className="flex items-center gap-2 ml-2">
-            <img
-              src={logo}
-              alt="Copilot Skins"
-              className="w-4 h-4 rounded-sm"
-            />
-            <span className="text-copilot-text text-sm font-medium">
-              Copilot Skins
-            </span>
+            <div className="flex items-center gap-2 ml-2">
+              <img src={logo} alt="Copilot Skins" className="w-4 h-4 rounded-sm" />
+              <span className="text-copilot-text text-sm font-medium">Copilot Skins</span>
+            </div>
           </div>
-        </div>
 
-        <div className="flex items-center gap-2 no-drag">
-          {/* Model Selector */}
-          <div data-tour="model-selector">
+          <div className="flex items-center gap-2 no-drag">
+            {/* Model Selector */}
+            <div data-tour="model-selector">
+              <Dropdown
+                value={activeTab?.model || null}
+                options={availableModels.map((model) => ({
+                  id: model.id,
+                  label: model.name,
+                  rightContent: (
+                    <span
+                      className={`ml-2 ${
+                        model.multiplier === 0
+                          ? 'text-copilot-success'
+                          : model.multiplier < 1
+                            ? 'text-copilot-success'
+                            : model.multiplier > 1
+                              ? 'text-copilot-warning'
+                              : 'text-copilot-text-muted'
+                      }`}
+                    >
+                      {model.multiplier === 0 ? 'free' : `${model.multiplier}×`}
+                    </span>
+                  ),
+                }))}
+                onSelect={handleModelChange}
+                placeholder="Loading..."
+                title="Model"
+                minWidth="240px"
+              />
+            </div>
+
+            {/* Theme Selector */}
             <Dropdown
-              value={activeTab?.model || null}
-              options={availableModels.map((model) => ({
-                id: model.id,
-                label: model.name,
-                rightContent: (
-                  <span
-                    className={`ml-2 ${
-                      model.multiplier === 0
-                        ? "text-copilot-success"
-                        : model.multiplier < 1
-                          ? "text-copilot-success"
-                          : model.multiplier > 1
-                            ? "text-copilot-warning"
-                            : "text-copilot-text-muted"
-                    }`}
-                  >
-                    {model.multiplier === 0 ? "free" : `${model.multiplier}×`}
-                  </span>
-                ),
-              }))}
-              onSelect={handleModelChange}
-              placeholder="Loading..."
-              title="Model"
-              minWidth="240px"
-            />
-          </div>
-
-          {/* Theme Selector */}
-          <Dropdown
               value={themePreference}
               options={[
                 {
-                  id: "system",
-                  label: "System",
+                  id: 'system',
+                  label: 'System',
                   icon: <MonitorIcon size={12} />,
                 },
                 ...availableThemes.map((theme) => ({
                   id: theme.id,
                   label: theme.name,
                   icon:
-                    theme.id === "dark" ? (
+                    theme.id === 'dark' ? (
                       <MoonIcon size={12} />
-                    ) : theme.id === "light" ? (
+                    ) : theme.id === 'light' ? (
                       <SunIcon size={12} />
                     ) : (
                       <PaletteIcon size={12} />
@@ -4225,14 +4268,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               }}
               trigger={
                 <>
-                  {activeTheme.type === "dark" ? (
-                    <MoonIcon size={12} />
-                  ) : (
-                    <SunIcon size={12} />
-                  )}
-                  <span>
-                    {themePreference === "system" ? "System" : activeTheme.name}
-                  </span>
+                  {activeTheme.type === 'dark' ? <MoonIcon size={12} /> : <SunIcon size={12} />}
+                  <span>{themePreference === 'system' ? 'System' : activeTheme.name}</span>
                   <ChevronDownIcon size={10} />
                 </>
               }
@@ -4240,120 +4277,144 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               minWidth="180px"
               dividers={[0]}
               footerActions={
-              <button
-                onClick={async () => {
-                  const result = await importTheme();
-                  if (result.error) {
-                    console.error("Failed to import theme:", result.error);
-                  }
-                }}
-                className="w-full px-3 py-1.5 text-left text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover transition-colors flex items-center gap-2"
-              >
-                <UploadIcon size={12} />
-                <span>Import Theme...</span>
-              </button>
-            }
-          />
-        </div>
-      </div>
-
-      {/* Tab Bar */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left Sidebar - Vertical Tabs */}
-        <div 
-          className="bg-copilot-bg border-r border-copilot-border flex flex-col shrink-0"
-          style={{ width: leftPanelWidth }}
-        >
-          {/* New Session Button with Dropdown */}
-          <div className="relative group border-b border-copilot-border">
-            <button
-              onClick={() => handleNewTab()}
-              className="w-full flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
-            >
-              <PlusIcon size={12} />
-              New Session
-            </button>
-            {/* Dropdown arrow / Worktree option on hover */}
-            <div className="absolute right-0 top-0 h-full flex items-center pr-2">
-              <div className="relative">
                 <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleNewWorktreeSession();
+                  onClick={async () => {
+                    const result = await importTheme();
+                    if (result.error) {
+                      console.error('Failed to import theme:', result.error);
+                    }
                   }}
-                  className="p-1 text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover rounded opacity-0 group-hover:opacity-100 transition-opacity"
-                  title="New Worktree Session (isolated branch)"
-                  data-tour="new-worktree"
+                  className="w-full px-3 py-1.5 text-left text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover transition-colors flex items-center gap-2"
                 >
-                  <GitBranchIcon size={12} />
+                  <UploadIcon size={12} />
+                  <span>Import Theme...</span>
                 </button>
+              }
+            />
+          </div>
+        </div>
+
+        {/* Tab Bar */}
+        <div className="flex flex-1 overflow-hidden">
+          {/* Left Sidebar - Vertical Tabs */}
+          <div
+            className="bg-copilot-bg border-r border-copilot-border flex flex-col shrink-0"
+            style={{ width: leftPanelWidth }}
+          >
+            {/* New Session Button with Dropdown */}
+            <div className="relative group border-b border-copilot-border">
+              <button
+                onClick={() => handleNewTab()}
+                className="w-full flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+              >
+                <PlusIcon size={12} />
+                New Session
+              </button>
+              {/* Dropdown arrow / Worktree option on hover */}
+              <div className="absolute right-0 top-0 h-full flex items-center pr-2">
+                <div className="relative">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleNewWorktreeSession();
+                    }}
+                    className="p-1 text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="New Worktree Session (isolated branch)"
+                    data-tour="new-worktree"
+                  >
+                    <GitBranchIcon size={12} />
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Open Tabs */}
-          <div className="flex-1 overflow-y-auto" data-tour="sidebar-tabs">
-            {tabs.map((tab) => (
-              <div
-                key={tab.id}
-                onClick={() => handleSwitchTab(tab.id)}
-                onContextMenu={(e) => handleTabContextMenu(e, tab.id)}
-                className={`group w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors text-left cursor-pointer ${
-                  tab.id === activeTabId
-                    ? "bg-copilot-surface text-copilot-text border-l-2 border-l-copilot-accent"
-                    : "text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface border-l-2 border-l-transparent"
-                }`}
-              >
-                {/* Status indicator - priority: pending > processing > marked > unread > idle */}
-                {tab.pendingConfirmations.length > 0 ? (
-                  <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-accent animate-pulse" />
-                ) : tab.isProcessing ? (
-                  <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-warning animate-pulse" />
-                ) : tab.markedForReview ? (
-                  <span className="shrink-0 w-2 h-2 rounded-full bg-cyan-500" title="Marked for review" />
-                ) : tab.hasUnreadCompletion ? (
-                  <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-success" />
-                ) : (
-                  <span className="shrink-0 w-2 h-2 rounded-full bg-transparent" />
-                )}
-                {tab.isRenaming ? (
-                  <input
-                    autoFocus
-                    value={tab.renameDraft ?? tab.name}
-                    onChange={(e) =>
-                      setTabs((prev) =>
-                        prev.map((t) =>
-                          t.id === tab.id
-                            ? { ...t, renameDraft: e.target.value }
-                            : t,
-                        ),
-                      )
-                    }
-                    onClick={(e) => e.stopPropagation()}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === "Escape") {
-                        e.preventDefault();
-                        e.stopPropagation();
-                      }
-                    }}
-                    onKeyUp={async (e) => {
-                      if (e.key === "Escape") {
-                        e.stopPropagation();
+            {/* Open Tabs */}
+            <div className="flex-1 overflow-y-auto" data-tour="sidebar-tabs">
+              {tabs.map((tab) => (
+                <div
+                  key={tab.id}
+                  onClick={() => handleSwitchTab(tab.id)}
+                  onContextMenu={(e) => handleTabContextMenu(e, tab.id)}
+                  className={`group w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors text-left cursor-pointer ${
+                    tab.id === activeTabId
+                      ? 'bg-copilot-surface text-copilot-text border-l-2 border-l-copilot-accent'
+                      : 'text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface border-l-2 border-l-transparent'
+                  }`}
+                >
+                  {/* Status indicator - priority: pending > processing > marked > unread > idle */}
+                  {tab.pendingConfirmations.length > 0 ? (
+                    <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-accent animate-pulse" />
+                  ) : tab.isProcessing ? (
+                    <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-warning animate-pulse" />
+                  ) : tab.markedForReview ? (
+                    <span
+                      className="shrink-0 w-2 h-2 rounded-full bg-cyan-500"
+                      title="Marked for review"
+                    />
+                  ) : tab.hasUnreadCompletion ? (
+                    <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-success" />
+                  ) : (
+                    <span className="shrink-0 w-2 h-2 rounded-full bg-transparent" />
+                  )}
+                  {tab.isRenaming ? (
+                    <input
+                      autoFocus
+                      value={tab.renameDraft ?? tab.name}
+                      onChange={(e) =>
                         setTabs((prev) =>
                           prev.map((t) =>
-                            t.id === tab.id
-                              ? {
-                                  ...t,
-                                  isRenaming: false,
-                                  renameDraft: undefined,
-                                }
-                              : t,
-                          ),
-                        );
-                        return;
+                            t.id === tab.id ? { ...t, renameDraft: e.target.value } : t
+                          )
+                        )
                       }
-                      if (e.key === "Enter") {
-                        e.stopPropagation();
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === 'Escape') {
+                          e.preventDefault();
+                          e.stopPropagation();
+                        }
+                      }}
+                      onKeyUp={async (e) => {
+                        if (e.key === 'Escape') {
+                          e.stopPropagation();
+                          setTabs((prev) =>
+                            prev.map((t) =>
+                              t.id === tab.id
+                                ? {
+                                    ...t,
+                                    isRenaming: false,
+                                    renameDraft: undefined,
+                                  }
+                                : t
+                            )
+                          );
+                          return;
+                        }
+                        if (e.key === 'Enter') {
+                          e.stopPropagation();
+                          const nextName = (tab.renameDraft ?? tab.name).trim();
+                          const finalName = nextName || tab.name;
+                          setTabs((prev) =>
+                            prev.map((t) =>
+                              t.id === tab.id
+                                ? {
+                                    ...t,
+                                    name: finalName,
+                                    isRenaming: false,
+                                    renameDraft: undefined,
+                                    needsTitle: false,
+                                  }
+                                : t
+                            )
+                          );
+                          try {
+                            await window.electronAPI.copilot.renameSession(tab.id, finalName);
+                          } catch (err) {
+                            console.error('Failed to rename session:', err);
+                          }
+                        }
+                      }}
+                      onBlur={async () => {
                         const nextName = (tab.renameDraft ?? tab.name).trim();
                         const finalName = nextName || tab.name;
                         setTabs((prev) =>
@@ -4366,522 +4427,504 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                                   renameDraft: undefined,
                                   needsTitle: false,
                                 }
-                              : t,
-                          ),
+                              : t
+                          )
                         );
                         try {
-                          await window.electronAPI.copilot.renameSession(
-                            tab.id,
-                            finalName,
-                          );
+                          await window.electronAPI.copilot.renameSession(tab.id, finalName);
                         } catch (err) {
-                          console.error("Failed to rename session:", err);
+                          console.error('Failed to rename session:', err);
                         }
-                      }
-                    }}
-                    onBlur={async () => {
-                      const nextName = (tab.renameDraft ?? tab.name).trim();
-                      const finalName = nextName || tab.name;
-                      setTabs((prev) =>
-                        prev.map((t) =>
-                          t.id === tab.id
-                            ? {
-                                ...t,
-                                name: finalName,
-                                isRenaming: false,
-                                renameDraft: undefined,
-                                needsTitle: false,
-                              }
-                            : t,
-                        ),
-                      );
-                      try {
-                        await window.electronAPI.copilot.renameSession(
-                          tab.id,
-                          finalName,
+                      }}
+                      className="flex-1 min-w-0 bg-copilot-bg border border-copilot-border rounded px-1 py-0.5 text-xs text-copilot-text outline-none focus:border-copilot-accent"
+                    />
+                  ) : (
+                    <span
+                      className="flex-1 truncate"
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        setTabs((prev) =>
+                          prev.map((t) =>
+                            t.id === tab.id ? { ...t, isRenaming: true, renameDraft: t.name } : t
+                          )
                         );
-                      } catch (err) {
-                        console.error("Failed to rename session:", err);
-                      }
-                    }}
-                    className="flex-1 min-w-0 bg-copilot-bg border border-copilot-border rounded px-1 py-0.5 text-xs text-copilot-text outline-none focus:border-copilot-accent"
-                  />
-                ) : (
-                  <span
-                    className="flex-1 truncate"
-                    onDoubleClick={(e) => {
-                      e.stopPropagation();
-                      setTabs((prev) =>
-                        prev.map((t) =>
-                          t.id === tab.id
-                            ? { ...t, isRenaming: true, renameDraft: t.name }
-                            : t,
-                        ),
-                      );
-                    }}
-                    title="Double-click to rename"
-                  >
-                    {tab.name}
-                  </span>
-                )}
-                <button
-                  onClick={(e) => handleCloseTab(tab.id, e)}
-                  className="shrink-0 p-0.5 rounded hover:bg-copilot-border opacity-0 group-hover:opacity-100 transition-opacity"
-                  title="Close tab"
-                >
-                  <CloseIcon size={10} />
-                </button>
-              </div>
-            ))}
-          </div>
-
-          {/* Bottom section - aligned with input area */}
-          <div className="mt-auto">
-            {/* Session History Button */}
-            <div className="border-t border-copilot-border h-[32px] flex items-center">
-              <button
-                onClick={() => setShowSessionHistory(true)}
-                className="w-full h-full flex items-center gap-2 px-3 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
-              >
-                <HistoryIcon size={14} strokeWidth={1.5} />
-                <span>Session History</span>
-                {(tabs.length + previousSessions.length) > 0 && (
-                  <span className="ml-auto text-[10px] bg-copilot-bg px-1.5 py-0.5 rounded">
-                    {tabs.length + previousSessions.length}
-                  </span>
-                )}
-              </button>
-            </div>
-
-            {/* Build Info */}
-            <div 
-              className="border-t border-copilot-border h-[24px] flex items-center px-3 text-[10px] text-copilot-text-muted"
-              title={`Build: ${buildInfo.version}\nBranch: ${buildInfo.gitBranch}\nCommit: ${buildInfo.gitSha}\nBuilt: ${buildInfo.buildDate} ${buildInfo.buildTime}`}
-            >
-              <span className="opacity-60">v{buildInfo.baseVersion}</span>
-              <span className="opacity-40 mx-1">•</span>
-              <span className="opacity-60 truncate">{buildInfo.gitBranch === 'main' || buildInfo.gitBranch === 'master' ? buildInfo.gitSha : buildInfo.gitBranch}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Left Resize Handle */}
-        <div
-          className="w-0 cursor-col-resize shrink-0 relative z-10"
-          onMouseDown={(e) => handleResizeMouseDown(e, 'left')}
-        >
-          <div className="absolute inset-y-0 -left-1 w-2 hover:bg-copilot-accent/50 transition-colors" />
-        </div>
-
-        {/* Main Content Area */}
-        <div className="flex-1 flex flex-col min-h-0 min-w-0">
-          {/* Terminal Toggle Button */}
-          {activeTab && (
-            <button
-              onClick={() => {
-                if (terminalOpenForSession === activeTab.id) {
-                  setTerminalOpenForSession(null);
-                } else {
-                  setTerminalOpenForSession(activeTab.id);
-                  // Track that this session has had a terminal initialized
-                  setTerminalInitializedSessions(prev => new Set(prev).add(activeTab.id));
-                  trackEvent(TelemetryEvents.FEATURE_TERMINAL_OPENED);
-                }
-              }}
-              className={`shrink-0 flex items-center gap-2 px-4 py-2 text-xs border-b border-copilot-border ${
-                terminalOpenForSession === activeTab.id
-                  ? "text-copilot-accent bg-copilot-surface" 
-                  : "text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface"
-              }`}
-              data-tour="terminal-toggle"
-            >
-              <TerminalIcon size={14} />
-              <span className="font-medium">Terminal</span>
-              <ChevronDownIcon
-                size={12}
-                className={`transition-transform duration-200 ${terminalOpenForSession === activeTab.id ? "rotate-180" : ""}`}
-              />
-            </button>
-          )}
-
-          {/* Embedded Terminal Panels - render one per initialized session to preserve state */}
-          {tabs.filter(tab => terminalInitializedSessions.has(tab.id)).map(tab => (
-            <TerminalPanel
-              key={tab.id}
-              sessionId={tab.id}
-              cwd={tab.cwd}
-              isOpen={terminalOpenForSession === tab.id && activeTabId === tab.id}
-              onClose={() => setTerminalOpenForSession(null)}
-              onSendToAgent={handleSendTerminalOutput}
-            />
-          ))}
-
-          {/* Messages Area - Conversation Only */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-2 min-h-0" data-clarity-mask="true">
-            {activeTab?.messages.length === 0 && (
-              <div className="flex flex-col items-center justify-center min-h-full text-center -m-4 p-4">
-                <img
-                  src={logo}
-                  alt="Copilot Skins"
-                  className="w-16 h-16 mb-4"
-                />
-                <h2 className="text-copilot-text text-lg font-medium mb-1">
-                  How can I help you today?
-                </h2>
-                <p className="text-copilot-text-muted text-sm">
-                  Ask me anything about your code or projects.
-                </p>
-              </div>
-            )}
-
-            {(() => {
-              const filteredMessages = (activeTab?.messages || [])
-                .filter((m) => m.role !== "system")
-                .filter((m) => m.role === "user" || m.content.trim());
-              
-              // Find the last assistant message index
-              let lastAssistantIndex = -1;
-              for (let i = filteredMessages.length - 1; i >= 0; i--) {
-                if (filteredMessages[i].role === "assistant") {
-                  lastAssistantIndex = i;
-                  break;
-                }
-              }
-              
-              return filteredMessages.map((message, index) => (
-                <div
-                  key={message.id}
-                  className={`flex flex-col ${message.role === "user" ? "items-end" : "items-start"}`}
-                >
-                  <div
-                    className={`max-w-[85%] rounded-lg px-4 py-2.5 overflow-hidden ${
-                      message.role === "user"
-                        ? message.isPendingInjection
-                          ? "bg-copilot-warning text-white border border-dashed border-copilot-warning/50"
-                          : "bg-copilot-success text-copilot-text-inverse"
-                        : "bg-copilot-surface text-copilot-text"
-                    }`}
-                  >
-                    {/* Pending injection indicator */}
-                    {message.isPendingInjection && (
-                      <div className="flex items-center gap-1.5 text-[10px] opacity-80 mb-1.5">
-                        <ClockIcon size={10} />
-                        <span>Pending — will be read by agent</span>
-                      </div>
-                    )}
-                    <div className="text-sm break-words overflow-hidden">
-                      {message.role === "user" ? (
-                        <>
-                          {/* User message images */}
-                          {message.imageAttachments && message.imageAttachments.length > 0 && (
-                            <div className="flex flex-wrap gap-2 mb-2">
-                              {message.imageAttachments.map((img) => (
-                                <img
-                                  key={img.id}
-                                  src={img.previewUrl}
-                                  alt={img.name}
-                                  className="max-h-32 w-auto rounded border border-white/30 object-contain cursor-pointer hover:opacity-80 transition-opacity"
-                                  onClick={() => setLightboxImage({ src: img.previewUrl, alt: img.name })}
-                                  title="Click to enlarge"
-                                />
-                              ))}
-                            </div>
-                          )}
-                          {/* User message files */}
-                          {message.fileAttachments && message.fileAttachments.length > 0 && (
-                            <div className="flex flex-wrap gap-2 mb-2">
-                              {message.fileAttachments.map((file) => (
-                                <div key={file.id} className="flex items-center gap-2 px-2.5 py-1.5 bg-black/20 rounded-lg">
-                                  <FileIcon size={16} className="opacity-60 shrink-0" />
-                                  <div className="flex flex-col min-w-0">
-                                    <span className="text-xs truncate max-w-[150px]" title={file.name}>{file.name}</span>
-                                    <span className="text-[10px] opacity-50">{(file.size / 1024).toFixed(1)} KB</span>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          <span className="whitespace-pre-wrap break-words">
-                            {message.content}
-                          </span>
-                        </>
-                      ) : message.content ? (
-                        <ReactMarkdown
-                          remarkPlugins={[remarkGfm]}
-                          components={{
-                            p: ({ children }) => (
-                              <p className="mb-2 last:mb-0">{children}</p>
-                            ),
-                            strong: ({ children }) => (
-                              <strong className="font-semibold text-copilot-text">
-                                {children}
-                              </strong>
-                            ),
-                            em: ({ children }) => (
-                              <em className="italic">{children}</em>
-                            ),
-                            ul: ({ children }) => (
-                              <ul className="list-disc list-inside mb-2 space-y-1">
-                                {children}
-                              </ul>
-                            ),
-                            ol: ({ children }) => (
-                              <ol className="list-decimal list-inside mb-2 space-y-1">
-                                {children}
-                              </ol>
-                            ),
-                            li: ({ children }) => (
-                              <li className="ml-2">{children}</li>
-                            ),
-                            code: ({ children, className }) => {
-                              // Extract text content for analysis
-                              const textContent = extractTextContent(children);
-                              
-                              // Fix block detection: treat as block if:
-                              // 1. Has language class (e.g., language-javascript)
-                              // 2. OR contains newlines (multi-line content)
-                              const hasLanguageClass = className?.includes("language-");
-                              const isMultiLine = textContent.includes('\n');
-                              const isBlock = hasLanguageClass || isMultiLine;
-                              
-                              // Check if content is an ASCII diagram
-                              const isDiagram = isAsciiDiagram(textContent);
-                              
-                              // Check if this is a CLI command (should show run button)
-                              const isCliCmd = isCliCommand(className, textContent);
-                              
-                              if (isBlock) {
-                                return (
-                                  <CodeBlockWithCopy
-                                    isDiagram={isDiagram}
-                                    textContent={textContent}
-                                    isCliCommand={isCliCmd}
-                                  >
-                                    {children}
-                                  </CodeBlockWithCopy>
-                                );
-                              } else {
-                                return (
-                                  <code className="bg-copilot-bg px-1 py-0.5 rounded text-copilot-warning text-xs break-all">
-                                    {children}
-                                  </code>
-                                );
-                              }
-                            },
-                            pre: ({ children }) => (
-                              <div className="overflow-x-auto max-w-full">
-                                {children}
-                              </div>
-                            ),
-                            a: ({ href, children }) => (
-                              <a
-                                href={href}
-                                className="text-copilot-accent hover:underline"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                              >
-                                {children}
-                              </a>
-                            ),
-                            h1: ({ children }) => (
-                              <h1 className="text-lg font-bold mb-2 text-copilot-text">
-                                {children}
-                              </h1>
-                            ),
-                            h2: ({ children }) => (
-                              <h2 className="text-base font-bold mb-2 text-copilot-text">
-                                {children}
-                              </h2>
-                            ),
-                            h3: ({ children }) => (
-                              <h3 className="text-sm font-bold mb-1 text-copilot-text">
-                                {children}
-                              </h3>
-                            ),
-                            blockquote: ({ children }) => (
-                              <blockquote className="border-l-2 border-copilot-border pl-3 my-2 text-copilot-text-muted italic">
-                                {children}
-                              </blockquote>
-                            ),
-                            table: ({ children }) => (
-                              <div className="overflow-x-auto my-2">
-                                <table className="min-w-full border-collapse border border-copilot-border text-sm">
-                                  {children}
-                                </table>
-                              </div>
-                            ),
-                            thead: ({ children }) => (
-                              <thead className="bg-copilot-bg">
-                                {children}
-                              </thead>
-                            ),
-                            tbody: ({ children }) => (
-                              <tbody>{children}</tbody>
-                            ),
-                            tr: ({ children }) => (
-                              <tr className="border-b border-copilot-border">
-                                {children}
-                              </tr>
-                            ),
-                            th: ({ children }) => (
-                              <th className="px-3 py-2 text-left font-semibold text-copilot-text border border-copilot-border">
-                                {children}
-                              </th>
-                            ),
-                            td: ({ children }) => (
-                              <td className="px-3 py-2 text-copilot-text border border-copilot-border">
-                                {children}
-                              </td>
-                            ),
-                          }}
-                        >
-                          {message.content}
-                        </ReactMarkdown>
-                      ) : null}
-                      {message.isStreaming && message.content && (
-                        <span className="inline-block w-2 h-4 ml-1 bg-copilot-accent animate-pulse rounded-sm" />
-                      )}
-                    </div>
-                  </div>
-                  {/* Show timestamp for the last assistant message (only when not processing) */}
-                  {index === lastAssistantIndex && message.timestamp && !activeTab?.isProcessing && (
-                    <span className="text-[10px] text-copilot-text-muted mt-1 ml-1">
-                      {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      }}
+                      title="Double-click to rename"
+                    >
+                      {tab.name}
                     </span>
                   )}
-                  {/* Show choice selector for the last assistant message when choices are detected */}
-                  {index === lastAssistantIndex && 
-                   !activeTab?.isProcessing && 
-                   activeTab?.detectedChoices && 
-                   activeTab.detectedChoices.length > 0 && (
-                    <ChoiceSelector
-                      choices={activeTab.detectedChoices}
-                      onSelect={handleChoiceSelect}
-                    />
-                  )}
+                  <button
+                    onClick={(e) => handleCloseTab(tab.id, e)}
+                    className="shrink-0 p-0.5 rounded hover:bg-copilot-border opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="Close tab"
+                  >
+                    <CloseIcon size={10} />
+                  </button>
                 </div>
-              ));
-            })()}
+              ))}
+            </div>
 
-            {/* Thinking indicator when processing but no streaming content yet */}
-            {activeTab?.isProcessing &&
-              !activeTab?.messages.some((m) => m.isStreaming && m.content) && (
-                <div className="flex flex-col items-start">
-                  <div className="bg-copilot-surface text-copilot-text rounded-lg px-4 py-2.5">
-                    <div className="flex items-center gap-2 text-sm">
-                      <Spinner size="sm" />
-                      <span className="text-copilot-text-muted">
-                        {activeTab?.currentIntent || "Thinking..."}
-                      </span>
-                    </div>
-                  </div>
-                  {(() => {
-                    // Show intent timestamp if available, otherwise fall back to streaming message timestamp
-                    const timestamp = activeTab?.currentIntentTimestamp || activeTab?.messages.find((m) => m.isStreaming)?.timestamp;
-                    return timestamp ? (
-                      <span className="text-[10px] text-copilot-text-muted mt-1 ml-1">
-                        {new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    ) : null;
-                  })()}
+            {/* Bottom section - aligned with input area */}
+            <div className="mt-auto">
+              {/* Session History Button */}
+              <div className="border-t border-copilot-border h-[32px] flex items-center">
+                <button
+                  onClick={() => setShowSessionHistory(true)}
+                  className="w-full h-full flex items-center gap-2 px-3 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                >
+                  <HistoryIcon size={14} strokeWidth={1.5} />
+                  <span>Session History</span>
+                  {tabs.length + previousSessions.length > 0 && (
+                    <span className="ml-auto text-[10px] bg-copilot-bg px-1.5 py-0.5 rounded">
+                      {tabs.length + previousSessions.length}
+                    </span>
+                  )}
+                </button>
+              </div>
+
+              {/* Build Info */}
+              <div
+                className="border-t border-copilot-border h-[24px] flex items-center px-3 text-[10px] text-copilot-text-muted"
+                title={`Build: ${buildInfo.version}\nBranch: ${buildInfo.gitBranch}\nCommit: ${buildInfo.gitSha}\nBuilt: ${buildInfo.buildDate} ${buildInfo.buildTime}`}
+              >
+                <span className="opacity-60">v{buildInfo.baseVersion}</span>
+                <span className="opacity-40 mx-1">•</span>
+                <span className="opacity-60 truncate">
+                  {buildInfo.gitBranch === 'main' || buildInfo.gitBranch === 'master'
+                    ? buildInfo.gitSha
+                    : buildInfo.gitBranch}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Left Resize Handle */}
+          <div
+            className="w-0 cursor-col-resize shrink-0 relative z-10"
+            onMouseDown={(e) => handleResizeMouseDown(e, 'left')}
+          >
+            <div className="absolute inset-y-0 -left-1 w-2 hover:bg-copilot-accent/50 transition-colors" />
+          </div>
+
+          {/* Main Content Area */}
+          <div className="flex-1 flex flex-col min-h-0 min-w-0">
+            {/* Terminal Toggle Button */}
+            {activeTab && (
+              <button
+                onClick={() => {
+                  if (terminalOpenForSession === activeTab.id) {
+                    setTerminalOpenForSession(null);
+                  } else {
+                    setTerminalOpenForSession(activeTab.id);
+                    // Track that this session has had a terminal initialized
+                    setTerminalInitializedSessions((prev) => new Set(prev).add(activeTab.id));
+                    trackEvent(TelemetryEvents.FEATURE_TERMINAL_OPENED);
+                  }
+                }}
+                className={`shrink-0 flex items-center gap-2 px-4 py-2 text-xs border-b border-copilot-border ${
+                  terminalOpenForSession === activeTab.id
+                    ? 'text-copilot-accent bg-copilot-surface'
+                    : 'text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface'
+                }`}
+                data-tour="terminal-toggle"
+              >
+                <TerminalIcon size={14} />
+                <span className="font-medium">Terminal</span>
+                <ChevronDownIcon
+                  size={12}
+                  className={`transition-transform duration-200 ${terminalOpenForSession === activeTab.id ? 'rotate-180' : ''}`}
+                />
+              </button>
+            )}
+
+            {/* Embedded Terminal Panels - render one per initialized session to preserve state */}
+            {tabs
+              .filter((tab) => terminalInitializedSessions.has(tab.id))
+              .map((tab) => (
+                <TerminalPanel
+                  key={tab.id}
+                  sessionId={tab.id}
+                  cwd={tab.cwd}
+                  isOpen={terminalOpenForSession === tab.id && activeTabId === tab.id}
+                  onClose={() => setTerminalOpenForSession(null)}
+                  onSendToAgent={handleSendTerminalOutput}
+                />
+              ))}
+
+            {/* Messages Area - Conversation Only */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-2 min-h-0" data-clarity-mask="true">
+              {activeTab?.messages.length === 0 && (
+                <div className="flex flex-col items-center justify-center min-h-full text-center -m-4 p-4">
+                  <img src={logo} alt="Copilot Skins" className="w-16 h-16 mb-4" />
+                  <h2 className="text-copilot-text text-lg font-medium mb-1">
+                    How can I help you today?
+                  </h2>
+                  <p className="text-copilot-text-muted text-sm">
+                    Ask me anything about your code or projects.
+                  </p>
                 </div>
               )}
 
-            {/* Review Note Banner - shown when session has a note */}
-            {activeTab?.reviewNote && (
-              <div className="mx-3 mb-2 p-3 bg-cyan-500/10 border border-cyan-500/30 rounded-lg">
-                <div className="flex items-start gap-2">
-                  <span className="shrink-0 w-2 h-2 mt-1 rounded-full bg-cyan-500" />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xs font-medium text-cyan-400 mb-1">Review Note</div>
-                    <p className="text-sm text-copilot-text whitespace-pre-wrap break-words">{activeTab.reviewNote}</p>
-                  </div>
-                  <button
-                    onClick={() => handleClearNote(activeTab.id)}
-                    className="shrink-0 mt-0.5 text-copilot-text-muted hover:text-copilot-text transition-colors"
-                    title="Dismiss note"
+              {(() => {
+                const filteredMessages = (activeTab?.messages || [])
+                  .filter((m) => m.role !== 'system')
+                  .filter((m) => m.role === 'user' || m.content.trim());
+
+                // Find the last assistant message index
+                let lastAssistantIndex = -1;
+                for (let i = filteredMessages.length - 1; i >= 0; i--) {
+                  if (filteredMessages[i].role === 'assistant') {
+                    lastAssistantIndex = i;
+                    break;
+                  }
+                }
+
+                return filteredMessages.map((message, index) => (
+                  <div
+                    key={message.id}
+                    className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}
                   >
-                    <CloseIcon size={12} />
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <div ref={messagesEndRef} />
-          </div>
-
-          {/* Permission Confirmation - Above Input */}
-          {activeTab?.pendingConfirmations?.[0] &&
-            (() => {
-              const pendingConfirmation = activeTab.pendingConfirmations[0];
-              const queueLength = activeTab.pendingConfirmations.length;
-              return (
-                <div className={`shrink-0 mx-3 mb-2 p-4 bg-copilot-surface rounded-lg border ${pendingConfirmation.isDestructive ? 'border-copilot-error' : 'border-copilot-warning'}`}>
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className={`${pendingConfirmation.isDestructive ? 'text-copilot-error' : 'text-copilot-warning'} text-lg`}>
-                      {pendingConfirmation.isDestructive ? '🗑️' : '⚠️'}
-                    </span>
-                    <span className="text-copilot-text text-sm font-medium">
-                      {pendingConfirmation.isOutOfScope ? (
-                        <>Allow reading outside workspace?</>
-                      ) : pendingConfirmation.isDestructive ? (
-                        <>
-                          Allow <strong className="text-copilot-error">{pendingConfirmation.executable || "destructive command"}</strong>?
-                        </>
-                      ) : pendingConfirmation.kind === "write" ? (
-                        <>Allow file changes?</>
-                      ) : pendingConfirmation.kind === "shell" ? (
-                        <>
-                          Allow{" "}
-                          <strong>
-                            {pendingConfirmation.executable || "command"}
-                          </strong>
-                          ?
-                        </>
-                      ) : pendingConfirmation.kind === "url" ? (
-                        <>
-                          Allow <strong>URL access</strong>?
-                        </>
-                      ) : pendingConfirmation.kind === "mcp" ? (
-                        <>
-                          Allow <strong>MCP tool</strong>?
-                        </>
-                      ) : (
-                        <>
-                          Allow <strong>{pendingConfirmation.kind}</strong>?
-                        </>
+                    <div
+                      className={`max-w-[85%] rounded-lg px-4 py-2.5 overflow-hidden ${
+                        message.role === 'user'
+                          ? message.isPendingInjection
+                            ? 'bg-copilot-warning text-white border border-dashed border-copilot-warning/50'
+                            : 'bg-copilot-success text-copilot-text-inverse'
+                          : 'bg-copilot-surface text-copilot-text'
+                      }`}
+                    >
+                      {/* Pending injection indicator */}
+                      {message.isPendingInjection && (
+                        <div className="flex items-center gap-1.5 text-[10px] opacity-80 mb-1.5">
+                          <ClockIcon size={10} />
+                          <span>Pending — will be read by agent</span>
+                        </div>
                       )}
-                    </span>
-                    {queueLength > 1 && (
-                      <span className="text-xs text-copilot-text-muted ml-auto bg-copilot-border px-2 py-0.5 rounded-full">
-                        +{queueLength - 1} more
-                      </span>
-                    )}
-                  </div>
-                  {pendingConfirmation.isOutOfScope && (
-                    <div className="text-xs text-copilot-text-muted mb-2">
-                      Path is outside trusted workspace
+                      <div className="text-sm break-words overflow-hidden">
+                        {message.role === 'user' ? (
+                          <>
+                            {/* User message images */}
+                            {message.imageAttachments && message.imageAttachments.length > 0 && (
+                              <div className="flex flex-wrap gap-2 mb-2">
+                                {message.imageAttachments.map((img) => (
+                                  <img
+                                    key={img.id}
+                                    src={img.previewUrl}
+                                    alt={img.name}
+                                    className="max-h-32 w-auto rounded border border-white/30 object-contain cursor-pointer hover:opacity-80 transition-opacity"
+                                    onClick={() =>
+                                      setLightboxImage({ src: img.previewUrl, alt: img.name })
+                                    }
+                                    title="Click to enlarge"
+                                  />
+                                ))}
+                              </div>
+                            )}
+                            {/* User message files */}
+                            {message.fileAttachments && message.fileAttachments.length > 0 && (
+                              <div className="flex flex-wrap gap-2 mb-2">
+                                {message.fileAttachments.map((file) => (
+                                  <div
+                                    key={file.id}
+                                    className="flex items-center gap-2 px-2.5 py-1.5 bg-black/20 rounded-lg"
+                                  >
+                                    <FileIcon size={16} className="opacity-60 shrink-0" />
+                                    <div className="flex flex-col min-w-0">
+                                      <span
+                                        className="text-xs truncate max-w-[150px]"
+                                        title={file.name}
+                                      >
+                                        {file.name}
+                                      </span>
+                                      <span className="text-[10px] opacity-50">
+                                        {(file.size / 1024).toFixed(1)} KB
+                                      </span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            <span className="whitespace-pre-wrap break-words">
+                              {message.content}
+                            </span>
+                          </>
+                        ) : message.content ? (
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                              strong: ({ children }) => (
+                                <strong className="font-semibold text-copilot-text">
+                                  {children}
+                                </strong>
+                              ),
+                              em: ({ children }) => <em className="italic">{children}</em>,
+                              ul: ({ children }) => (
+                                <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>
+                              ),
+                              ol: ({ children }) => (
+                                <ol className="list-decimal list-inside mb-2 space-y-1">
+                                  {children}
+                                </ol>
+                              ),
+                              li: ({ children }) => <li className="ml-2">{children}</li>,
+                              code: ({ children, className }) => {
+                                // Extract text content for analysis
+                                const textContent = extractTextContent(children);
+
+                                // Fix block detection: treat as block if:
+                                // 1. Has language class (e.g., language-javascript)
+                                // 2. OR contains newlines (multi-line content)
+                                const hasLanguageClass = className?.includes('language-');
+                                const isMultiLine = textContent.includes('\n');
+                                const isBlock = hasLanguageClass || isMultiLine;
+
+                                // Check if content is an ASCII diagram
+                                const isDiagram = isAsciiDiagram(textContent);
+
+                                // Check if this is a CLI command (should show run button)
+                                const isCliCmd = isCliCommand(className, textContent);
+
+                                if (isBlock) {
+                                  return (
+                                    <CodeBlockWithCopy
+                                      isDiagram={isDiagram}
+                                      textContent={textContent}
+                                      isCliCommand={isCliCmd}
+                                    >
+                                      {children}
+                                    </CodeBlockWithCopy>
+                                  );
+                                } else {
+                                  return (
+                                    <code className="bg-copilot-bg px-1 py-0.5 rounded text-copilot-warning text-xs break-all">
+                                      {children}
+                                    </code>
+                                  );
+                                }
+                              },
+                              pre: ({ children }) => (
+                                <div className="overflow-x-auto max-w-full">{children}</div>
+                              ),
+                              a: ({ href, children }) => (
+                                <a
+                                  href={href}
+                                  className="text-copilot-accent hover:underline"
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  {children}
+                                </a>
+                              ),
+                              h1: ({ children }) => (
+                                <h1 className="text-lg font-bold mb-2 text-copilot-text">
+                                  {children}
+                                </h1>
+                              ),
+                              h2: ({ children }) => (
+                                <h2 className="text-base font-bold mb-2 text-copilot-text">
+                                  {children}
+                                </h2>
+                              ),
+                              h3: ({ children }) => (
+                                <h3 className="text-sm font-bold mb-1 text-copilot-text">
+                                  {children}
+                                </h3>
+                              ),
+                              blockquote: ({ children }) => (
+                                <blockquote className="border-l-2 border-copilot-border pl-3 my-2 text-copilot-text-muted italic">
+                                  {children}
+                                </blockquote>
+                              ),
+                              table: ({ children }) => (
+                                <div className="overflow-x-auto my-2">
+                                  <table className="min-w-full border-collapse border border-copilot-border text-sm">
+                                    {children}
+                                  </table>
+                                </div>
+                              ),
+                              thead: ({ children }) => (
+                                <thead className="bg-copilot-bg">{children}</thead>
+                              ),
+                              tbody: ({ children }) => <tbody>{children}</tbody>,
+                              tr: ({ children }) => (
+                                <tr className="border-b border-copilot-border">{children}</tr>
+                              ),
+                              th: ({ children }) => (
+                                <th className="px-3 py-2 text-left font-semibold text-copilot-text border border-copilot-border">
+                                  {children}
+                                </th>
+                              ),
+                              td: ({ children }) => (
+                                <td className="px-3 py-2 text-copilot-text border border-copilot-border">
+                                  {children}
+                                </td>
+                              ),
+                            }}
+                          >
+                            {message.content}
+                          </ReactMarkdown>
+                        ) : null}
+                        {message.isStreaming && message.content && (
+                          <span className="inline-block w-2 h-4 ml-1 bg-copilot-accent animate-pulse rounded-sm" />
+                        )}
+                      </div>
                     </div>
-                  )}
-                  {pendingConfirmation.kind === "mcp" &&
-                    (pendingConfirmation.toolTitle ||
-                      pendingConfirmation.toolName ||
-                      pendingConfirmation.serverName) && (
-                      <div
-                        className="text-xs text-copilot-accent mb-2 font-mono truncate"
-                        title={`${pendingConfirmation.serverName || ""} ${pendingConfirmation.toolName || ""}`.trim()}
+                    {/* Show timestamp for the last assistant message (only when not processing) */}
+                    {index === lastAssistantIndex &&
+                      message.timestamp &&
+                      !activeTab?.isProcessing && (
+                        <span className="text-[10px] text-copilot-text-muted mt-1 ml-1">
+                          {new Date(message.timestamp).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </span>
+                      )}
+                    {/* Show choice selector for the last assistant message when choices are detected */}
+                    {index === lastAssistantIndex &&
+                      !activeTab?.isProcessing &&
+                      activeTab?.detectedChoices &&
+                      activeTab.detectedChoices.length > 0 && (
+                        <ChoiceSelector
+                          choices={activeTab.detectedChoices}
+                          onSelect={handleChoiceSelect}
+                        />
+                      )}
+                  </div>
+                ));
+              })()}
+
+              {/* Thinking indicator when processing but no streaming content yet */}
+              {activeTab?.isProcessing &&
+                !activeTab?.messages.some((m) => m.isStreaming && m.content) && (
+                  <div className="flex flex-col items-start">
+                    <div className="bg-copilot-surface text-copilot-text rounded-lg px-4 py-2.5">
+                      <div className="flex items-center gap-2 text-sm">
+                        <Spinner size="sm" />
+                        <span className="text-copilot-text-muted">
+                          {activeTab?.currentIntent || 'Thinking...'}
+                        </span>
+                      </div>
+                    </div>
+                    {(() => {
+                      // Show intent timestamp if available, otherwise fall back to streaming message timestamp
+                      const timestamp =
+                        activeTab?.currentIntentTimestamp ||
+                        activeTab?.messages.find((m) => m.isStreaming)?.timestamp;
+                      return timestamp ? (
+                        <span className="text-[10px] text-copilot-text-muted mt-1 ml-1">
+                          {new Date(timestamp).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </span>
+                      ) : null;
+                    })()}
+                  </div>
+                )}
+
+              {/* Review Note Banner - shown when session has a note */}
+              {activeTab?.reviewNote && (
+                <div className="mx-3 mb-2 p-3 bg-cyan-500/10 border border-cyan-500/30 rounded-lg">
+                  <div className="flex items-start gap-2">
+                    <span className="shrink-0 w-2 h-2 mt-1 rounded-full bg-cyan-500" />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-medium text-cyan-400 mb-1">Review Note</div>
+                      <p className="text-sm text-copilot-text whitespace-pre-wrap break-words">
+                        {activeTab.reviewNote}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => handleClearNote(activeTab.id)}
+                      className="shrink-0 mt-0.5 text-copilot-text-muted hover:text-copilot-text transition-colors"
+                      title="Dismiss note"
+                    >
+                      <CloseIcon size={12} />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div ref={messagesEndRef} />
+            </div>
+
+            {/* Permission Confirmation - Above Input */}
+            {activeTab?.pendingConfirmations?.[0] &&
+              (() => {
+                const pendingConfirmation = activeTab.pendingConfirmations[0];
+                const queueLength = activeTab.pendingConfirmations.length;
+                return (
+                  <div
+                    className={`shrink-0 mx-3 mb-2 p-4 bg-copilot-surface rounded-lg border ${pendingConfirmation.isDestructive ? 'border-copilot-error' : 'border-copilot-warning'}`}
+                  >
+                    <div className="flex items-center gap-2 mb-3">
+                      <span
+                        className={`${pendingConfirmation.isDestructive ? 'text-copilot-error' : 'text-copilot-warning'} text-lg`}
                       >
-                        🔌{" "}
-                        {pendingConfirmation.toolTitle ||
-                          pendingConfirmation.toolName ||
-                          "MCP tool"}
-                        {pendingConfirmation.serverName
-                          ? ` @${pendingConfirmation.serverName}`
-                          : ""}
+                        {pendingConfirmation.isDestructive ? '🗑️' : '⚠️'}
+                      </span>
+                      <span className="text-copilot-text text-sm font-medium">
+                        {pendingConfirmation.isOutOfScope ? (
+                          <>Allow reading outside workspace?</>
+                        ) : pendingConfirmation.isDestructive ? (
+                          <>
+                            Allow{' '}
+                            <strong className="text-copilot-error">
+                              {pendingConfirmation.executable || 'destructive command'}
+                            </strong>
+                            ?
+                          </>
+                        ) : pendingConfirmation.kind === 'write' ? (
+                          <>Allow file changes?</>
+                        ) : pendingConfirmation.kind === 'shell' ? (
+                          <>
+                            Allow <strong>{pendingConfirmation.executable || 'command'}</strong>?
+                          </>
+                        ) : pendingConfirmation.kind === 'url' ? (
+                          <>
+                            Allow <strong>URL access</strong>?
+                          </>
+                        ) : pendingConfirmation.kind === 'mcp' ? (
+                          <>
+                            Allow <strong>MCP tool</strong>?
+                          </>
+                        ) : (
+                          <>
+                            Allow <strong>{pendingConfirmation.kind}</strong>?
+                          </>
+                        )}
+                      </span>
+                      {queueLength > 1 && (
+                        <span className="text-xs text-copilot-text-muted ml-auto bg-copilot-border px-2 py-0.5 rounded-full">
+                          +{queueLength - 1} more
+                        </span>
+                      )}
+                    </div>
+                    {pendingConfirmation.isOutOfScope && (
+                      <div className="text-xs text-copilot-text-muted mb-2">
+                        Path is outside trusted workspace
                       </div>
                     )}
-                  {pendingConfirmation.kind === "url" &&
-                    pendingConfirmation.url && (
+                    {pendingConfirmation.kind === 'mcp' &&
+                      (pendingConfirmation.toolTitle ||
+                        pendingConfirmation.toolName ||
+                        pendingConfirmation.serverName) && (
+                        <div
+                          className="text-xs text-copilot-accent mb-2 font-mono truncate"
+                          title={`${pendingConfirmation.serverName || ''} ${pendingConfirmation.toolName || ''}`.trim()}
+                        >
+                          🔌{' '}
+                          {pendingConfirmation.toolTitle ||
+                            pendingConfirmation.toolName ||
+                            'MCP tool'}
+                          {pendingConfirmation.serverName
+                            ? ` @${pendingConfirmation.serverName}`
+                            : ''}
+                        </div>
+                      )}
+                    {pendingConfirmation.kind === 'url' && pendingConfirmation.url && (
                       <div
                         className="text-xs text-copilot-accent mb-2 font-mono truncate"
                         title={pendingConfirmation.url}
@@ -4889,8 +4932,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                         🌐 {pendingConfirmation.url}
                       </div>
                     )}
-                  {pendingConfirmation.path &&
-                    pendingConfirmation.kind !== "write" && (
+                    {pendingConfirmation.path && pendingConfirmation.kind !== 'write' && (
                       <div
                         className="text-xs text-copilot-accent mb-2 font-mono truncate"
                         title={pendingConfirmation.path}
@@ -4898,2191 +4940,2323 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                         📄 {pendingConfirmation.path}
                       </div>
                     )}
-                  {pendingConfirmation.fullCommandText && (
-                    <pre className="bg-copilot-bg rounded p-3 my-2 overflow-x-auto text-xs text-copilot-text border border-copilot-border max-h-32">
-                      <code>{pendingConfirmation.fullCommandText}</code>
-                    </pre>
-                  )}
-                  {/* Issue #101: Show files to be deleted for destructive commands */}
-                  {pendingConfirmation.isDestructive && pendingConfirmation.filesToDelete && pendingConfirmation.filesToDelete.length > 0 && (
-                    <div className="bg-copilot-error/10 border border-copilot-error/30 rounded p-3 my-2">
-                      <div className="text-xs font-medium text-copilot-error mb-2 flex items-center gap-1">
-                        🗑️ Files to be deleted:
-                      </div>
-                      <ul className="text-xs text-copilot-error font-mono space-y-1 max-h-24 overflow-y-auto">
-                        {pendingConfirmation.filesToDelete.map((file, idx) => (
-                          <li key={idx} className="truncate" title={file}>
-                            • {file}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  <div className="flex gap-2 mt-3">
-                    {pendingConfirmation.isOutOfScope ? (
-                      <>
-                        <button
-                          onClick={() => handleConfirmation("approved")}
-                          className="flex-1 px-3 py-2 rounded bg-copilot-success hover:brightness-110 text-copilot-text-inverse text-sm font-medium transition-colors"
-                        >
-                          Yes
-                        </button>
-                        <button
-                          onClick={() => handleConfirmation("denied")}
-                          className="flex-1 px-3 py-2 rounded bg-copilot-surface hover:bg-copilot-surface-hover text-copilot-error text-sm font-medium border border-copilot-border transition-colors"
-                        >
-                          No
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        {/* Split button: Allow with dropdown for mode selection */}
-                        <div className="relative flex" ref={allowDropdownRef}>
+                    {pendingConfirmation.fullCommandText && (
+                      <pre className="bg-copilot-bg rounded p-3 my-2 overflow-x-auto text-xs text-copilot-text border border-copilot-border max-h-32">
+                        <code>{pendingConfirmation.fullCommandText}</code>
+                      </pre>
+                    )}
+                    {/* Issue #101: Show files to be deleted for destructive commands */}
+                    {pendingConfirmation.isDestructive &&
+                      pendingConfirmation.filesToDelete &&
+                      pendingConfirmation.filesToDelete.length > 0 && (
+                        <div className="bg-copilot-error/10 border border-copilot-error/30 rounded p-3 my-2">
+                          <div className="text-xs font-medium text-copilot-error mb-2 flex items-center gap-1">
+                            🗑️ Files to be deleted:
+                          </div>
+                          <ul className="text-xs text-copilot-error font-mono space-y-1 max-h-24 overflow-y-auto">
+                            {pendingConfirmation.filesToDelete.map((file, idx) => (
+                              <li key={idx} className="truncate" title={file}>
+                                • {file}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    <div className="flex gap-2 mt-3">
+                      {pendingConfirmation.isOutOfScope ? (
+                        <>
                           <button
-                            onClick={() => {
-                              if (allowMode === "once") {
-                                handleConfirmation("approved");
-                              } else if (allowMode === "session") {
-                                handleConfirmation("always");
-                              } else {
-                                handleConfirmation("global");
-                              }
-                            }}
-                            className="px-4 py-2 rounded-l bg-copilot-success hover:brightness-110 text-copilot-text-inverse text-sm font-medium transition-colors"
+                            onClick={() => handleConfirmation('approved')}
+                            className="flex-1 px-3 py-2 rounded bg-copilot-success hover:brightness-110 text-copilot-text-inverse text-sm font-medium transition-colors"
                           >
-                            Allow
+                            Yes
                           </button>
                           <button
-                            onClick={() => setShowAllowDropdown(!showAllowDropdown)}
-                            className="px-1.5 py-2 rounded-r bg-copilot-success hover:brightness-110 text-copilot-text-inverse text-sm font-medium transition-colors border-l border-black/20"
-                            title="Choose approval scope"
+                            onClick={() => handleConfirmation('denied')}
+                            className="flex-1 px-3 py-2 rounded bg-copilot-surface hover:bg-copilot-surface-hover text-copilot-error text-sm font-medium border border-copilot-border transition-colors"
                           >
-                            <ChevronDownIcon size={14} />
+                            No
                           </button>
-                          {showAllowDropdown && (
-                            <div className="absolute top-full left-0 mt-1 py-1 bg-copilot-surface border border-copilot-border rounded-lg shadow-lg z-50 min-w-[140px]">
-                              <button
-                                onClick={() => {
-                                  setAllowMode("once");
-                                  setShowAllowDropdown(false);
-                                }}
-                                className={`w-full px-3 py-1.5 text-left text-xs hover:bg-copilot-surface-hover transition-colors ${
-                                  allowMode === "once" ? "text-copilot-accent" : "text-copilot-text"
-                                }`}
-                              >
-                                {allowMode === "once" && "✓ "}Once
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setAllowMode("session");
-                                  setShowAllowDropdown(false);
-                                }}
-                                className={`w-full px-3 py-1.5 text-left text-xs hover:bg-copilot-surface-hover transition-colors ${
-                                  allowMode === "session" ? "text-copilot-accent" : "text-copilot-text"
-                                }`}
-                                title="Always allow for this session"
-                              >
-                                {allowMode === "session" && "✓ "}Session
-                              </button>
-                              {/* Hide Global option for file changes (write kind) and destructive commands (Issue #101) */}
-                              {pendingConfirmation.kind !== "write" && !pendingConfirmation.isDestructive && (
+                        </>
+                      ) : (
+                        <>
+                          {/* Split button: Allow with dropdown for mode selection */}
+                          <div className="relative flex" ref={allowDropdownRef}>
+                            <button
+                              onClick={() => {
+                                if (allowMode === 'once') {
+                                  handleConfirmation('approved');
+                                } else if (allowMode === 'session') {
+                                  handleConfirmation('always');
+                                } else {
+                                  handleConfirmation('global');
+                                }
+                              }}
+                              className="px-4 py-2 rounded-l bg-copilot-success hover:brightness-110 text-copilot-text-inverse text-sm font-medium transition-colors"
+                            >
+                              Allow
+                            </button>
+                            <button
+                              onClick={() => setShowAllowDropdown(!showAllowDropdown)}
+                              className="px-1.5 py-2 rounded-r bg-copilot-success hover:brightness-110 text-copilot-text-inverse text-sm font-medium transition-colors border-l border-black/20"
+                              title="Choose approval scope"
+                            >
+                              <ChevronDownIcon size={14} />
+                            </button>
+                            {showAllowDropdown && (
+                              <div className="absolute top-full left-0 mt-1 py-1 bg-copilot-surface border border-copilot-border rounded-lg shadow-lg z-50 min-w-[140px]">
                                 <button
                                   onClick={() => {
-                                    setAllowMode("global");
+                                    setAllowMode('once');
                                     setShowAllowDropdown(false);
                                   }}
                                   className={`w-full px-3 py-1.5 text-left text-xs hover:bg-copilot-surface-hover transition-colors ${
-                                    allowMode === "global" ? "text-copilot-accent" : "text-copilot-text"
+                                    allowMode === 'once'
+                                      ? 'text-copilot-accent'
+                                      : 'text-copilot-text'
                                   }`}
-                                  title="Always allow globally (persists across sessions)"
                                 >
-                                  {allowMode === "global" && "✓ "}Global
+                                  {allowMode === 'once' && '✓ '}Once
                                 </button>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                        <button
-                          onClick={() => handleConfirmation("denied")}
-                          className="px-4 py-2 rounded bg-copilot-surface hover:bg-copilot-surface-hover text-copilot-error text-sm font-medium border border-copilot-border transition-colors"
-                        >
-                          Deny
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              );
-            })()}
-
-          {/* Input Area */}
-          <div className="shrink-0 p-3 bg-copilot-surface border-t border-copilot-border">
-            {/* Agent Modes Panel - Combined Ralph & Lisa */}
-            {(showRalphSettings || showLisaSettings) && !activeTab?.isProcessing && (
-              <div className="mb-2 p-3 bg-copilot-bg rounded-lg border border-copilot-border" data-tour="agent-modes-panel">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="text-xs font-medium text-copilot-text">Agent Modes</span>
-                  <span className="flex-1" />
-                  <button
-                    onClick={() => {
-                      setShowRalphSettings(false);
-                      setShowLisaSettings(false);
-                    }}
-                    className="p-1 rounded hover:bg-copilot-surface-hover"
-                  >
-                    <CloseIcon size={10} className="text-copilot-text-muted" />
-                  </button>
-                </div>
-                
-                {/* Mode Selection Row */}
-                <div className="flex gap-2 mb-3">
-                  {/* Ralph Option */}
-                  <button
-                    onClick={() => {
-                      const enabling = !ralphEnabled;
-                      setRalphEnabled(enabling);
-                      if (enabling) {
-                        setLisaEnabled(false);
-                        trackEvent(TelemetryEvents.FEATURE_RALPH_ENABLED);
-                      }
-                    }}
-                    className={`flex-1 p-2 rounded-lg border transition-all ${
-                      ralphEnabled 
-                        ? 'border-copilot-warning bg-copilot-warning/10' 
-                        : 'border-copilot-border hover:border-copilot-text-muted'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <RalphIcon size={24} />
-                      <div className="text-left">
-                        <div className="text-xs font-medium text-copilot-text">Ralph Wiggum</div>
-                        <div className="text-[10px] text-copilot-text-muted">Simple loop</div>
-                      </div>
-                    </div>
-                  </button>
-                  
-                  {/* Lisa Option */}
-                  <button
-                    onClick={() => {
-                      const enabling = !lisaEnabled;
-                      setLisaEnabled(enabling);
-                      if (enabling) {
-                        setRalphEnabled(false);
-                        trackEvent(TelemetryEvents.FEATURE_LISA_ENABLED);
-                      }
-                    }}
-                    className={`flex-1 p-2 rounded-lg border transition-all ${
-                      lisaEnabled 
-                        ? 'border-copilot-accent bg-copilot-accent/10' 
-                        : 'border-copilot-border hover:border-copilot-text-muted'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <LisaIcon size={24} />
-                      <div className="text-left">
-                        <div className="text-xs font-medium text-copilot-text">Lisa Simpson</div>
-                        <div className="text-[10px] text-copilot-text-muted">Multi-phase</div>
-                      </div>
-                    </div>
-                  </button>
-                </div>
-
-                {/* Ralph Settings */}
-                {ralphEnabled && (
-                  <div className="space-y-2.5 pt-2 border-t border-copilot-border">
-                    <div className="flex items-center gap-2">
-                      <label className="text-[10px] text-copilot-text-muted">Max iterations</label>
-                      <input
-                        type="number"
-                        value={ralphMaxIterations}
-                        onChange={(e) => setRalphMaxIterations(Math.max(1, parseInt(e.target.value) || 1))}
-                        className="w-14 bg-copilot-surface border border-copilot-border rounded px-2 py-0.5 text-xs text-copilot-text"
-                        min={1}
-                        max={100}
-                      />
-                    </div>
-                    <label className="flex items-center gap-1.5 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={ralphClearContext}
-                        onChange={(e) => setRalphClearContext(e.target.checked)}
-                        className="rounded border-copilot-border w-3.5 h-3.5"
-                      />
-                      <span className="text-[10px] text-copilot-text-muted">Clear context between iterations</span>
-                      <span className="text-[9px] text-copilot-text-muted/60" title="Forces agent to rely on file state, not chat history (recommended)">(recommended)</span>
-                    </label>
-                    <label className="flex items-center gap-1.5 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={ralphRequireScreenshot}
-                        onChange={(e) => setRalphRequireScreenshot(e.target.checked)}
-                        className="rounded border-copilot-border w-3.5 h-3.5"
-                      />
-                      <span className="text-[10px] text-copilot-text-muted">Require screenshot</span>
-                    </label>
-                    <p className="text-[10px] text-copilot-text-muted">
-                      Agent loops until verified complete: plan, test, fix errors, verify all items.
-                    </p>
-                  </div>
-                )}
-
-                {/* Lisa Settings */}
-                {lisaEnabled && (
-                  <div className="pt-2 border-t border-copilot-border">
-                    <div className="text-[10px] text-copilot-text-muted space-y-1">
-                      <div className="flex items-center gap-1 flex-wrap">
-                        <span className="px-1.5 py-0.5 bg-copilot-surface rounded">📋 Plan</span>
-                        <span>→</span>
-                        <span className="px-1 py-0.5 bg-copilot-warning/20 rounded text-[9px]">👀</span>
-                        <span>→</span>
-                        <span className="px-1.5 py-0.5 bg-copilot-surface rounded">💻 Code</span>
-                        <span>→</span>
-                        <span className="px-1 py-0.5 bg-copilot-warning/20 rounded text-[9px]">👀</span>
-                        <span>→</span>
-                        <span className="px-1.5 py-0.5 bg-copilot-surface rounded">🧪 Test</span>
-                        <span>→</span>
-                        <span className="px-1 py-0.5 bg-copilot-warning/20 rounded text-[9px]">👀</span>
-                      </div>
-                      <p>Reviewer checks after each phase. Can reject back to <strong>any</strong> earlier phase (e.g., from Code Review back to Plan if architecture needs rethinking).</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Lisa Phase Progress - Shows during active Lisa loop or after completion */}
-            {(activeTab?.lisaConfig?.active || activeTab?.lisaConfig?.phaseHistory?.length) && (
-              <div className="mb-2 p-3 bg-copilot-bg rounded-lg border border-copilot-border">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-medium text-copilot-text flex items-center gap-2">
-                    <LisaIcon size={16} />
-                    Lisa Simpson Loop
-                  </span>
-                </div>
-                
-                {/* Phase progress as a horizontal pipeline */}
-                <div className="flex items-center gap-2">
-                  {[
-                    { work: 'plan' as const, review: 'plan-review' as const, emoji: '📋', workLabel: 'Plan', reviewLabel: 'Review' },
-                    { work: 'execute' as const, review: 'code-review' as const, emoji: '💻', workLabel: 'Code', reviewLabel: 'Review' },
-                    { work: 'validate' as const, review: 'final-review' as const, emoji: '🧪', workLabel: 'Test', reviewLabel: 'Final' },
-                  ].map((group, groupIdx) => {
-                    const workIteration = activeTab.lisaConfig?.phaseIterations[group.work] || 0;
-                    const reviewIteration = activeTab.lisaConfig?.phaseIterations[group.review] || 0;
-                    const isCurrentWork = activeTab.lisaConfig?.currentPhase === group.work;
-                    const isCurrentReview = activeTab.lisaConfig?.currentPhase === group.review;
-                    const workDone = workIteration > 0 && !isCurrentWork;
-                    const reviewDone = reviewIteration > 0 && !isCurrentReview;
-                    
-                    return (
-                      <React.Fragment key={group.work}>
-                        {/* Arrow connector between groups */}
-                        {groupIdx > 0 && (
-                          <span className="text-sm text-copilot-warning/70">→</span>
-                        )}
-                        
-                        {/* Work phase */}
-                        <div 
-                          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all ${
-                            isCurrentWork 
-                              ? 'bg-copilot-accent/20 ring-2 ring-copilot-accent' 
-                              : workDone 
-                                ? 'bg-copilot-success/15 text-copilot-success'
-                                : 'bg-copilot-surface text-copilot-text-muted'
-                          }`}
-                          title={`${group.workLabel}: ${workIteration} iteration(s)`}
-                        >
-                          <span className="text-sm">{group.emoji}</span>
-                          <span className={`text-xs font-medium ${isCurrentWork ? 'text-copilot-accent' : ''}`}>
-                            {group.workLabel}
-                          </span>
-                          {workDone && <span className="text-xs">✓</span>}
-                          {isCurrentWork && <span className="text-[10px] text-copilot-text-muted">{workIteration}</span>}
-                        </div>
-                        
-                        {/* Arrow to review */}
-                        <span className="text-xs text-copilot-warning/70">→</span>
-                        
-                        {/* Review phase */}
-                        <div 
-                          className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-all ${
-                            isCurrentReview 
-                              ? 'bg-copilot-warning/20 ring-2 ring-copilot-warning' 
-                              : reviewDone 
-                                ? 'bg-copilot-success/15 text-copilot-success'
-                                : 'bg-copilot-surface text-copilot-text-muted'
-                          }`}
-                          title={`${group.reviewLabel} Review: ${reviewIteration} iteration(s)`}
-                        >
-                          <span className="text-xs">👀</span>
-                          <span className={`text-xs font-medium ${isCurrentReview ? 'text-copilot-warning' : ''}`}>
-                            {group.reviewLabel}
-                          </span>
-                          {reviewDone && <span className="text-xs">✓</span>}
-                          {isCurrentReview && <span className="text-[10px] text-copilot-text-muted">{reviewIteration}</span>}
-                        </div>
-                      </React.Fragment>
-                    );
-                  })}
-                </div>
-                
-                {/* Current status */}
-                <div className="mt-2 pt-2 border-t border-copilot-border/50">
-                  <div className="text-xs text-copilot-text-muted">
-                    {activeTab?.lisaConfig?.active ? (
-                      (() => {
-                        const phase = activeTab.lisaConfig?.currentPhase;
-                        const iter = activeTab.lisaConfig?.phaseIterations[phase!] || 1;
-                        const descriptions: Record<LisaPhase, string> = {
-                          'plan': 'Planner is creating the implementation plan...',
-                          'plan-review': 'Reviewer is checking the plan before coding begins...',
-                          'execute': 'Coder is implementing the plan...',
-                          'code-review': 'Reviewer is checking code quality & architecture...',
-                          'validate': 'Tester is testing and gathering evidence...',
-                          'final-review': 'Reviewer is analyzing screenshots and approving...'
-                        };
-                        return (
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <span className="animate-pulse">●</span>
-                              <span>{descriptions[phase!]}</span>
-                              <span className="text-copilot-text-muted/50">(iteration {iter})</span>
-                            </div>
-                            {(phase === 'validate' || phase === 'final-review') && activeTab?.lisaConfig?.evidenceFolderPath && (
-                              <button 
-                                onClick={() => {
-                                  window.electronAPI.file.openFile(`${activeTab.lisaConfig!.evidenceFolderPath!}/summary.html`);
-                                }}
-                                className="px-2 py-1 text-xs bg-copilot-surface text-copilot-text-muted rounded hover:bg-copilot-border flex items-center gap-1"
-                                title="Open evidence summary"
-                              >
-                                📄 Summary
-                              </button>
-                            )}
-                          </div>
-                        );
-                      })()
-                    ) : (
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2 text-copilot-success">
-                          <span>✅</span>
-                          <span>Loop completed - all phases approved</span>
-                        </div>
-                        {activeTab?.lisaConfig?.evidenceFolderPath && (
-                          <button 
-                            onClick={() => {
-                              window.electronAPI.file.openFile(`${activeTab.lisaConfig!.evidenceFolderPath!}/summary.html`);
-                            }}
-                            className="px-2 py-1 text-xs bg-copilot-accent/20 text-copilot-accent rounded hover:bg-copilot-accent/30 flex items-center gap-1"
-                            title="Open evidence summary"
-                          >
-                            📄 View Summary
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Context Usage Indicator */}
-            {activeTab?.contextUsage && (
-              <div className="mb-2 flex items-center gap-2 px-1">
-                <div className="flex-1 h-1.5 bg-copilot-border rounded-full overflow-hidden">
-                  <div
-                    className={`h-full transition-all duration-300 ${
-                      (activeTab.contextUsage.currentTokens / activeTab.contextUsage.tokenLimit) >= 0.9
-                        ? "bg-copilot-error"
-                        : (activeTab.contextUsage.currentTokens / activeTab.contextUsage.tokenLimit) >= 0.7
-                          ? "bg-copilot-warning"
-                          : "bg-copilot-accent"
-                    }`}
-                    style={{
-                      width: `${Math.min(100, (activeTab.contextUsage.currentTokens / activeTab.contextUsage.tokenLimit) * 100)}%`,
-                    }}
-                  />
-                </div>
-                <span className={`text-[10px] shrink-0 ${
-                  (activeTab.contextUsage.currentTokens / activeTab.contextUsage.tokenLimit) >= 0.9
-                    ? "text-copilot-error"
-                    : (activeTab.contextUsage.currentTokens / activeTab.contextUsage.tokenLimit) >= 0.7
-                      ? "text-copilot-warning"
-                      : "text-copilot-text-muted"
-                }`}>
-                  {activeTab.compactionStatus === "compacting" 
-                    ? "📦 Compacting..."
-                    : `${((activeTab.contextUsage.currentTokens / activeTab.contextUsage.tokenLimit) * 100).toFixed(0)}% (${(activeTab.contextUsage.currentTokens / 1000).toFixed(0)}K/${(activeTab.contextUsage.tokenLimit / 1000).toFixed(0)}K)`}
-                </span>
-              </div>
-            )}
-
-            {/* Terminal Attachment Indicator */}
-            {terminalAttachment && (
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-copilot-surface border border-b-0 border-copilot-border rounded-t-lg">
-                <TerminalIcon size={12} className="text-copilot-accent shrink-0" />
-                <span className="text-xs text-copilot-text">
-                  Terminal output: {terminalAttachment.lineCount} lines
-                </span>
-                <button
-                  onClick={() => setTerminalAttachment(null)}
-                  className="ml-auto text-copilot-text-muted hover:text-copilot-text text-xs"
-                  title="Remove terminal output"
-                >
-                  ✕
-                </button>
-              </div>
-            )}
-
-            {/* Image Attachments Preview */}
-            {imageAttachments.length > 0 && (
-              <div className={`flex flex-wrap gap-2 p-2 bg-copilot-surface border border-b-0 border-copilot-border ${terminalAttachment ? '' : 'rounded-t-lg'}`}>
-                {imageAttachments.map((img) => (
-                  <div key={img.id} className="relative group">
-                    <img
-                      src={img.previewUrl}
-                      alt={img.name}
-                      className="h-16 w-auto rounded border border-copilot-border object-cover"
-                      onError={(e) => console.error('Image preview failed to load:', img.name, img.previewUrl?.substring(0, 100))}
-                    />
-                    <button
-                      onClick={() => handleRemoveImage(img.id)}
-                      className="absolute -top-1.5 -right-1.5 bg-copilot-error text-white rounded-full w-4 h-4 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-                      title="Remove image"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* File Attachments Preview */}
-            {fileAttachments.length > 0 && (
-              <div className={`flex flex-wrap gap-2 p-2 bg-copilot-surface border border-b-0 border-copilot-border ${(terminalAttachment || imageAttachments.length > 0) ? '' : 'rounded-t-lg'}`}>
-                {fileAttachments.map((file) => (
-                  <div key={file.id} className="relative group flex items-center gap-2 px-2 py-1.5 bg-copilot-bg rounded border border-copilot-border">
-                    <FileIcon size={16} className="text-copilot-text-muted shrink-0" />
-                    <div className="flex flex-col min-w-0">
-                      <span className="text-xs text-copilot-text truncate max-w-[120px]" title={file.name}>{file.name}</span>
-                      <span className="text-[10px] text-copilot-text-muted">{(file.size / 1024).toFixed(1)} KB</span>
-                    </div>
-                    <button
-                      onClick={() => handleRemoveFile(file.id)}
-                      className="shrink-0 text-copilot-text-muted hover:text-copilot-error transition-colors"
-                      title="Remove file"
-                    >
-                      <CloseIcon size={14} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Vision Warning */}
-            {imageAttachments.length > 0 && activeTab && modelCapabilities[activeTab.model] && !modelCapabilities[activeTab.model].supportsVision && (
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-copilot-warning/10 border border-b-0 border-copilot-warning/30 text-copilot-warning text-xs">
-                <span>⚠️</span>
-                <span>The current model ({activeTab.model}) may not support image processing. If images aren't recognized, try switching models.</span>
-              </div>
-            )}
-            
-            <div 
-              className={`relative flex items-center bg-copilot-bg border border-copilot-border focus-within:border-copilot-accent transition-colors ${(terminalAttachment || imageAttachments.length > 0 || fileAttachments.length > 0 || (imageAttachments.length > 0 && activeTab && modelCapabilities[activeTab.model] && !modelCapabilities[activeTab.model].supportsVision)) ? 'rounded-b-lg' : 'rounded-lg'} ${(isDraggingImage || isDraggingFile) ? 'border-copilot-accent border-dashed bg-copilot-accent/5' : ''}`}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-            >
-              {/* Hidden file inputs */}
-              <input
-                ref={imageInputRef}
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={(e) => handleImageSelect(e.target.files)}
-                className="hidden"
-              />
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                onChange={(e) => handleFileSelect(e.target.files)}
-                className="hidden"
-              />
-              
-              {/* Agent Mode Selector - toggles settings panel */}
-              {!activeTab?.isProcessing && (
-                <button
-                  onClick={() => {
-                    const isOpen = showRalphSettings || showLisaSettings;
-                    setShowRalphSettings(!isOpen);
-                    setShowLisaSettings(false);
-                  }}
-                  className={`shrink-0 p-2 pl-2.5 pr-0 transition-colors ${
-                    ralphEnabled || lisaEnabled
-                      ? "text-copilot-warning"
-                      : showRalphSettings || showLisaSettings
-                        ? "text-copilot-accent"
-                        : "text-copilot-text-muted hover:text-copilot-text"
-                  }`}
-                  title="Agent Modes - Ralph Wiggum (Simple Loop) or Lisa Simpson (Multi-Phase)"
-                  data-tour="agent-modes"
-                >
-                  {lisaEnabled ? (
-                    <LisaIcon size={16} />
-                  ) : ralphEnabled ? (
-                    <RalphIcon size={16} />
-                  ) : (
-                    <ChevronRightIcon 
-                      size={14} 
-                      className={`transition-transform ${showRalphSettings || showLisaSettings ? "rotate-90" : ""}`} 
-                    />
-                  )}
-                </button>
-              )}
-              
-              <textarea
-                ref={inputRef}
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                onKeyDown={handleKeyPress}
-                onPaste={handlePaste}
-                placeholder={(isDraggingImage || isDraggingFile) ? "Drop files here..." : (
-                  activeTab?.isProcessing ? "Type to inject message to agent..." : (
-                    lisaEnabled ? "Describe task for multi-phase analysis (Plan → Execute → Validate → Review)..." : (
-                      ralphEnabled ? "Describe task with clear completion criteria..." : "Ask Copilot... (Shift+Enter for new line)"
-                    )
-                  )
-                )}
-                className="flex-1 bg-transparent py-2.5 pl-3 pr-2 text-copilot-text placeholder-copilot-text-muted outline-none text-sm resize-none min-h-[40px] max-h-[200px]"
-                disabled={status !== "connected"}
-                autoFocus
-                rows={1}
-                style={{ height: "auto" }}
-                data-clarity-mask="true"
-                onInput={(e) => {
-                  const target = e.target as HTMLTextAreaElement;
-                  target.style.height = "auto";
-                  target.style.height =
-                    Math.min(target.scrollHeight, 200) + "px";
-                }}
-              />
-              {/* File Attach Button */}
-              {!activeTab?.isProcessing && (
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className={`shrink-0 p-1.5 transition-colors ${
-                    fileAttachments.length > 0
-                      ? "text-copilot-accent"
-                      : "text-copilot-text-muted hover:text-copilot-text"
-                  }`}
-                  title="Attach file (or drag & drop, or paste)"
-                >
-                  <PaperclipIcon size={18} />
-                </button>
-              )}
-              {/* Image Attach Button */}
-              {!activeTab?.isProcessing && (
-                <button
-                  onClick={() => imageInputRef.current?.click()}
-                  className={`shrink-0 p-1.5 transition-colors ${
-                    imageAttachments.length > 0
-                      ? "text-copilot-accent"
-                      : "text-copilot-text-muted hover:text-copilot-text"
-                  }`}
-                  title="Attach image (or drag & drop, or paste)"
-                >
-                  <ImageIcon size={18} />
-                </button>
-              )}
-              {activeTab?.isProcessing ? (
-                <>
-                  {/* Send button while processing - queues message */}
-                  {(inputValue.trim() || terminalAttachment || imageAttachments.length > 0 || fileAttachments.length > 0) && (
-                    <button
-                      onClick={handleSendMessage}
-                      disabled={status !== "connected"}
-                      className="shrink-0 px-3 py-2.5 text-copilot-warning hover:brightness-110 disabled:opacity-30 disabled:cursor-not-allowed text-xs font-medium transition-colors"
-                      title="Send message (will be queued until agent finishes)"
-                    >
-                      Send
-                    </button>
-                  )}
-                  {/* Stop button */}
-                  <button
-                    onClick={handleStop}
-                    className="shrink-0 px-4 py-2.5 text-copilot-error hover:brightness-110 text-xs font-medium transition-colors flex items-center gap-1.5"
-                    title={activeTab?.lisaConfig?.active ? "Stop Lisa Loop" : (activeTab?.ralphConfig?.active ? "Stop Ralph Loop" : "Stop")}
-                  >
-                    <StopIcon size={10} />
-                    {(activeTab?.ralphConfig?.active || activeTab?.lisaConfig?.active) ? "Stop Loop" : "Stop"}
-                  </button>
-                </>
-              ) : (
-                <button
-                  onClick={handleSendMessage}
-                  disabled={
-                    ((!inputValue.trim() && !terminalAttachment && imageAttachments.length === 0 && fileAttachments.length === 0) ||
-                    status !== "connected")
-                  }
-                  className="shrink-0 px-4 py-2.5 text-copilot-accent hover:brightness-110 disabled:opacity-30 disabled:cursor-not-allowed text-xs font-medium transition-colors"
-                >
-                  {lisaEnabled ? "Start Lisa Loop" : (ralphEnabled ? "Start Loop" : "Send")}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Right Resize Handle */}
-        <div
-          className="w-0 cursor-col-resize shrink-0 relative z-10"
-          onMouseDown={(e) => handleResizeMouseDown(e, 'right')}
-        >
-          <div className="absolute inset-y-0 -right-1 w-2 hover:bg-copilot-accent/50 transition-colors" />
-        </div>
-
-        {/* Right Panel - Activity & Session Info */}
-        <div 
-          className="border-l border-copilot-border flex flex-col shrink-0 bg-copilot-bg"
-          style={{ width: rightPanelWidth }}
-        >
-          {/* Activity Header with Intent */}
-          <div className="px-3 py-2 border-b border-copilot-border bg-copilot-surface">
-            <div className="flex items-center gap-2">
-              {activeTab?.isProcessing ? (
-                <>
-                  {activeTab?.lisaConfig?.active ? (
-                    <LisaIcon size={12} className="animate-pulse" />
-                  ) : activeTab?.ralphConfig?.active ? (
-                    <RalphIcon size={12} className="text-copilot-warning animate-pulse" />
-                  ) : (
-                    <span className="w-2 h-2 rounded-full bg-copilot-warning animate-pulse" />
-                  )}
-                  <span className="text-xs font-medium text-copilot-text truncate">
-                    {activeTab?.lisaConfig?.active 
-                      ? (() => {
-                          const phase = activeTab.lisaConfig.currentPhase;
-                          const emoji: Record<LisaPhase, string> = { 
-                            'plan': '📋', 'plan-review': '👀', 
-                            'execute': '💻', 'code-review': '👀', 
-                            'validate': '🧪', 'final-review': '👀' 
-                          };
-                          const shortName: Record<LisaPhase, string> = { 
-                            'plan': 'Plan', 'plan-review': 'Review', 
-                            'execute': 'Code', 'code-review': 'Review', 
-                            'validate': 'Test', 'final-review': 'Final' 
-                          };
-                          return `Lisa ${emoji[phase]} ${shortName[phase]} ${activeTab.lisaConfig.phaseIterations[phase] || 1}`;
-                        })()
-                      : activeTab?.ralphConfig?.active 
-                        ? `Ralph ${activeTab.ralphConfig.currentIteration}/${activeTab.ralphConfig.maxIterations}`
-                        : (activeTab?.currentIntent || "Working...")}
-                  </span>
-                  {(activeTab?.ralphConfig?.active || activeTab?.lisaConfig?.active) && activeTab?.currentIntent && (
-                    <span className="text-[10px] text-copilot-text-muted truncate">
-                      — {activeTab.currentIntent}
-                    </span>
-                  )}
-                </>
-              ) : (
-                <>
-                  <span className="w-2 h-2 rounded-full bg-copilot-success" />
-                  <span className="text-xs font-medium text-copilot-text-muted">
-                    Ready
-                  </span>
-                </>
-              )}
-            </div>
-          </div>
-
-          {/* Tool Activity Log */}
-          <div className="flex-1 overflow-y-auto">
-            {/* Tools List */}
-            {(activeTab?.activeTools?.length || 0) > 0 && (
-              <div className="border-b border-copilot-surface">
-                {(() => {
-                  type GroupedTool = { tool: ActiveTool; count: number };
-
-                  const tools = activeTab?.activeTools || [];
-                  const groups: GroupedTool[] = [];
-
-                  const getDescription = (tool: ActiveTool): string => {
-                    const input = tool.input || {};
-                    const path = input.path as string | undefined;
-                    const shortPath = path
-                      ? path.split("/").slice(-2).join("/")
-                      : "";
-
-                    if (tool.toolName === "grep") {
-                      const pattern = (input.pattern as string) || "";
-                      return pattern ? `"${pattern}"` : "";
-                    }
-
-                    if (tool.toolName === "glob") {
-                      return (input.pattern as string) || "";
-                    }
-
-                    if (tool.toolName === "view") {
-                      return shortPath || path || "";
-                    }
-
-                    if (
-                      tool.toolName === "edit" ||
-                      tool.toolName === "create"
-                    ) {
-                      return shortPath || path || "";
-                    }
-
-                    if (tool.toolName === "bash") {
-                      const desc = (input.description as string) || "";
-                      const cmd = ((input.command as string) || "").slice(
-                        0,
-                        40,
-                      );
-                      return desc || (cmd ? `$ ${cmd}...` : "");
-                    }
-
-                    if (
-                      tool.toolName === "read_bash" ||
-                      tool.toolName === "write_bash"
-                    ) {
-                      return "session";
-                    }
-
-                    if (tool.toolName === "web_fetch") {
-                      return ((input.url as string) || "").slice(0, 30);
-                    }
-
-                    return "";
-                  };
-
-                  const getGroupKey = (tool: ActiveTool): string => {
-                    const input = tool.input || {};
-                    const description = getDescription(tool);
-                    const summary =
-                      tool.status === "done"
-                        ? formatToolOutput(tool.toolName, input, tool.output)
-                        : "";
-                    let key = `${tool.toolName}|${description}|${summary}`;
-
-                    // For edits, include first-line diff so unrelated edits don't collapse.
-                    if (
-                      tool.toolName === "edit" &&
-                      tool.status === "done" &&
-                      input.old_str
-                    ) {
-                      const oldLine = String(input.old_str).split("\n")[0];
-                      const newLine =
-                        input.new_str !== undefined
-                          ? String(input.new_str).split("\n")[0]
-                          : "";
-                      key += `|${oldLine}|${newLine}`;
-                    }
-
-                    return key;
-                  };
-
-                  const groupMap = new Map<string, GroupedTool>();
-
-                  // Group all completed tools by identical rendered label/summary.
-                  for (const tool of tools) {
-                    if (tool.status !== "done") {
-                      groups.push({ tool, count: 1 });
-                      continue;
-                    }
-
-                    const key = getGroupKey(tool);
-                    const existing = groupMap.get(key);
-                    if (existing) {
-                      existing.count += 1;
-                      continue;
-                    }
-
-                    const entry = { tool, count: 1 };
-                    groupMap.set(key, entry);
-                    groups.push(entry);
-                  }
-
-                  return groups.map(({ tool, count }) => {
-                    const input = tool.input || {};
-                    const isEdit = tool.toolName === "edit";
-                    const description = getDescription(tool);
-
-                    return (
-                      <div
-                        key={`${tool.toolCallId}-g`}
-                        className="px-3 py-1.5 border-b border-copilot-bg last:border-b-0"
-                      >
-                        <div className="flex items-start gap-2 text-xs">
-                          {tool.status === "running" ? (
-                            <span className="text-copilot-warning shrink-0 mt-0.5">
-                              ○
-                            </span>
-                          ) : (
-                            <span className="text-copilot-success shrink-0">
-                              ✓
-                            </span>
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span
-                                className={`font-medium ${tool.status === "done" ? "text-copilot-text" : "text-copilot-text-muted"}`}
-                              >
-                                {tool.toolName.charAt(0).toUpperCase() +
-                                  tool.toolName.slice(1)}
-                              </span>
-                              {tool.status === "done" && count > 1 && (
-                                <span className="text-[10px] text-copilot-text-muted">
-                                  ×{count}
-                                </span>
-                              )}
-                            </div>
-                            {description && (
-                              <span className="text-copilot-text-muted font-mono ml-1 text-[10px] truncate block">
-                                {description}
-                              </span>
-                            )}
-                            {tool.status === "done" && (
-                              <div className="text-copilot-text-muted text-[10px] mt-0.5">
-                                {formatToolOutput(
-                                  tool.toolName,
-                                  input,
-                                  tool.output,
-                                )}
+                                <button
+                                  onClick={() => {
+                                    setAllowMode('session');
+                                    setShowAllowDropdown(false);
+                                  }}
+                                  className={`w-full px-3 py-1.5 text-left text-xs hover:bg-copilot-surface-hover transition-colors ${
+                                    allowMode === 'session'
+                                      ? 'text-copilot-accent'
+                                      : 'text-copilot-text'
+                                  }`}
+                                  title="Always allow for this session"
+                                >
+                                  {allowMode === 'session' && '✓ '}Session
+                                </button>
+                                {/* Hide Global option for file changes (write kind) and destructive commands (Issue #101) */}
+                                {pendingConfirmation.kind !== 'write' &&
+                                  !pendingConfirmation.isDestructive && (
+                                    <button
+                                      onClick={() => {
+                                        setAllowMode('global');
+                                        setShowAllowDropdown(false);
+                                      }}
+                                      className={`w-full px-3 py-1.5 text-left text-xs hover:bg-copilot-surface-hover transition-colors ${
+                                        allowMode === 'global'
+                                          ? 'text-copilot-accent'
+                                          : 'text-copilot-text'
+                                      }`}
+                                      title="Always allow globally (persists across sessions)"
+                                    >
+                                      {allowMode === 'global' && '✓ '}Global
+                                    </button>
+                                  )}
                               </div>
                             )}
-                            {isEdit &&
-                              tool.status === "done" &&
-                              !!input.old_str && (
+                          </div>
+                          <button
+                            onClick={() => handleConfirmation('denied')}
+                            className="px-4 py-2 rounded bg-copilot-surface hover:bg-copilot-surface-hover text-copilot-error text-sm font-medium border border-copilot-border transition-colors"
+                          >
+                            Deny
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
+            {/* Input Area */}
+            <div className="shrink-0 p-3 bg-copilot-surface border-t border-copilot-border">
+              {/* Agent Modes Panel - Combined Ralph & Lisa */}
+              {(showRalphSettings || showLisaSettings) && !activeTab?.isProcessing && (
+                <div
+                  className="mb-2 p-3 bg-copilot-bg rounded-lg border border-copilot-border"
+                  data-tour="agent-modes-panel"
+                >
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-xs font-medium text-copilot-text">Agent Modes</span>
+                    <span className="flex-1" />
+                    <button
+                      onClick={() => {
+                        setShowRalphSettings(false);
+                        setShowLisaSettings(false);
+                      }}
+                      className="p-1 rounded hover:bg-copilot-surface-hover"
+                    >
+                      <CloseIcon size={10} className="text-copilot-text-muted" />
+                    </button>
+                  </div>
+
+                  {/* Mode Selection Row */}
+                  <div className="flex gap-2 mb-3">
+                    {/* Ralph Option */}
+                    <button
+                      onClick={() => {
+                        const enabling = !ralphEnabled;
+                        setRalphEnabled(enabling);
+                        if (enabling) {
+                          setLisaEnabled(false);
+                          trackEvent(TelemetryEvents.FEATURE_RALPH_ENABLED);
+                        }
+                      }}
+                      className={`flex-1 p-2 rounded-lg border transition-all ${
+                        ralphEnabled
+                          ? 'border-copilot-warning bg-copilot-warning/10'
+                          : 'border-copilot-border hover:border-copilot-text-muted'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <RalphIcon size={24} />
+                        <div className="text-left">
+                          <div className="text-xs font-medium text-copilot-text">Ralph Wiggum</div>
+                          <div className="text-[10px] text-copilot-text-muted">Simple loop</div>
+                        </div>
+                      </div>
+                    </button>
+
+                    {/* Lisa Option */}
+                    <button
+                      onClick={() => {
+                        const enabling = !lisaEnabled;
+                        setLisaEnabled(enabling);
+                        if (enabling) {
+                          setRalphEnabled(false);
+                          trackEvent(TelemetryEvents.FEATURE_LISA_ENABLED);
+                        }
+                      }}
+                      className={`flex-1 p-2 rounded-lg border transition-all ${
+                        lisaEnabled
+                          ? 'border-copilot-accent bg-copilot-accent/10'
+                          : 'border-copilot-border hover:border-copilot-text-muted'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <LisaIcon size={24} />
+                        <div className="text-left">
+                          <div className="text-xs font-medium text-copilot-text">Lisa Simpson</div>
+                          <div className="text-[10px] text-copilot-text-muted">Multi-phase</div>
+                        </div>
+                      </div>
+                    </button>
+                  </div>
+
+                  {/* Ralph Settings */}
+                  {ralphEnabled && (
+                    <div className="space-y-2.5 pt-2 border-t border-copilot-border">
+                      <div className="flex items-center gap-2">
+                        <label className="text-[10px] text-copilot-text-muted">
+                          Max iterations
+                        </label>
+                        <input
+                          type="number"
+                          value={ralphMaxIterations}
+                          onChange={(e) =>
+                            setRalphMaxIterations(Math.max(1, parseInt(e.target.value) || 1))
+                          }
+                          className="w-14 bg-copilot-surface border border-copilot-border rounded px-2 py-0.5 text-xs text-copilot-text"
+                          min={1}
+                          max={100}
+                        />
+                      </div>
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={ralphClearContext}
+                          onChange={(e) => setRalphClearContext(e.target.checked)}
+                          className="rounded border-copilot-border w-3.5 h-3.5"
+                        />
+                        <span className="text-[10px] text-copilot-text-muted">
+                          Clear context between iterations
+                        </span>
+                        <span
+                          className="text-[9px] text-copilot-text-muted/60"
+                          title="Forces agent to rely on file state, not chat history (recommended)"
+                        >
+                          (recommended)
+                        </span>
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={ralphRequireScreenshot}
+                          onChange={(e) => setRalphRequireScreenshot(e.target.checked)}
+                          className="rounded border-copilot-border w-3.5 h-3.5"
+                        />
+                        <span className="text-[10px] text-copilot-text-muted">
+                          Require screenshot
+                        </span>
+                      </label>
+                      <p className="text-[10px] text-copilot-text-muted">
+                        Agent loops until verified complete: plan, test, fix errors, verify all
+                        items.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Lisa Settings */}
+                  {lisaEnabled && (
+                    <div className="pt-2 border-t border-copilot-border">
+                      <div className="text-[10px] text-copilot-text-muted space-y-1">
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <span className="px-1.5 py-0.5 bg-copilot-surface rounded">📋 Plan</span>
+                          <span>→</span>
+                          <span className="px-1 py-0.5 bg-copilot-warning/20 rounded text-[9px]">
+                            👀
+                          </span>
+                          <span>→</span>
+                          <span className="px-1.5 py-0.5 bg-copilot-surface rounded">💻 Code</span>
+                          <span>→</span>
+                          <span className="px-1 py-0.5 bg-copilot-warning/20 rounded text-[9px]">
+                            👀
+                          </span>
+                          <span>→</span>
+                          <span className="px-1.5 py-0.5 bg-copilot-surface rounded">🧪 Test</span>
+                          <span>→</span>
+                          <span className="px-1 py-0.5 bg-copilot-warning/20 rounded text-[9px]">
+                            👀
+                          </span>
+                        </div>
+                        <p>
+                          Reviewer checks after each phase. Can reject back to <strong>any</strong>{' '}
+                          earlier phase (e.g., from Code Review back to Plan if architecture needs
+                          rethinking).
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Lisa Phase Progress - Shows during active Lisa loop or after completion */}
+              {(activeTab?.lisaConfig?.active || activeTab?.lisaConfig?.phaseHistory?.length) && (
+                <div className="mb-2 p-3 bg-copilot-bg rounded-lg border border-copilot-border">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-medium text-copilot-text flex items-center gap-2">
+                      <LisaIcon size={16} />
+                      Lisa Simpson Loop
+                    </span>
+                  </div>
+
+                  {/* Phase progress as a horizontal pipeline */}
+                  <div className="flex items-center gap-2">
+                    {[
+                      {
+                        work: 'plan' as const,
+                        review: 'plan-review' as const,
+                        emoji: '📋',
+                        workLabel: 'Plan',
+                        reviewLabel: 'Review',
+                      },
+                      {
+                        work: 'execute' as const,
+                        review: 'code-review' as const,
+                        emoji: '💻',
+                        workLabel: 'Code',
+                        reviewLabel: 'Review',
+                      },
+                      {
+                        work: 'validate' as const,
+                        review: 'final-review' as const,
+                        emoji: '🧪',
+                        workLabel: 'Test',
+                        reviewLabel: 'Final',
+                      },
+                    ].map((group, groupIdx) => {
+                      const workIteration = activeTab.lisaConfig?.phaseIterations[group.work] || 0;
+                      const reviewIteration =
+                        activeTab.lisaConfig?.phaseIterations[group.review] || 0;
+                      const isCurrentWork = activeTab.lisaConfig?.currentPhase === group.work;
+                      const isCurrentReview = activeTab.lisaConfig?.currentPhase === group.review;
+                      const workDone = workIteration > 0 && !isCurrentWork;
+                      const reviewDone = reviewIteration > 0 && !isCurrentReview;
+
+                      return (
+                        <React.Fragment key={group.work}>
+                          {/* Arrow connector between groups */}
+                          {groupIdx > 0 && (
+                            <span className="text-sm text-copilot-warning/70">→</span>
+                          )}
+
+                          {/* Work phase */}
+                          <div
+                            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all ${
+                              isCurrentWork
+                                ? 'bg-copilot-accent/20 ring-2 ring-copilot-accent'
+                                : workDone
+                                  ? 'bg-copilot-success/15 text-copilot-success'
+                                  : 'bg-copilot-surface text-copilot-text-muted'
+                            }`}
+                            title={`${group.workLabel}: ${workIteration} iteration(s)`}
+                          >
+                            <span className="text-sm">{group.emoji}</span>
+                            <span
+                              className={`text-xs font-medium ${isCurrentWork ? 'text-copilot-accent' : ''}`}
+                            >
+                              {group.workLabel}
+                            </span>
+                            {workDone && <span className="text-xs">✓</span>}
+                            {isCurrentWork && (
+                              <span className="text-[10px] text-copilot-text-muted">
+                                {workIteration}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Arrow to review */}
+                          <span className="text-xs text-copilot-warning/70">→</span>
+
+                          {/* Review phase */}
+                          <div
+                            className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-all ${
+                              isCurrentReview
+                                ? 'bg-copilot-warning/20 ring-2 ring-copilot-warning'
+                                : reviewDone
+                                  ? 'bg-copilot-success/15 text-copilot-success'
+                                  : 'bg-copilot-surface text-copilot-text-muted'
+                            }`}
+                            title={`${group.reviewLabel} Review: ${reviewIteration} iteration(s)`}
+                          >
+                            <span className="text-xs">👀</span>
+                            <span
+                              className={`text-xs font-medium ${isCurrentReview ? 'text-copilot-warning' : ''}`}
+                            >
+                              {group.reviewLabel}
+                            </span>
+                            {reviewDone && <span className="text-xs">✓</span>}
+                            {isCurrentReview && (
+                              <span className="text-[10px] text-copilot-text-muted">
+                                {reviewIteration}
+                              </span>
+                            )}
+                          </div>
+                        </React.Fragment>
+                      );
+                    })}
+                  </div>
+
+                  {/* Current status */}
+                  <div className="mt-2 pt-2 border-t border-copilot-border/50">
+                    <div className="text-xs text-copilot-text-muted">
+                      {activeTab?.lisaConfig?.active ? (
+                        (() => {
+                          const phase = activeTab.lisaConfig?.currentPhase;
+                          const iter = activeTab.lisaConfig?.phaseIterations[phase!] || 1;
+                          const descriptions: Record<LisaPhase, string> = {
+                            plan: 'Planner is creating the implementation plan...',
+                            'plan-review': 'Reviewer is checking the plan before coding begins...',
+                            execute: 'Coder is implementing the plan...',
+                            'code-review': 'Reviewer is checking code quality & architecture...',
+                            validate: 'Tester is testing and gathering evidence...',
+                            'final-review': 'Reviewer is analyzing screenshots and approving...',
+                          };
+                          return (
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <span className="animate-pulse">●</span>
+                                <span>{descriptions[phase!]}</span>
+                                <span className="text-copilot-text-muted/50">
+                                  (iteration {iter})
+                                </span>
+                              </div>
+                              {(phase === 'validate' || phase === 'final-review') &&
+                                activeTab?.lisaConfig?.evidenceFolderPath && (
+                                  <button
+                                    onClick={() => {
+                                      window.electronAPI.file.openFile(
+                                        `${activeTab.lisaConfig!.evidenceFolderPath!}/summary.html`
+                                      );
+                                    }}
+                                    className="px-2 py-1 text-xs bg-copilot-surface text-copilot-text-muted rounded hover:bg-copilot-border flex items-center gap-1"
+                                    title="Open evidence summary"
+                                  >
+                                    📄 Summary
+                                  </button>
+                                )}
+                            </div>
+                          );
+                        })()
+                      ) : (
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 text-copilot-success">
+                            <span>✅</span>
+                            <span>Loop completed - all phases approved</span>
+                          </div>
+                          {activeTab?.lisaConfig?.evidenceFolderPath && (
+                            <button
+                              onClick={() => {
+                                window.electronAPI.file.openFile(
+                                  `${activeTab.lisaConfig!.evidenceFolderPath!}/summary.html`
+                                );
+                              }}
+                              className="px-2 py-1 text-xs bg-copilot-accent/20 text-copilot-accent rounded hover:bg-copilot-accent/30 flex items-center gap-1"
+                              title="Open evidence summary"
+                            >
+                              📄 View Summary
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Context Usage Indicator */}
+              {activeTab?.contextUsage && (
+                <div className="mb-2 flex items-center gap-2 px-1">
+                  <div className="flex-1 h-1.5 bg-copilot-border rounded-full overflow-hidden">
+                    <div
+                      className={`h-full transition-all duration-300 ${
+                        activeTab.contextUsage.currentTokens / activeTab.contextUsage.tokenLimit >=
+                        0.9
+                          ? 'bg-copilot-error'
+                          : activeTab.contextUsage.currentTokens /
+                                activeTab.contextUsage.tokenLimit >=
+                              0.7
+                            ? 'bg-copilot-warning'
+                            : 'bg-copilot-accent'
+                      }`}
+                      style={{
+                        width: `${Math.min(100, (activeTab.contextUsage.currentTokens / activeTab.contextUsage.tokenLimit) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                  <span
+                    className={`text-[10px] shrink-0 ${
+                      activeTab.contextUsage.currentTokens / activeTab.contextUsage.tokenLimit >=
+                      0.9
+                        ? 'text-copilot-error'
+                        : activeTab.contextUsage.currentTokens /
+                              activeTab.contextUsage.tokenLimit >=
+                            0.7
+                          ? 'text-copilot-warning'
+                          : 'text-copilot-text-muted'
+                    }`}
+                  >
+                    {activeTab.compactionStatus === 'compacting'
+                      ? '📦 Compacting...'
+                      : `${((activeTab.contextUsage.currentTokens / activeTab.contextUsage.tokenLimit) * 100).toFixed(0)}% (${(activeTab.contextUsage.currentTokens / 1000).toFixed(0)}K/${(activeTab.contextUsage.tokenLimit / 1000).toFixed(0)}K)`}
+                  </span>
+                </div>
+              )}
+
+              {/* Terminal Attachment Indicator */}
+              {terminalAttachment && (
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-copilot-surface border border-b-0 border-copilot-border rounded-t-lg">
+                  <TerminalIcon size={12} className="text-copilot-accent shrink-0" />
+                  <span className="text-xs text-copilot-text">
+                    Terminal output: {terminalAttachment.lineCount} lines
+                  </span>
+                  <button
+                    onClick={() => setTerminalAttachment(null)}
+                    className="ml-auto text-copilot-text-muted hover:text-copilot-text text-xs"
+                    title="Remove terminal output"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+
+              {/* Image Attachments Preview */}
+              {imageAttachments.length > 0 && (
+                <div
+                  className={`flex flex-wrap gap-2 p-2 bg-copilot-surface border border-b-0 border-copilot-border ${terminalAttachment ? '' : 'rounded-t-lg'}`}
+                >
+                  {imageAttachments.map((img) => (
+                    <div key={img.id} className="relative group">
+                      <img
+                        src={img.previewUrl}
+                        alt={img.name}
+                        className="h-16 w-auto rounded border border-copilot-border object-cover"
+                        onError={(e) =>
+                          console.error(
+                            'Image preview failed to load:',
+                            img.name,
+                            img.previewUrl?.substring(0, 100)
+                          )
+                        }
+                      />
+                      <button
+                        onClick={() => handleRemoveImage(img.id)}
+                        className="absolute -top-1.5 -right-1.5 bg-copilot-error text-white rounded-full w-4 h-4 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="Remove image"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* File Attachments Preview */}
+              {fileAttachments.length > 0 && (
+                <div
+                  className={`flex flex-wrap gap-2 p-2 bg-copilot-surface border border-b-0 border-copilot-border ${terminalAttachment || imageAttachments.length > 0 ? '' : 'rounded-t-lg'}`}
+                >
+                  {fileAttachments.map((file) => (
+                    <div
+                      key={file.id}
+                      className="relative group flex items-center gap-2 px-2 py-1.5 bg-copilot-bg rounded border border-copilot-border"
+                    >
+                      <FileIcon size={16} className="text-copilot-text-muted shrink-0" />
+                      <div className="flex flex-col min-w-0">
+                        <span
+                          className="text-xs text-copilot-text truncate max-w-[120px]"
+                          title={file.name}
+                        >
+                          {file.name}
+                        </span>
+                        <span className="text-[10px] text-copilot-text-muted">
+                          {(file.size / 1024).toFixed(1)} KB
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => handleRemoveFile(file.id)}
+                        className="shrink-0 text-copilot-text-muted hover:text-copilot-error transition-colors"
+                        title="Remove file"
+                      >
+                        <CloseIcon size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Vision Warning */}
+              {imageAttachments.length > 0 &&
+                activeTab &&
+                modelCapabilities[activeTab.model] &&
+                !modelCapabilities[activeTab.model].supportsVision && (
+                  <div className="flex items-center gap-2 px-3 py-1.5 bg-copilot-warning/10 border border-b-0 border-copilot-warning/30 text-copilot-warning text-xs">
+                    <span>⚠️</span>
+                    <span>
+                      The current model ({activeTab.model}) may not support image processing. If
+                      images aren't recognized, try switching models.
+                    </span>
+                  </div>
+                )}
+
+              <div
+                className={`relative flex items-center bg-copilot-bg border border-copilot-border focus-within:border-copilot-accent transition-colors ${terminalAttachment || imageAttachments.length > 0 || fileAttachments.length > 0 || (imageAttachments.length > 0 && activeTab && modelCapabilities[activeTab.model] && !modelCapabilities[activeTab.model].supportsVision) ? 'rounded-b-lg' : 'rounded-lg'} ${isDraggingImage || isDraggingFile ? 'border-copilot-accent border-dashed bg-copilot-accent/5' : ''}`}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+              >
+                {/* Hidden file inputs */}
+                <input
+                  ref={imageInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={(e) => handleImageSelect(e.target.files)}
+                  className="hidden"
+                />
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  onChange={(e) => handleFileSelect(e.target.files)}
+                  className="hidden"
+                />
+
+                {/* Agent Mode Selector - toggles settings panel */}
+                {!activeTab?.isProcessing && (
+                  <button
+                    onClick={() => {
+                      const isOpen = showRalphSettings || showLisaSettings;
+                      setShowRalphSettings(!isOpen);
+                      setShowLisaSettings(false);
+                    }}
+                    className={`shrink-0 p-2 pl-2.5 pr-0 transition-colors ${
+                      ralphEnabled || lisaEnabled
+                        ? 'text-copilot-warning'
+                        : showRalphSettings || showLisaSettings
+                          ? 'text-copilot-accent'
+                          : 'text-copilot-text-muted hover:text-copilot-text'
+                    }`}
+                    title="Agent Modes - Ralph Wiggum (Simple Loop) or Lisa Simpson (Multi-Phase)"
+                    data-tour="agent-modes"
+                  >
+                    {lisaEnabled ? (
+                      <LisaIcon size={16} />
+                    ) : ralphEnabled ? (
+                      <RalphIcon size={16} />
+                    ) : (
+                      <ChevronRightIcon
+                        size={14}
+                        className={`transition-transform ${showRalphSettings || showLisaSettings ? 'rotate-90' : ''}`}
+                      />
+                    )}
+                  </button>
+                )}
+
+                <textarea
+                  ref={inputRef}
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  onKeyDown={handleKeyPress}
+                  onPaste={handlePaste}
+                  placeholder={
+                    isDraggingImage || isDraggingFile
+                      ? 'Drop files here...'
+                      : activeTab?.isProcessing
+                        ? 'Type to inject message to agent...'
+                        : lisaEnabled
+                          ? 'Describe task for multi-phase analysis (Plan → Execute → Validate → Review)...'
+                          : ralphEnabled
+                            ? 'Describe task with clear completion criteria...'
+                            : 'Ask Copilot... (Shift+Enter for new line)'
+                  }
+                  className="flex-1 bg-transparent py-2.5 pl-3 pr-2 text-copilot-text placeholder-copilot-text-muted outline-none text-sm resize-none min-h-[40px] max-h-[200px]"
+                  disabled={status !== 'connected'}
+                  autoFocus
+                  rows={1}
+                  style={{ height: 'auto' }}
+                  data-clarity-mask="true"
+                  onInput={(e) => {
+                    const target = e.target as HTMLTextAreaElement;
+                    target.style.height = 'auto';
+                    target.style.height = Math.min(target.scrollHeight, 200) + 'px';
+                  }}
+                />
+                {/* File Attach Button */}
+                {!activeTab?.isProcessing && (
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className={`shrink-0 p-1.5 transition-colors ${
+                      fileAttachments.length > 0
+                        ? 'text-copilot-accent'
+                        : 'text-copilot-text-muted hover:text-copilot-text'
+                    }`}
+                    title="Attach file (or drag & drop, or paste)"
+                  >
+                    <PaperclipIcon size={18} />
+                  </button>
+                )}
+                {/* Image Attach Button */}
+                {!activeTab?.isProcessing && (
+                  <button
+                    onClick={() => imageInputRef.current?.click()}
+                    className={`shrink-0 p-1.5 transition-colors ${
+                      imageAttachments.length > 0
+                        ? 'text-copilot-accent'
+                        : 'text-copilot-text-muted hover:text-copilot-text'
+                    }`}
+                    title="Attach image (or drag & drop, or paste)"
+                  >
+                    <ImageIcon size={18} />
+                  </button>
+                )}
+                {activeTab?.isProcessing ? (
+                  <>
+                    {/* Send button while processing - queues message */}
+                    {(inputValue.trim() ||
+                      terminalAttachment ||
+                      imageAttachments.length > 0 ||
+                      fileAttachments.length > 0) && (
+                      <button
+                        onClick={handleSendMessage}
+                        disabled={status !== 'connected'}
+                        className="shrink-0 px-3 py-2.5 text-copilot-warning hover:brightness-110 disabled:opacity-30 disabled:cursor-not-allowed text-xs font-medium transition-colors"
+                        title="Send message (will be queued until agent finishes)"
+                      >
+                        Send
+                      </button>
+                    )}
+                    {/* Stop button */}
+                    <button
+                      onClick={handleStop}
+                      className="shrink-0 px-4 py-2.5 text-copilot-error hover:brightness-110 text-xs font-medium transition-colors flex items-center gap-1.5"
+                      title={
+                        activeTab?.lisaConfig?.active
+                          ? 'Stop Lisa Loop'
+                          : activeTab?.ralphConfig?.active
+                            ? 'Stop Ralph Loop'
+                            : 'Stop'
+                      }
+                    >
+                      <StopIcon size={10} />
+                      {activeTab?.ralphConfig?.active || activeTab?.lisaConfig?.active
+                        ? 'Stop Loop'
+                        : 'Stop'}
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={handleSendMessage}
+                    disabled={
+                      (!inputValue.trim() &&
+                        !terminalAttachment &&
+                        imageAttachments.length === 0 &&
+                        fileAttachments.length === 0) ||
+                      status !== 'connected'
+                    }
+                    className="shrink-0 px-4 py-2.5 text-copilot-accent hover:brightness-110 disabled:opacity-30 disabled:cursor-not-allowed text-xs font-medium transition-colors"
+                  >
+                    {lisaEnabled ? 'Start Lisa Loop' : ralphEnabled ? 'Start Loop' : 'Send'}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Right Resize Handle */}
+          <div
+            className="w-0 cursor-col-resize shrink-0 relative z-10"
+            onMouseDown={(e) => handleResizeMouseDown(e, 'right')}
+          >
+            <div className="absolute inset-y-0 -right-1 w-2 hover:bg-copilot-accent/50 transition-colors" />
+          </div>
+
+          {/* Right Panel - Activity & Session Info */}
+          <div
+            className="border-l border-copilot-border flex flex-col shrink-0 bg-copilot-bg"
+            style={{ width: rightPanelWidth }}
+          >
+            {/* Activity Header with Intent */}
+            <div className="px-3 py-2 border-b border-copilot-border bg-copilot-surface">
+              <div className="flex items-center gap-2">
+                {activeTab?.isProcessing ? (
+                  <>
+                    {activeTab?.lisaConfig?.active ? (
+                      <LisaIcon size={12} className="animate-pulse" />
+                    ) : activeTab?.ralphConfig?.active ? (
+                      <RalphIcon size={12} className="text-copilot-warning animate-pulse" />
+                    ) : (
+                      <span className="w-2 h-2 rounded-full bg-copilot-warning animate-pulse" />
+                    )}
+                    <span className="text-xs font-medium text-copilot-text truncate">
+                      {activeTab?.lisaConfig?.active
+                        ? (() => {
+                            const phase = activeTab.lisaConfig.currentPhase;
+                            const emoji: Record<LisaPhase, string> = {
+                              plan: '📋',
+                              'plan-review': '👀',
+                              execute: '💻',
+                              'code-review': '👀',
+                              validate: '🧪',
+                              'final-review': '👀',
+                            };
+                            const shortName: Record<LisaPhase, string> = {
+                              plan: 'Plan',
+                              'plan-review': 'Review',
+                              execute: 'Code',
+                              'code-review': 'Review',
+                              validate: 'Test',
+                              'final-review': 'Final',
+                            };
+                            return `Lisa ${emoji[phase]} ${shortName[phase]} ${activeTab.lisaConfig.phaseIterations[phase] || 1}`;
+                          })()
+                        : activeTab?.ralphConfig?.active
+                          ? `Ralph ${activeTab.ralphConfig.currentIteration}/${activeTab.ralphConfig.maxIterations}`
+                          : activeTab?.currentIntent || 'Working...'}
+                    </span>
+                    {(activeTab?.ralphConfig?.active || activeTab?.lisaConfig?.active) &&
+                      activeTab?.currentIntent && (
+                        <span className="text-[10px] text-copilot-text-muted truncate">
+                          — {activeTab.currentIntent}
+                        </span>
+                      )}
+                  </>
+                ) : (
+                  <>
+                    <span className="w-2 h-2 rounded-full bg-copilot-success" />
+                    <span className="text-xs font-medium text-copilot-text-muted">Ready</span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Tool Activity Log */}
+            <div className="flex-1 overflow-y-auto">
+              {/* Tools List */}
+              {(activeTab?.activeTools?.length || 0) > 0 && (
+                <div className="border-b border-copilot-surface">
+                  {(() => {
+                    type GroupedTool = { tool: ActiveTool; count: number };
+
+                    const tools = activeTab?.activeTools || [];
+                    const groups: GroupedTool[] = [];
+
+                    const getDescription = (tool: ActiveTool): string => {
+                      const input = tool.input || {};
+                      const path = input.path as string | undefined;
+                      const shortPath = path ? path.split('/').slice(-2).join('/') : '';
+
+                      if (tool.toolName === 'grep') {
+                        const pattern = (input.pattern as string) || '';
+                        return pattern ? `"${pattern}"` : '';
+                      }
+
+                      if (tool.toolName === 'glob') {
+                        return (input.pattern as string) || '';
+                      }
+
+                      if (tool.toolName === 'view') {
+                        return shortPath || path || '';
+                      }
+
+                      if (tool.toolName === 'edit' || tool.toolName === 'create') {
+                        return shortPath || path || '';
+                      }
+
+                      if (tool.toolName === 'bash') {
+                        const desc = (input.description as string) || '';
+                        const cmd = ((input.command as string) || '').slice(0, 40);
+                        return desc || (cmd ? `$ ${cmd}...` : '');
+                      }
+
+                      if (tool.toolName === 'read_bash' || tool.toolName === 'write_bash') {
+                        return 'session';
+                      }
+
+                      if (tool.toolName === 'web_fetch') {
+                        return ((input.url as string) || '').slice(0, 30);
+                      }
+
+                      return '';
+                    };
+
+                    const getGroupKey = (tool: ActiveTool): string => {
+                      const input = tool.input || {};
+                      const description = getDescription(tool);
+                      const summary =
+                        tool.status === 'done'
+                          ? formatToolOutput(tool.toolName, input, tool.output)
+                          : '';
+                      let key = `${tool.toolName}|${description}|${summary}`;
+
+                      // For edits, include first-line diff so unrelated edits don't collapse.
+                      if (tool.toolName === 'edit' && tool.status === 'done' && input.old_str) {
+                        const oldLine = String(input.old_str).split('\n')[0];
+                        const newLine =
+                          input.new_str !== undefined ? String(input.new_str).split('\n')[0] : '';
+                        key += `|${oldLine}|${newLine}`;
+                      }
+
+                      return key;
+                    };
+
+                    const groupMap = new Map<string, GroupedTool>();
+
+                    // Group all completed tools by identical rendered label/summary.
+                    for (const tool of tools) {
+                      if (tool.status !== 'done') {
+                        groups.push({ tool, count: 1 });
+                        continue;
+                      }
+
+                      const key = getGroupKey(tool);
+                      const existing = groupMap.get(key);
+                      if (existing) {
+                        existing.count += 1;
+                        continue;
+                      }
+
+                      const entry = { tool, count: 1 };
+                      groupMap.set(key, entry);
+                      groups.push(entry);
+                    }
+
+                    return groups.map(({ tool, count }) => {
+                      const input = tool.input || {};
+                      const isEdit = tool.toolName === 'edit';
+                      const description = getDescription(tool);
+
+                      return (
+                        <div
+                          key={`${tool.toolCallId}-g`}
+                          className="px-3 py-1.5 border-b border-copilot-bg last:border-b-0"
+                        >
+                          <div className="flex items-start gap-2 text-xs">
+                            {tool.status === 'running' ? (
+                              <span className="text-copilot-warning shrink-0 mt-0.5">○</span>
+                            ) : (
+                              <span className="text-copilot-success shrink-0">✓</span>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className={`font-medium ${tool.status === 'done' ? 'text-copilot-text' : 'text-copilot-text-muted'}`}
+                                >
+                                  {tool.toolName.charAt(0).toUpperCase() + tool.toolName.slice(1)}
+                                </span>
+                                {tool.status === 'done' && count > 1 && (
+                                  <span className="text-[10px] text-copilot-text-muted">
+                                    ×{count}
+                                  </span>
+                                )}
+                              </div>
+                              {description && (
+                                <span className="text-copilot-text-muted font-mono ml-1 text-[10px] truncate block">
+                                  {description}
+                                </span>
+                              )}
+                              {tool.status === 'done' && (
+                                <div className="text-copilot-text-muted text-[10px] mt-0.5">
+                                  {formatToolOutput(tool.toolName, input, tool.output)}
+                                </div>
+                              )}
+                              {isEdit && tool.status === 'done' && !!input.old_str && (
                                 <div className="mt-1 text-[10px] font-mono pl-2 border-l border-copilot-border">
                                   <div className="text-copilot-error truncate">
-                                    −{" "}
-                                    {(input.old_str as string)
-                                      .split("\n")[0]
-                                      .slice(0, 35)}
+                                    − {(input.old_str as string).split('\n')[0].slice(0, 35)}
                                   </div>
                                   {input.new_str !== undefined && (
                                     <div className="text-copilot-success truncate">
-                                      +{" "}
-                                      {(input.new_str as string)
-                                        .split("\n")[0]
-                                        .slice(0, 35)}
+                                      + {(input.new_str as string).split('\n')[0].slice(0, 35)}
                                     </div>
                                   )}
                                 </div>
                               )}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    );
-                  });
-                })()}
-              </div>
-            )}
-
-            {/* Processing indicator when no tools visible */}
-            {activeTab?.isProcessing &&
-              (activeTab?.activeTools?.length || 0) === 0 && (
-                <div className="px-3 py-3 flex items-center gap-2 border-b border-copilot-surface">
-                  <Spinner size="sm" />
-                  <span className="text-xs text-copilot-text-muted">
-                    Thinking...
-                  </span>
+                      );
+                    });
+                  })()}
                 </div>
               )}
 
-            {/* Session Info Section */}
-            <div className="border-t border-copilot-border mt-auto">
-              {/* Working Directory */}
-              <div className="px-3 py-2 border-b border-copilot-surface">
-                <div className="text-[10px] text-copilot-text-muted uppercase tracking-wide mb-1">
-                  Directory
+              {/* Processing indicator when no tools visible */}
+              {activeTab?.isProcessing && (activeTab?.activeTools?.length || 0) === 0 && (
+                <div className="px-3 py-3 flex items-center gap-2 border-b border-copilot-surface">
+                  <Spinner size="sm" />
+                  <span className="text-xs text-copilot-text-muted">Thinking...</span>
                 </div>
-                <div className="flex items-center gap-1.5 text-xs min-w-0">
-                  <FolderIcon
-                    size={12}
-                    className="text-copilot-accent shrink-0"
-                  />
-                  <span
-                    className="text-copilot-text font-mono truncate"
-                    title={activeTab?.cwd}
-                  >
-                    {activeTab?.cwd || "Unknown"}
-                  </span>
-                </div>
-              </div>
+              )}
 
-              {/* Git Branch */}
-              <div className="px-3 py-2 border-b border-copilot-surface">
-                <div className="flex items-center justify-between gap-2 mb-1">
-                  <div className="text-[10px] text-copilot-text-muted uppercase tracking-wide">
-                    Git Branch
+              {/* Session Info Section */}
+              <div className="border-t border-copilot-border mt-auto">
+                {/* Working Directory */}
+                <div className="px-3 py-2 border-b border-copilot-surface">
+                  <div className="text-[10px] text-copilot-text-muted uppercase tracking-wide mb-1">
+                    Directory
+                  </div>
+                  <div className="flex items-center gap-1.5 text-xs min-w-0">
+                    <FolderIcon size={12} className="text-copilot-accent shrink-0" />
+                    <span className="text-copilot-text font-mono truncate" title={activeTab?.cwd}>
+                      {activeTab?.cwd || 'Unknown'}
+                    </span>
                   </div>
                 </div>
-                <GitBranchWidget
-                  cwd={activeTab?.cwd}
-                  refreshKey={activeTab?.gitBranchRefresh}
-                />
-              </div>
 
-              {/* Edited Files */}
-              <div className="border-b border-copilot-surface" data-tour="edited-files">
-                <div className="flex items-center">
-                  <button
-                    onClick={handleToggleEditedFiles}
-                    className="flex-1 flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
-                  >
-                    <ChevronRightIcon
-                      size={8}
-                      className={`transition-transform ${showEditedFiles ? "rotate-90" : ""}`}
-                    />
-                    <span>Edited Files</span>
-                    {cleanedEditedFiles.length > 0 && (
-                      <span className="text-copilot-accent">
-                        ({cleanedEditedFiles.length - (activeTab?.untrackedFiles?.length || 0)})
-                      </span>
-                    )}
-                    {(activeTab?.untrackedFiles?.length || 0) > 0 && (
-                      <span className="text-copilot-text-muted" title="Untracked files (excluded from commit)">
-                        +{activeTab?.untrackedFiles?.length} untracked
-                      </span>
-                    )}
-                    {showEditedFiles && !isGitRepo && (
-                      <span 
-                        className="text-copilot-warning"
-                        title="Not in a Git repository. File list is based on manual tracking of files touched in this session."
-                      >
-                        <WarningIcon size={10} />
-                      </span>
-                    )}
-                  </button>
-                  {isGitRepo && (
-                    <IconButton
-                      icon={<CommitIcon size={12} />}
-                      onClick={handleOpenCommitModal}
-                      variant="accent"
-                      size="sm"
-                      title="Commit and push"
-                      className="mr-1"
-                    />
-                  )}
-                </div>
-                {showEditedFiles && activeTab && (
-                  <div className="max-h-48 overflow-y-auto" data-clarity-mask="true">
-                    {activeTab.editedFiles.length === 0 ? (
-                      <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
-                        No files edited
-                      </div>
-                    ) : (
-                      // Simple flat list - clicking opens the full overlay
-                      cleanedEditedFiles.map((filePath) => {
-                        const isConflicted = isGitRepo && conflictedFiles.some(cf => filePath.endsWith(cf) || cf.endsWith(filePath.split(/[/\\]/).pop() || ''));
-                        const isUntracked = (activeTab.untrackedFiles || []).includes(filePath);
-                        return (
-                          <button
-                            key={filePath}
-                            onClick={() => setFilePreviewPath(filePath)}
-                            className={`w-full flex items-center gap-2 px-3 py-1 text-[10px] hover:bg-copilot-surface text-left ${
-                              isUntracked 
-                                ? 'text-copilot-text-muted/50' 
-                                : isConflicted 
-                                  ? 'text-copilot-error' 
-                                  : 'text-copilot-text-muted'
-                            }`}
-                            title={isUntracked ? `${filePath} (untracked) - Click to preview` : isConflicted ? `${filePath} (conflict) - Click to preview` : `${filePath} - Click to preview`}
-                          >
-                            <FileIcon
-                              size={8}
-                              className={`shrink-0 ${
-                                isUntracked 
-                                  ? 'text-copilot-text-muted/50' 
-                                  : isConflicted 
-                                    ? 'text-copilot-error' 
-                                    : 'text-copilot-success'
-                              }`}
-                            />
-                            <span className={`truncate font-mono ${isUntracked ? 'line-through' : ''}`}>
-                              {filePath}
-                            </span>
-                            {isConflicted && <span className="text-[8px] text-copilot-error">!</span>}
-                            {isUntracked && <span className="text-[8px] text-copilot-text-muted">(untracked)</span>}
-                          </button>
-                        );
-                      })
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Allowed Commands (merged session + global) */}
-              <div className="border-b border-copilot-border" data-tour="allowed-commands">
-                <div className="flex items-center">
-                  <button
-                    onClick={() => {
-                      setShowAllowedCommands(!showAllowedCommands);
-                      if (!showAllowedCommands) {
-                        refreshAlwaysAllowed();
-                        refreshGlobalSafeCommands();
-                      } else {
-                        // Hide the add command input when collapsing
-                        setShowAddAllowedCommand(false);
-                      }
-                    }}
-                    className="flex-1 flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
-                  >
-                    <ChevronRightIcon
-                      size={8}
-                      className={`transition-transform ${showAllowedCommands ? "rotate-90" : ""}`}
-                    />
-                    <span>Allowed Commands</span>
-                    {((activeTab?.alwaysAllowed.length || 0) + globalSafeCommands.length) > 0 && (
-                      <span className="text-copilot-accent">
-                        ({(activeTab?.alwaysAllowed.length || 0) + globalSafeCommands.length})
-                      </span>
-                    )}
-                  </button>
-                  <div className="relative mr-1">
-                    <IconButton
-                      icon={<PlusIcon size={12} />}
-                      onClick={() => {
-                        setShowAddAllowedCommand(!showAddAllowedCommand);
-                        if (!showAllowedCommands) {
-                          setShowAllowedCommands(true);
-                          refreshAlwaysAllowed();
-                          refreshGlobalSafeCommands();
-                        }
-                      }}
-                      variant="success"
-                      size="sm"
-                      title="Add allowed command"
-                    />
-                  </div>
-                </div>
-                {showAddAllowedCommand && activeTab && (
-                  <div className="px-3 pb-2">
-                    <div className="flex items-center gap-2">
-                      <select
-                        value={addCommandScope}
-                        onChange={(e) => setAddCommandScope(e.target.value as "session" | "global")}
-                        className="px-2 py-1 text-[10px] bg-copilot-surface border border-copilot-border rounded text-copilot-text focus:outline-none focus:border-copilot-accent"
-                      >
-                        <option value="session">Session</option>
-                        <option value="global" disabled={addCommandValue.trim().toLowerCase().startsWith("write")}>Global</option>
-                      </select>
-                      <input
-                        type="text"
-                        value={addCommandValue}
-                        onChange={(e) => {
-                          setAddCommandValue(e.target.value);
-                          // Reset to session scope if user types a "write" command while global is selected
-                          if (addCommandScope === "global" && e.target.value.trim().toLowerCase().startsWith("write")) {
-                            setAddCommandScope("session");
-                          }
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") handleAddAllowedCommand();
-                          if (e.key === "Escape") {
-                            setShowAddAllowedCommand(false);
-                            setAddCommandValue("");
-                          }
-                        }}
-                        placeholder="e.g., npm, git, python"
-                        className="flex-1 px-2 py-1 text-[10px] bg-copilot-surface border border-copilot-border rounded text-copilot-text placeholder:text-copilot-text-muted focus:outline-none focus:border-copilot-accent"
-                        autoFocus
-                      />
-                      <button
-                        onClick={handleAddAllowedCommand}
-                        disabled={!addCommandValue.trim()}
-                        className="px-2 py-1 text-[10px] bg-copilot-accent text-copilot-text rounded hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        Add
-                      </button>
+                {/* Git Branch */}
+                <div className="px-3 py-2 border-b border-copilot-surface">
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <div className="text-[10px] text-copilot-text-muted uppercase tracking-wide">
+                      Git Branch
                     </div>
                   </div>
-                )}
-                {showAllowedCommands && activeTab && (
-                  <div className="max-h-48 overflow-y-auto">
-                    {(activeTab.alwaysAllowed.length === 0 && globalSafeCommands.length === 0) ? (
-                      <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
-                        No allowed commands
-                      </div>
-                    ) : (
-                      (() => {
-                        const isSpecialExe = (exe: string) =>
-                          exe.startsWith("write") ||
-                          exe.startsWith("url") ||
-                          exe.startsWith("mcp");
-                        const toPretty = (exe: string) => {
-                          const hasColon = exe.includes(":");
-                          const [rawPrefix, rawRest] = hasColon
-                            ? exe.split(":", 2)
-                            : [exe, null];
-                          const prefix = rawPrefix;
-                          const rest = rawRest;
+                  <GitBranchWidget cwd={activeTab?.cwd} refreshKey={activeTab?.gitBranchRefresh} />
+                </div>
 
-                          const isSpecial =
-                            prefix === "write" ||
-                            prefix === "url" ||
-                            prefix === "mcp";
-                          const meaning =
-                            prefix === "write"
-                              ? "File changes"
-                              : prefix === "url"
-                                ? "Web access"
-                                : prefix === "mcp"
-                                  ? "MCP tools"
-                                  : "";
-
-                          return isSpecial
-                            ? rest
-                              ? `${meaning}: ${rest}`
-                              : meaning
-                            : exe;
-                        };
-
-                        // Combine session and global commands with type indicator
-                        type AllowedCommand = { cmd: string; isGlobal: boolean; isSpecial: boolean; pretty: string };
-                        const allCommands: AllowedCommand[] = [
-                          ...activeTab.alwaysAllowed.map(cmd => ({
-                            cmd,
-                            isGlobal: false,
-                            isSpecial: isSpecialExe(cmd),
-                            pretty: toPretty(cmd),
-                          })),
-                          ...globalSafeCommands.map(cmd => ({
-                            cmd,
-                            isGlobal: true,
-                            isSpecial: false,
-                            pretty: cmd,
-                          })),
-                        ].sort((a, b) => {
-                          // Global commands first, then special, then alphabetically
-                          if (a.isGlobal !== b.isGlobal) return a.isGlobal ? -1 : 1;
-                          if (a.isSpecial !== b.isSpecial) return a.isSpecial ? -1 : 1;
-                          return a.pretty.localeCompare(b.pretty);
-                        });
-
-                        return (
-                          <div className="pb-1">
-                            {allCommands.map(({ cmd, isGlobal, isSpecial, pretty }) => (
-                              <div
-                                key={`${isGlobal ? 'global' : 'session'}-${cmd}`}
-                                className="flex items-center gap-2 px-3 py-1 text-[10px] hover:bg-copilot-surface-hover transition-colors"
+                {/* Edited Files */}
+                <div className="border-b border-copilot-surface" data-tour="edited-files">
+                  <div className="flex items-center">
+                    <button
+                      onClick={handleToggleEditedFiles}
+                      className="flex-1 flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                    >
+                      <ChevronRightIcon
+                        size={8}
+                        className={`transition-transform ${showEditedFiles ? 'rotate-90' : ''}`}
+                      />
+                      <span>Edited Files</span>
+                      {cleanedEditedFiles.length > 0 && (
+                        <span className="text-copilot-accent">
+                          ({cleanedEditedFiles.length - (activeTab?.untrackedFiles?.length || 0)})
+                        </span>
+                      )}
+                      {(activeTab?.untrackedFiles?.length || 0) > 0 && (
+                        <span
+                          className="text-copilot-text-muted"
+                          title="Untracked files (excluded from commit)"
+                        >
+                          +{activeTab?.untrackedFiles?.length} untracked
+                        </span>
+                      )}
+                      {showEditedFiles && !isGitRepo && (
+                        <span
+                          className="text-copilot-warning"
+                          title="Not in a Git repository. File list is based on manual tracking of files touched in this session."
+                        >
+                          <WarningIcon size={10} />
+                        </span>
+                      )}
+                    </button>
+                    {isGitRepo && (
+                      <IconButton
+                        icon={<CommitIcon size={12} />}
+                        onClick={handleOpenCommitModal}
+                        variant="accent"
+                        size="sm"
+                        title="Commit and push"
+                        className="mr-1"
+                      />
+                    )}
+                  </div>
+                  {showEditedFiles && activeTab && (
+                    <div className="max-h-48 overflow-y-auto" data-clarity-mask="true">
+                      {activeTab.editedFiles.length === 0 ? (
+                        <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
+                          No files edited
+                        </div>
+                      ) : (
+                        // Simple flat list - clicking opens the full overlay
+                        cleanedEditedFiles.map((filePath) => {
+                          const isConflicted =
+                            isGitRepo &&
+                            conflictedFiles.some(
+                              (cf) =>
+                                filePath.endsWith(cf) ||
+                                cf.endsWith(filePath.split(/[/\\]/).pop() || '')
+                            );
+                          const isUntracked = (activeTab.untrackedFiles || []).includes(filePath);
+                          return (
+                            <button
+                              key={filePath}
+                              onClick={() => setFilePreviewPath(filePath)}
+                              className={`w-full flex items-center gap-2 px-3 py-1 text-[10px] hover:bg-copilot-surface text-left ${
+                                isUntracked
+                                  ? 'text-copilot-text-muted/50'
+                                  : isConflicted
+                                    ? 'text-copilot-error'
+                                    : 'text-copilot-text-muted'
+                              }`}
+                              title={
+                                isUntracked
+                                  ? `${filePath} (untracked) - Click to preview`
+                                  : isConflicted
+                                    ? `${filePath} (conflict) - Click to preview`
+                                    : `${filePath} - Click to preview`
+                              }
+                            >
+                              <FileIcon
+                                size={8}
+                                className={`shrink-0 ${
+                                  isUntracked
+                                    ? 'text-copilot-text-muted/50'
+                                    : isConflicted
+                                      ? 'text-copilot-error'
+                                      : 'text-copilot-success'
+                                }`}
+                              />
+                              <span
+                                className={`truncate font-mono ${isUntracked ? 'line-through' : ''}`}
                               >
-                                {isGlobal && (
-                                  <GlobeIcon size={10} className="shrink-0 text-copilot-accent" />
-                                )}
-                                <span className={`flex-1 truncate font-mono ${
-                                  isSpecial
-                                    ? "text-copilot-accent"
-                                    : "text-copilot-text-muted"
-                                }`} title={pretty}>
-                                  {pretty}
+                                {filePath}
+                              </span>
+                              {isConflicted && (
+                                <span className="text-[8px] text-copilot-error">!</span>
+                              )}
+                              {isUntracked && (
+                                <span className="text-[8px] text-copilot-text-muted">
+                                  (untracked)
                                 </span>
-                                <button
-                                  onClick={() =>
-                                    isGlobal
-                                      ? handleRemoveGlobalSafeCommand(cmd)
-                                      : handleRemoveAlwaysAllowed(cmd)
-                                  }
-                                  className="shrink-0 text-copilot-error hover:brightness-110"
-                                  title="Remove"
+                              )}
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Allowed Commands (merged session + global) */}
+                <div className="border-b border-copilot-border" data-tour="allowed-commands">
+                  <div className="flex items-center">
+                    <button
+                      onClick={() => {
+                        setShowAllowedCommands(!showAllowedCommands);
+                        if (!showAllowedCommands) {
+                          refreshAlwaysAllowed();
+                          refreshGlobalSafeCommands();
+                        } else {
+                          // Hide the add command input when collapsing
+                          setShowAddAllowedCommand(false);
+                        }
+                      }}
+                      className="flex-1 flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                    >
+                      <ChevronRightIcon
+                        size={8}
+                        className={`transition-transform ${showAllowedCommands ? 'rotate-90' : ''}`}
+                      />
+                      <span>Allowed Commands</span>
+                      {(activeTab?.alwaysAllowed.length || 0) + globalSafeCommands.length > 0 && (
+                        <span className="text-copilot-accent">
+                          ({(activeTab?.alwaysAllowed.length || 0) + globalSafeCommands.length})
+                        </span>
+                      )}
+                    </button>
+                    <div className="relative mr-1">
+                      <IconButton
+                        icon={<PlusIcon size={12} />}
+                        onClick={() => {
+                          setShowAddAllowedCommand(!showAddAllowedCommand);
+                          if (!showAllowedCommands) {
+                            setShowAllowedCommands(true);
+                            refreshAlwaysAllowed();
+                            refreshGlobalSafeCommands();
+                          }
+                        }}
+                        variant="success"
+                        size="sm"
+                        title="Add allowed command"
+                      />
+                    </div>
+                  </div>
+                  {showAddAllowedCommand && activeTab && (
+                    <div className="px-3 pb-2">
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={addCommandScope}
+                          onChange={(e) =>
+                            setAddCommandScope(e.target.value as 'session' | 'global')
+                          }
+                          className="px-2 py-1 text-[10px] bg-copilot-surface border border-copilot-border rounded text-copilot-text focus:outline-none focus:border-copilot-accent"
+                        >
+                          <option value="session">Session</option>
+                          <option
+                            value="global"
+                            disabled={addCommandValue.trim().toLowerCase().startsWith('write')}
+                          >
+                            Global
+                          </option>
+                        </select>
+                        <input
+                          type="text"
+                          value={addCommandValue}
+                          onChange={(e) => {
+                            setAddCommandValue(e.target.value);
+                            // Reset to session scope if user types a "write" command while global is selected
+                            if (
+                              addCommandScope === 'global' &&
+                              e.target.value.trim().toLowerCase().startsWith('write')
+                            ) {
+                              setAddCommandScope('session');
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleAddAllowedCommand();
+                            if (e.key === 'Escape') {
+                              setShowAddAllowedCommand(false);
+                              setAddCommandValue('');
+                            }
+                          }}
+                          placeholder="e.g., npm, git, python"
+                          className="flex-1 px-2 py-1 text-[10px] bg-copilot-surface border border-copilot-border rounded text-copilot-text placeholder:text-copilot-text-muted focus:outline-none focus:border-copilot-accent"
+                          autoFocus
+                        />
+                        <button
+                          onClick={handleAddAllowedCommand}
+                          disabled={!addCommandValue.trim()}
+                          className="px-2 py-1 text-[10px] bg-copilot-accent text-copilot-text rounded hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Add
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {showAllowedCommands && activeTab && (
+                    <div className="max-h-48 overflow-y-auto">
+                      {activeTab.alwaysAllowed.length === 0 && globalSafeCommands.length === 0 ? (
+                        <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
+                          No allowed commands
+                        </div>
+                      ) : (
+                        (() => {
+                          const isSpecialExe = (exe: string) =>
+                            exe.startsWith('write') ||
+                            exe.startsWith('url') ||
+                            exe.startsWith('mcp');
+                          const toPretty = (exe: string) => {
+                            const hasColon = exe.includes(':');
+                            const [rawPrefix, rawRest] = hasColon ? exe.split(':', 2) : [exe, null];
+                            const prefix = rawPrefix;
+                            const rest = rawRest;
+
+                            const isSpecial =
+                              prefix === 'write' || prefix === 'url' || prefix === 'mcp';
+                            const meaning =
+                              prefix === 'write'
+                                ? 'File changes'
+                                : prefix === 'url'
+                                  ? 'Web access'
+                                  : prefix === 'mcp'
+                                    ? 'MCP tools'
+                                    : '';
+
+                            return isSpecial ? (rest ? `${meaning}: ${rest}` : meaning) : exe;
+                          };
+
+                          // Combine session and global commands with type indicator
+                          type AllowedCommand = {
+                            cmd: string;
+                            isGlobal: boolean;
+                            isSpecial: boolean;
+                            pretty: string;
+                          };
+                          const allCommands: AllowedCommand[] = [
+                            ...activeTab.alwaysAllowed.map((cmd) => ({
+                              cmd,
+                              isGlobal: false,
+                              isSpecial: isSpecialExe(cmd),
+                              pretty: toPretty(cmd),
+                            })),
+                            ...globalSafeCommands.map((cmd) => ({
+                              cmd,
+                              isGlobal: true,
+                              isSpecial: false,
+                              pretty: cmd,
+                            })),
+                          ].sort((a, b) => {
+                            // Global commands first, then special, then alphabetically
+                            if (a.isGlobal !== b.isGlobal) return a.isGlobal ? -1 : 1;
+                            if (a.isSpecial !== b.isSpecial) return a.isSpecial ? -1 : 1;
+                            return a.pretty.localeCompare(b.pretty);
+                          });
+
+                          return (
+                            <div className="pb-1">
+                              {allCommands.map(({ cmd, isGlobal, isSpecial, pretty }) => (
+                                <div
+                                  key={`${isGlobal ? 'global' : 'session'}-${cmd}`}
+                                  className="flex items-center gap-2 px-3 py-1 text-[10px] hover:bg-copilot-surface-hover transition-colors"
                                 >
-                                  <CloseIcon size={10} />
+                                  {isGlobal && (
+                                    <GlobeIcon size={10} className="shrink-0 text-copilot-accent" />
+                                  )}
+                                  <span
+                                    className={`flex-1 truncate font-mono ${
+                                      isSpecial ? 'text-copilot-accent' : 'text-copilot-text-muted'
+                                    }`}
+                                    title={pretty}
+                                  >
+                                    {pretty}
+                                  </span>
+                                  <button
+                                    onClick={() =>
+                                      isGlobal
+                                        ? handleRemoveGlobalSafeCommand(cmd)
+                                        : handleRemoveAlwaysAllowed(cmd)
+                                    }
+                                    className="shrink-0 text-copilot-error hover:brightness-110"
+                                    title="Remove"
+                                  >
+                                    <CloseIcon size={10} />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        })()
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* MCP Servers & Skills Section */}
+                <div data-tour="mcp-skills">
+                  {/* MCP Servers */}
+                  <div>
+                    <div className="flex items-center">
+                      <button
+                        onClick={() => setShowMcpServers(!showMcpServers)}
+                        className="flex-1 flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                      >
+                        <ChevronRightIcon
+                          size={8}
+                          className={`transition-transform ${showMcpServers ? 'rotate-90' : ''}`}
+                        />
+                        <span>MCP Servers</span>
+                        {Object.keys(mcpServers).length > 0 && (
+                          <span className="text-copilot-accent">
+                            ({Object.keys(mcpServers).length})
+                          </span>
+                        )}
+                      </button>
+                      <IconButton
+                        icon={<FileIcon size={12} />}
+                        onClick={() => setShowMcpJsonModal(true)}
+                        variant="accent"
+                        size="sm"
+                        title="View JSON config"
+                        className="mr-1"
+                      />
+                      <IconButton
+                        icon={<RepeatIcon size={12} />}
+                        onClick={handleRefreshMcpServers}
+                        variant="accent"
+                        size="sm"
+                        title="Refresh MCP servers"
+                        className="mr-1"
+                      />
+                      <IconButton
+                        icon={<PlusIcon size={12} />}
+                        onClick={openAddMcpModal}
+                        variant="success"
+                        size="sm"
+                        title="Add MCP server"
+                        className="mr-1"
+                      />
+                    </div>
+                    {showMcpServers && (
+                      <div className="max-h-48 overflow-y-auto">
+                        {Object.keys(mcpServers).length === 0 ? (
+                          <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
+                            No MCP servers configured
+                          </div>
+                        ) : (
+                          Object.entries(mcpServers).map(([name, server]) => {
+                            const isLocal =
+                              !server.type || server.type === 'local' || server.type === 'stdio';
+                            const toolCount =
+                              server.tools[0] === '*' ? 'all' : `${server.tools.length}`;
+                            return (
+                              <div
+                                key={name}
+                                className="group px-3 py-1.5 hover:bg-copilot-surface border-b border-copilot-border last:border-b-0"
+                              >
+                                <div className="flex items-center gap-2">
+                                  {isLocal ? (
+                                    <MonitorIcon
+                                      size={10}
+                                      className="shrink-0 text-copilot-accent"
+                                    />
+                                  ) : (
+                                    <GlobeIcon size={10} className="shrink-0 text-copilot-accent" />
+                                  )}
+                                  <div className="flex-1 min-w-0">
+                                    <div className="text-xs text-copilot-text truncate">{name}</div>
+                                    <div className="text-[10px] text-copilot-accent">
+                                      {toolCount} tools
+                                    </div>
+                                  </div>
+                                  <div className="shrink-0 opacity-0 group-hover:opacity-100 flex gap-1">
+                                    <IconButton
+                                      icon={<EditIcon size={10} />}
+                                      onClick={() => openEditMcpModal(name, server)}
+                                      variant="accent"
+                                      size="xs"
+                                      title="Edit"
+                                    />
+                                    <IconButton
+                                      icon={<CloseIcon size={10} />}
+                                      onClick={() => handleDeleteMcpServer(name)}
+                                      variant="error"
+                                      size="xs"
+                                      title="Delete"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Separator */}
+                  <div className="border-t border-copilot-border" />
+
+                  {/* Agent Skills */}
+                  <div>
+                    <div className="flex items-center">
+                      <button
+                        onClick={() => setShowSkills(!showSkills)}
+                        className="flex-1 flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                      >
+                        <ChevronRightIcon
+                          size={8}
+                          className={`transition-transform ${showSkills ? 'rotate-90' : ''}`}
+                        />
+                        <span>Agent Skills</span>
+                        {skills.length > 0 && (
+                          <span className="text-copilot-accent">({skills.length})</span>
+                        )}
+                      </button>
+                    </div>
+                    {showSkills && (
+                      <div className="max-h-48 overflow-y-auto">
+                        {skills.length === 0 ? (
+                          <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
+                            No skills found
+                          </div>
+                        ) : (
+                          skills.map((skill) => (
+                            <div
+                              key={skill.path}
+                              className="group px-3 py-1.5 hover:bg-copilot-surface border-b border-copilot-border last:border-b-0"
+                            >
+                              <div className="flex items-center gap-2">
+                                <BookIcon size={10} className="shrink-0 text-copilot-accent" />
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-xs text-copilot-text truncate">
+                                    {skill.name}
+                                  </div>
+                                  <div
+                                    className="text-[10px] text-copilot-text-muted truncate"
+                                    title={skill.description}
+                                  >
+                                    {skill.description}
+                                  </div>
+                                  <div className="text-[9px] text-copilot-accent">
+                                    {skill.type === 'personal' ? '~/' : '.'}/
+                                    {skill.source === 'copilot' ? '.copilot' : '.claude'}/skills
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {/* End MCP/Skills wrapper */}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Commit Modal */}
+        <Modal
+          isOpen={showCommitModal && !!activeTab}
+          onClose={() => {
+            setShowCommitModal(false);
+            setMainAheadInfo(null);
+            setConflictedFiles([]);
+          }}
+          title="Commit & Push Changes"
+        >
+          <Modal.Body data-clarity-mask="true">
+            {activeTab &&
+              (() => {
+                // Compute files to commit (excluding untracked files)
+                const filesToCommit = activeTab.editedFiles.filter(
+                  (f) => !(activeTab.untrackedFiles || []).includes(f)
+                );
+                const untrackedFilesList = (activeTab.untrackedFiles || []).filter((f) =>
+                  activeTab.editedFiles.includes(f)
+                );
+                const hasFilesToCommit = filesToCommit.length > 0;
+
+                return (
+                  <>
+                    {/* Files to commit */}
+                    <div className="mb-3">
+                      {hasFilesToCommit ? (
+                        <>
+                          <div className="text-xs text-copilot-text-muted mb-2">
+                            Files to commit ({filesToCommit.length}):
+                          </div>
+                          <div className="bg-copilot-bg rounded border border-copilot-surface max-h-32 overflow-y-auto">
+                            {filesToCommit.map((filePath) => {
+                              const fileName = filePath.split(/[/\\]/).pop() || '';
+                              const isConflicted = conflictedFiles.some(
+                                (cf) => filePath.endsWith(cf) || cf.endsWith(fileName)
+                              );
+                              return (
+                                <div
+                                  key={filePath}
+                                  className={`group flex items-center gap-2 px-3 py-1.5 text-xs font-mono hover:bg-copilot-surface transition-colors ${isConflicted ? 'text-copilot-error' : 'text-copilot-success'}`}
+                                >
+                                  <button
+                                    onClick={() => setFilePreviewPath(filePath)}
+                                    className="flex items-center gap-2 flex-1 min-w-0 text-left"
+                                    title={
+                                      isConflicted
+                                        ? `${filePath} (conflict) - Click to preview diff`
+                                        : `${filePath} - Click to preview diff`
+                                    }
+                                  >
+                                    <FileIcon
+                                      size={10}
+                                      className={`shrink-0 ${isConflicted ? 'text-copilot-error' : 'text-copilot-success'}`}
+                                    />
+                                    <span className="truncate">{filePath}</span>
+                                    {isConflicted && (
+                                      <span className="text-[10px] text-copilot-error">!</span>
+                                    )}
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      const newUntracked = [
+                                        ...(activeTab.untrackedFiles || []),
+                                        filePath,
+                                      ];
+                                      updateTab(activeTab.id, { untrackedFiles: newUntracked });
+                                    }}
+                                    className="shrink-0 p-0.5 opacity-0 group-hover:opacity-100 text-copilot-text-muted hover:text-copilot-text transition-all"
+                                    title="Untrack file (exclude from commit)"
+                                  >
+                                    <ArchiveIcon size={10} />
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </>
+                      ) : (
+                        <div className="text-xs text-copilot-text-muted italic">
+                          No files to commit. You can still merge or create a PR for already
+                          committed changes.
+                        </div>
+                      )}
+
+                      {/* Untracked files section */}
+                      {untrackedFilesList.length > 0 && (
+                        <div className="mt-3">
+                          <div className="text-xs text-copilot-text-muted mb-2 flex items-center gap-1">
+                            <ArchiveIcon size={10} />
+                            Untracked files ({untrackedFilesList.length}) - not included in commit:
+                          </div>
+                          <div className="bg-copilot-bg/50 rounded border border-copilot-surface/50 max-h-24 overflow-y-auto">
+                            {untrackedFilesList.map((filePath) => (
+                              <div
+                                key={filePath}
+                                className="group flex items-center gap-2 px-3 py-1.5 text-xs font-mono text-copilot-text-muted/50"
+                              >
+                                <FileIcon size={10} className="shrink-0" />
+                                <span className="truncate line-through">{filePath}</span>
+                                <button
+                                  onClick={() => {
+                                    const newUntracked = (activeTab.untrackedFiles || []).filter(
+                                      (f) => f !== filePath
+                                    );
+                                    updateTab(activeTab.id, { untrackedFiles: newUntracked });
+                                  }}
+                                  className="ml-auto shrink-0 p-0.5 opacity-0 group-hover:opacity-100 text-copilot-text-muted hover:text-copilot-text transition-all"
+                                  title="Restore file (include in commit)"
+                                >
+                                  <UnarchiveIcon size={10} />
                                 </button>
                               </div>
                             ))}
                           </div>
-                        );
-                      })()
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* MCP Servers & Skills Section */}
-              <div data-tour="mcp-skills">
-              {/* MCP Servers */}
-              <div>
-                <div className="flex items-center">
-                  <button
-                    onClick={() => setShowMcpServers(!showMcpServers)}
-                    className="flex-1 flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
-                  >
-                    <ChevronRightIcon
-                      size={8}
-                      className={`transition-transform ${showMcpServers ? "rotate-90" : ""}`}
-                    />
-                    <span>MCP Servers</span>
-                    {Object.keys(mcpServers).length > 0 && (
-                      <span className="text-copilot-accent">
-                        ({Object.keys(mcpServers).length})
-                      </span>
-                    )}
-                  </button>
-                  <IconButton
-                    icon={<FileIcon size={12} />}
-                    onClick={() => setShowMcpJsonModal(true)}
-                    variant="accent"
-                    size="sm"
-                    title="View JSON config"
-                    className="mr-1"
-                  />
-                  <IconButton
-                    icon={<RepeatIcon size={12} />}
-                    onClick={handleRefreshMcpServers}
-                    variant="accent"
-                    size="sm"
-                    title="Refresh MCP servers"
-                    className="mr-1"
-                  />
-                  <IconButton
-                    icon={<PlusIcon size={12} />}
-                    onClick={openAddMcpModal}
-                    variant="success"
-                    size="sm"
-                    title="Add MCP server"
-                    className="mr-1"
-                  />
-                </div>
-                {showMcpServers && (
-                  <div className="max-h-48 overflow-y-auto">
-                    {Object.keys(mcpServers).length === 0 ? (
-                      <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
-                        No MCP servers configured
-                      </div>
-                    ) : (
-                      Object.entries(mcpServers).map(([name, server]) => {
-                        const isLocal =
-                          !server.type ||
-                          server.type === "local" ||
-                          server.type === "stdio";
-                        const toolCount =
-                          server.tools[0] === "*"
-                            ? "all"
-                            : `${server.tools.length}`;
-                        return (
-                          <div
-                            key={name}
-                            className="group px-3 py-1.5 hover:bg-copilot-surface border-b border-copilot-border last:border-b-0"
-                          >
-                            <div className="flex items-center gap-2">
-                              {isLocal ? (
-                                <MonitorIcon
-                                  size={10}
-                                  className="shrink-0 text-copilot-accent"
-                                />
-                              ) : (
-                                <GlobeIcon
-                                  size={10}
-                                  className="shrink-0 text-copilot-accent"
-                                />
-                              )}
-                              <div className="flex-1 min-w-0">
-                                <div className="text-xs text-copilot-text truncate">
-                                  {name}
-                                </div>
-                                <div className="text-[10px] text-copilot-accent">
-                                  {toolCount} tools
-                                </div>
-                              </div>
-                              <div className="shrink-0 opacity-0 group-hover:opacity-100 flex gap-1">
-                                <IconButton
-                                  icon={<EditIcon size={10} />}
-                                  onClick={() => openEditMcpModal(name, server)}
-                                  variant="accent"
-                                  size="xs"
-                                  title="Edit"
-                                />
-                                <IconButton
-                                  icon={<CloseIcon size={10} />}
-                                  onClick={() => handleDeleteMcpServer(name)}
-                                  variant="error"
-                                  size="xs"
-                                  title="Delete"
-                                />
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Separator */}
-              <div className="border-t border-copilot-border" />
-
-              {/* Agent Skills */}
-              <div>
-                <div className="flex items-center">
-                  <button
-                    onClick={() => setShowSkills(!showSkills)}
-                    className="flex-1 flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
-                  >
-                    <ChevronRightIcon
-                      size={8}
-                      className={`transition-transform ${showSkills ? "rotate-90" : ""}`}
-                    />
-                    <span>Agent Skills</span>
-                    {skills.length > 0 && (
-                      <span className="text-copilot-accent">
-                        ({skills.length})
-                      </span>
-                    )}
-                  </button>
-                </div>
-                {showSkills && (
-                  <div className="max-h-48 overflow-y-auto">
-                    {skills.length === 0 ? (
-                      <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
-                        No skills found
-                      </div>
-                    ) : (
-                      skills.map((skill) => (
-                        <div
-                          key={skill.path}
-                          className="group px-3 py-1.5 hover:bg-copilot-surface border-b border-copilot-border last:border-b-0"
-                        >
-                          <div className="flex items-center gap-2">
-                            <BookIcon
-                              size={10}
-                              className="shrink-0 text-copilot-accent"
-                            />
-                            <div className="flex-1 min-w-0">
-                              <div className="text-xs text-copilot-text truncate">
-                                {skill.name}
-                              </div>
-                              <div className="text-[10px] text-copilot-text-muted truncate" title={skill.description}>
-                                {skill.description}
-                              </div>
-                              <div className="text-[9px] text-copilot-accent">
-                                {skill.type === "personal" ? "~/" : "."}/{skill.source === "copilot" ? ".copilot" : ".claude"}/skills
-                              </div>
-                            </div>
-                          </div>
                         </div>
-                      ))
-                    )}
-                  </div>
-                )}
-              </div>
-              </div>{/* End MCP/Skills wrapper */}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Commit Modal */}
-      <Modal
-        isOpen={showCommitModal && !!activeTab}
-        onClose={() => { setShowCommitModal(false); setMainAheadInfo(null); setConflictedFiles([]); }}
-        title="Commit & Push Changes"
-      >
-        <Modal.Body data-clarity-mask="true">
-          {activeTab && (() => {
-            // Compute files to commit (excluding untracked files)
-            const filesToCommit = activeTab.editedFiles.filter(
-              f => !(activeTab.untrackedFiles || []).includes(f)
-            );
-            const untrackedFilesList = (activeTab.untrackedFiles || []).filter(
-              f => activeTab.editedFiles.includes(f)
-            );
-            const hasFilesToCommit = filesToCommit.length > 0;
-            
-            return (
-            <>
-              {/* Files to commit */}
-              <div className="mb-3">
-                {hasFilesToCommit ? (
-                  <>
-                    <div className="text-xs text-copilot-text-muted mb-2">
-                      Files to commit ({filesToCommit.length}):
+                      )}
                     </div>
-                    <div className="bg-copilot-bg rounded border border-copilot-surface max-h-32 overflow-y-auto">
-                      {filesToCommit.map((filePath) => {
-                        const fileName = filePath.split(/[/\\]/).pop() || '';
-                        const isConflicted = conflictedFiles.some(cf => filePath.endsWith(cf) || cf.endsWith(fileName));
-                        return (
-                          <div
-                            key={filePath}
-                            className={`group flex items-center gap-2 px-3 py-1.5 text-xs font-mono hover:bg-copilot-surface transition-colors ${isConflicted ? 'text-copilot-error' : 'text-copilot-success'}`}
-                          >
+
+                    {/* Warning if origin/main is ahead */}
+                    {mainAheadInfo?.isAhead && (
+                      <div className="mb-3 bg-copilot-warning/10 border border-copilot-warning/30 rounded p-3">
+                        <div className="flex items-start gap-2">
+                          <span className="text-copilot-warning text-sm">⚠️</span>
+                          <div className="flex-1">
+                            <div className="text-xs text-copilot-warning font-medium mb-1">
+                              origin/{mainAheadInfo.targetBranch || targetBranch || 'main'} is{' '}
+                              {mainAheadInfo.commits.length} commit
+                              {mainAheadInfo.commits.length > 1 ? 's' : ''} ahead
+                            </div>
+                            <div className="text-xs text-copilot-text-muted mb-2">
+                              Merge the latest changes into your branch to stay up to date.
+                            </div>
                             <button
-                              onClick={() => setFilePreviewPath(filePath)}
-                              className="flex items-center gap-2 flex-1 min-w-0 text-left"
-                              title={isConflicted ? `${filePath} (conflict) - Click to preview diff` : `${filePath} - Click to preview diff`}
-                            >
-                              <FileIcon
-                                size={10}
-                                className={`shrink-0 ${isConflicted ? 'text-copilot-error' : 'text-copilot-success'}`}
-                              />
-                              <span className="truncate">{filePath}</span>
-                              {isConflicted && <span className="text-[10px] text-copilot-error">!</span>}
-                            </button>
-                            <button
-                              onClick={() => {
-                                const newUntracked = [...(activeTab.untrackedFiles || []), filePath];
-                                updateTab(activeTab.id, { untrackedFiles: newUntracked });
+                              onClick={async () => {
+                                if (!activeTab) return;
+                                setIsMergingMain(true);
+                                setCommitError(null);
+                                try {
+                                  const result = await window.electronAPI.git.mergeMainIntoBranch(
+                                    activeTab.cwd,
+                                    targetBranch || undefined
+                                  );
+                                  if (!result.success) {
+                                    setCommitError(result.error || 'Failed to merge');
+                                    return;
+                                  }
+                                  // Show warning if stash pop had issues
+                                  if (result.warning) {
+                                    setCommitError(result.warning);
+                                  }
+                                  // Set conflicted files if any
+                                  if (result.conflictedFiles && result.conflictedFiles.length > 0) {
+                                    setConflictedFiles(result.conflictedFiles);
+                                  } else {
+                                    setConflictedFiles([]);
+                                  }
+                                  // Refresh the changed files list
+                                  const changedResult =
+                                    await window.electronAPI.git.getChangedFiles(
+                                      activeTab.cwd,
+                                      activeTab.editedFiles,
+                                      true
+                                    );
+                                  if (changedResult.success) {
+                                    updateTab(activeTab.id, { editedFiles: changedResult.files });
+                                  }
+                                  // Re-check if target branch is still ahead
+                                  const mainAheadResult =
+                                    await window.electronAPI.git.checkMainAhead(
+                                      activeTab.cwd,
+                                      targetBranch || undefined
+                                    );
+                                  if (mainAheadResult.success && mainAheadResult.isAhead) {
+                                    setMainAheadInfo({
+                                      isAhead: true,
+                                      commits: mainAheadResult.commits,
+                                      targetBranch: mainAheadResult.targetBranch,
+                                    });
+                                  } else {
+                                    setMainAheadInfo(null);
+                                  }
+                                } catch (error) {
+                                  setCommitError(String(error));
+                                } finally {
+                                  setIsMergingMain(false);
+                                }
                               }}
-                              className="shrink-0 p-0.5 opacity-0 group-hover:opacity-100 text-copilot-text-muted hover:text-copilot-text transition-all"
-                              title="Untrack file (exclude from commit)"
+                              disabled={isMergingMain || isCommitting}
+                              className="px-3 py-1 text-xs bg-copilot-warning/20 hover:bg-copilot-warning/30 text-copilot-warning border border-copilot-warning/30 rounded disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
                             >
-                              <ArchiveIcon size={10} />
+                              {isMergingMain ? (
+                                <>
+                                  <span className="w-3 h-3 border border-copilot-warning/30 border-t-copilot-warning rounded-full animate-spin"></span>
+                                  Merging...
+                                </>
+                              ) : (
+                                <>
+                                  Merge origin/
+                                  {mainAheadInfo.targetBranch || targetBranch || 'main'} into branch
+                                </>
+                              )}
                             </button>
                           </div>
-                        );
-                      })}
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-xs text-copilot-text-muted italic">
-                    No files to commit. You can still merge or create a PR for already committed changes.
-                  </div>
-                )}
-                
-                {/* Untracked files section */}
-                {untrackedFilesList.length > 0 && (
-                  <div className="mt-3">
-                    <div className="text-xs text-copilot-text-muted mb-2 flex items-center gap-1">
-                      <ArchiveIcon size={10} />
-                      Untracked files ({untrackedFilesList.length}) - not included in commit:
-                    </div>
-                    <div className="bg-copilot-bg/50 rounded border border-copilot-surface/50 max-h-24 overflow-y-auto">
-                      {untrackedFilesList.map((filePath) => (
-                        <div
-                          key={filePath}
-                          className="group flex items-center gap-2 px-3 py-1.5 text-xs font-mono text-copilot-text-muted/50"
-                        >
-                          <FileIcon size={10} className="shrink-0" />
-                          <span className="truncate line-through">{filePath}</span>
-                          <button
-                            onClick={() => {
-                              const newUntracked = (activeTab.untrackedFiles || []).filter(f => f !== filePath);
-                              updateTab(activeTab.id, { untrackedFiles: newUntracked });
-                            }}
-                            className="ml-auto shrink-0 p-0.5 opacity-0 group-hover:opacity-100 text-copilot-text-muted hover:text-copilot-text transition-all"
-                            title="Restore file (include in commit)"
-                          >
-                            <UnarchiveIcon size={10} />
-                          </button>
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
+                      </div>
+                    )}
 
-              {/* Warning if origin/main is ahead */}
-              {mainAheadInfo?.isAhead && (
-                <div className="mb-3 bg-copilot-warning/10 border border-copilot-warning/30 rounded p-3">
-                  <div className="flex items-start gap-2">
-                    <span className="text-copilot-warning text-sm">⚠️</span>
-                    <div className="flex-1">
-                      <div className="text-xs text-copilot-warning font-medium mb-1">
-                        origin/{mainAheadInfo.targetBranch || targetBranch || 'main'} is {mainAheadInfo.commits.length} commit{mainAheadInfo.commits.length > 1 ? 's' : ''} ahead
+                    {/* Commit message - only show if there are files to commit */}
+                    {hasFilesToCommit && (
+                      <div className="mb-3 relative">
+                        <label className="text-xs text-copilot-text-muted mb-2 block">
+                          Commit message:
+                        </label>
+                        <textarea
+                          value={commitMessage}
+                          onChange={(e) => setCommitMessage(e.target.value)}
+                          className={`w-full bg-copilot-bg border border-copilot-border rounded px-3 py-2 text-sm text-copilot-text placeholder-copilot-text-muted focus:border-copilot-accent outline-none resize-none ${isGeneratingMessage ? 'opacity-50' : ''}`}
+                          rows={3}
+                          placeholder="Enter commit message..."
+                          autoFocus
+                          disabled={isGeneratingMessage}
+                          data-clarity-mask="true"
+                        />
+                        {isGeneratingMessage && (
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <span className="w-4 h-4 border-2 border-copilot-accent/30 border-t-copilot-accent rounded-full animate-spin"></span>
+                          </div>
+                        )}
                       </div>
-                      <div className="text-xs text-copilot-text-muted mb-2">
-                        Merge the latest changes into your branch to stay up to date.
-                      </div>
-                      <button
-                        onClick={async () => {
-                          if (!activeTab) return;
-                          setIsMergingMain(true);
-                          setCommitError(null);
-                          try {
-                            const result = await window.electronAPI.git.mergeMainIntoBranch(activeTab.cwd, targetBranch || undefined);
-                            if (!result.success) {
-                              setCommitError(result.error || 'Failed to merge');
-                              return;
-                            }
-                            // Show warning if stash pop had issues
-                            if (result.warning) {
-                              setCommitError(result.warning);
-                            }
-                            // Set conflicted files if any
-                            if (result.conflictedFiles && result.conflictedFiles.length > 0) {
-                              setConflictedFiles(result.conflictedFiles);
-                            } else {
-                              setConflictedFiles([]);
-                            }
-                            // Refresh the changed files list
-                            const changedResult = await window.electronAPI.git.getChangedFiles(
+                    )}
+
+                    {/* Target branch selector - always visible at top */}
+                    <div className="mb-4">
+                      <SearchableBranchSelect
+                        label="Target branch:"
+                        value={targetBranch}
+                        branches={availableBranches}
+                        onSelect={async (branch) => {
+                          setTargetBranch(branch);
+                          // Persist the selection
+                          if (activeTab) {
+                            await window.electronAPI.settings.setTargetBranch(
                               activeTab.cwd,
-                              activeTab.editedFiles,
-                              true
+                              branch
                             );
-                            if (changedResult.success) {
-                              updateTab(activeTab.id, { editedFiles: changedResult.files });
+                          }
+                          // Re-check if target branch is ahead
+                          if (activeTab) {
+                            try {
+                              const mainAheadResult = await window.electronAPI.git.checkMainAhead(
+                                activeTab.cwd,
+                                branch
+                              );
+                              if (mainAheadResult.success && mainAheadResult.isAhead) {
+                                setMainAheadInfo({
+                                  isAhead: true,
+                                  commits: mainAheadResult.commits,
+                                  targetBranch: branch,
+                                });
+                              } else {
+                                setMainAheadInfo(null);
+                              }
+                            } catch {
+                              // Ignore errors
                             }
-                            // Re-check if target branch is still ahead
-                            const mainAheadResult = await window.electronAPI.git.checkMainAhead(activeTab.cwd, targetBranch || undefined);
-                            if (mainAheadResult.success && mainAheadResult.isAhead) {
-                              setMainAheadInfo({ 
-                                isAhead: true, 
-                                commits: mainAheadResult.commits,
-                                targetBranch: mainAheadResult.targetBranch
-                              });
-                            } else {
-                              setMainAheadInfo(null);
-                            }
-                          } catch (error) {
-                            setCommitError(String(error));
-                          } finally {
-                            setIsMergingMain(false);
                           }
                         }}
-                        disabled={isMergingMain || isCommitting}
-                        className="px-3 py-1 text-xs bg-copilot-warning/20 hover:bg-copilot-warning/30 text-copilot-warning border border-copilot-warning/30 rounded disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
-                      >
-                        {isMergingMain ? (
-                          <>
-                            <span className="w-3 h-3 border border-copilot-warning/30 border-t-copilot-warning rounded-full animate-spin"></span>
-                            Merging...
-                          </>
-                        ) : (
-                          <>Merge origin/{mainAheadInfo.targetBranch || targetBranch || 'main'} into branch</>
-                        )}
-                      </button>
+                        isLoading={isLoadingBranches}
+                        disabled={isCommitting}
+                        placeholder="Select target branch..."
+                      />
                     </div>
-                  </div>
-                </div>
-              )}
 
-              {/* Commit message - only show if there are files to commit */}
-              {hasFilesToCommit && (
-                <div className="mb-3 relative">
-                  <label className="text-xs text-copilot-text-muted mb-2 block">
-                    Commit message:
-                  </label>
-                  <textarea
-                    value={commitMessage}
-                    onChange={(e) => setCommitMessage(e.target.value)}
-                    className={`w-full bg-copilot-bg border border-copilot-border rounded px-3 py-2 text-sm text-copilot-text placeholder-copilot-text-muted focus:border-copilot-accent outline-none resize-none ${isGeneratingMessage ? "opacity-50" : ""}`}
-                    rows={3}
-                    placeholder="Enter commit message..."
-                    autoFocus
-                    disabled={isGeneratingMessage}
-                    data-clarity-mask="true"
-                  />
-                  {isGeneratingMessage && (
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="w-4 h-4 border-2 border-copilot-accent/30 border-t-copilot-accent rounded-full animate-spin"></span>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Target branch selector - always visible at top */}
-              <div className="mb-4">
-                <SearchableBranchSelect
-                  label="Target branch:"
-                  value={targetBranch}
-                  branches={availableBranches}
-                  onSelect={async (branch) => {
-                    setTargetBranch(branch);
-                    // Persist the selection
-                    if (activeTab) {
-                      await window.electronAPI.settings.setTargetBranch(activeTab.cwd, branch);
-                    }
-                    // Re-check if target branch is ahead
-                    if (activeTab) {
-                      try {
-                        const mainAheadResult = await window.electronAPI.git.checkMainAhead(activeTab.cwd, branch);
-                        if (mainAheadResult.success && mainAheadResult.isAhead) {
-                          setMainAheadInfo({ 
-                            isAhead: true, 
-                            commits: mainAheadResult.commits,
-                            targetBranch: branch
-                          });
-                        } else {
-                          setMainAheadInfo(null);
+                    {/* Options */}
+                    <div className="mb-4 flex items-center gap-2">
+                      <span className="text-xs text-copilot-text-muted">
+                        {hasFilesToCommit ? 'After push:' : 'Action:'}
+                      </span>
+                      <Dropdown
+                        value={commitAction}
+                        options={
+                          hasFilesToCommit
+                            ? [
+                                { id: 'push' as const, label: 'Nothing' },
+                                { id: 'merge' as const, label: 'Merge to target branch' },
+                                { id: 'pr' as const, label: 'Create PR' },
+                              ]
+                            : [
+                                { id: 'merge' as const, label: 'Merge to target branch' },
+                                { id: 'pr' as const, label: 'Create PR' },
+                              ]
                         }
-                      } catch {
-                        // Ignore errors
-                      }
-                    }
-                  }}
-                  isLoading={isLoadingBranches}
-                  disabled={isCommitting}
-                  placeholder="Select target branch..."
-                />
-              </div>
+                        onSelect={(id) => {
+                          setCommitAction(id);
+                          if (id !== 'merge') setRemoveWorktreeAfterMerge(false);
+                        }}
+                        disabled={isCommitting}
+                        align="left"
+                        minWidth="160px"
+                      />
+                    </div>
 
-              {/* Options */}
-              <div className="mb-4 flex items-center gap-2">
-                <span className="text-xs text-copilot-text-muted">
-                  {hasFilesToCommit ? 'After push:' : 'Action:'}
-                </span>
-                <Dropdown
-                  value={commitAction}
-                  options={hasFilesToCommit 
-                    ? [
-                        { id: 'push' as const, label: 'Nothing' },
-                        { id: 'merge' as const, label: 'Merge to target branch' },
-                        { id: 'pr' as const, label: 'Create PR' },
-                      ]
-                    : [
-                        { id: 'merge' as const, label: 'Merge to target branch' },
-                        { id: 'pr' as const, label: 'Create PR' },
-                      ]
-                  }
-                  onSelect={(id) => {
-                    setCommitAction(id)
-                    if (id !== 'merge') setRemoveWorktreeAfterMerge(false)
-                  }}
-                  disabled={isCommitting}
-                  align="left"
-                  minWidth="160px"
-                />
-              </div>
+                    {/* Remove worktree option - only visible when merge is selected and in a worktree */}
+                    {commitAction === 'merge' && activeTab?.cwd.includes('.copilot-sessions') && (
+                      <div className="mb-4 flex items-center gap-2">
+                        <label className="flex items-center gap-2 text-xs text-copilot-text-muted cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={removeWorktreeAfterMerge}
+                            onChange={(e) => setRemoveWorktreeAfterMerge(e.target.checked)}
+                            className="rounded border-copilot-border bg-copilot-bg accent-copilot-accent"
+                            disabled={isCommitting}
+                          />
+                          Remove worktree after merge
+                        </label>
+                      </div>
+                    )}
 
-              {/* Remove worktree option - only visible when merge is selected and in a worktree */}
-              {commitAction === 'merge' && activeTab?.cwd.includes('.copilot-sessions') && (
-                <div className="mb-4 flex items-center gap-2">
-                  <label className="flex items-center gap-2 text-xs text-copilot-text-muted cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={removeWorktreeAfterMerge}
-                      onChange={(e) => setRemoveWorktreeAfterMerge(e.target.checked)}
-                      className="rounded border-copilot-border bg-copilot-bg accent-copilot-accent"
-                      disabled={isCommitting}
-                    />
-                    Remove worktree after merge
-                  </label>
+                    {/* Error message */}
+                    {commitError && (
+                      <div className="mb-3 px-3 py-2 bg-copilot-error-muted border border-copilot-error rounded text-xs text-copilot-error max-h-32 overflow-y-auto break-words whitespace-pre-wrap">
+                        {commitError}
+                      </div>
+                    )}
+
+                    {/* Actions */}
+                    <Modal.Footer>
+                      <Button
+                        variant="ghost"
+                        onClick={() => setShowCommitModal(false)}
+                        disabled={isCommitting}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        variant="primary"
+                        onClick={handleCommitAndPush}
+                        disabled={
+                          (hasFilesToCommit && !commitMessage.trim()) ||
+                          isCommitting ||
+                          isGeneratingMessage ||
+                          (!hasFilesToCommit && commitAction === 'push')
+                        }
+                        isLoading={isCommitting}
+                        leftIcon={!isCommitting ? <CommitIcon size={12} /> : undefined}
+                      >
+                        {isCommitting
+                          ? 'Processing...'
+                          : !hasFilesToCommit
+                            ? commitAction === 'pr'
+                              ? 'Create PR'
+                              : 'Merge'
+                            : commitAction === 'pr'
+                              ? 'Commit & Create PR'
+                              : commitAction === 'merge'
+                                ? 'Commit & Merge'
+                                : 'Commit & Push'}
+                      </Button>
+                    </Modal.Footer>
+                  </>
+                );
+              })()}
+          </Modal.Body>
+        </Modal>
+
+        {/* Incoming Changes Modal - shown when merge from target branch brought changes */}
+        <Modal
+          isOpen={!!pendingMergeInfo && !!activeTab}
+          onClose={() => setPendingMergeInfo(null)}
+          title="Target Branch Had Changes"
+          width="500px"
+        >
+          <Modal.Body>
+            <div className="mb-4">
+              <div className="text-sm text-copilot-text mb-2">
+                Your branch has been synced with the latest changes from{' '}
+                {pendingMergeInfo?.targetBranch || targetBranch || 'main'}. The following files were
+                updated:
+              </div>
+              {pendingMergeInfo && pendingMergeInfo.incomingFiles.length > 0 ? (
+                <div className="bg-copilot-bg rounded border border-copilot-surface max-h-40 overflow-y-auto">
+                  {pendingMergeInfo.incomingFiles.map((filePath) => (
+                    <div
+                      key={filePath}
+                      className="px-3 py-1.5 text-xs text-copilot-warning font-mono truncate"
+                      title={filePath}
+                    >
+                      {filePath}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-xs text-copilot-text-muted italic">
+                  (Unable to determine changed files)
                 </div>
               )}
-
-              {/* Error message */}
-              {commitError && (
-                <div className="mb-3 px-3 py-2 bg-copilot-error-muted border border-copilot-error rounded text-xs text-copilot-error max-h-32 overflow-y-auto break-words whitespace-pre-wrap">
-                  {commitError}
-                </div>
-              )}
-
-              {/* Actions */}
-              <Modal.Footer>
-                <Button
-                  variant="ghost"
-                  onClick={() => setShowCommitModal(false)}
-                  disabled={isCommitting}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  variant="primary"
-                  onClick={handleCommitAndPush}
-                  disabled={
-                    (hasFilesToCommit && !commitMessage.trim()) || 
-                    isCommitting || 
-                    isGeneratingMessage ||
-                    (!hasFilesToCommit && commitAction === 'push')
-                  }
-                  isLoading={isCommitting}
-                  leftIcon={
-                    !isCommitting ? <CommitIcon size={12} /> : undefined
-                  }
-                >
-                  {isCommitting 
-                    ? "Processing..." 
-                    : !hasFilesToCommit
-                      ? (commitAction === 'pr' ? "Create PR" : "Merge")
-                      : commitAction === 'pr' 
-                        ? "Commit & Create PR" 
-                        : commitAction === 'merge' 
-                          ? "Commit & Merge" 
-                          : "Commit & Push"}
-                </Button>
-              </Modal.Footer>
-            </>
-            );
-          })()}
-        </Modal.Body>
-      </Modal>
-
-      {/* Incoming Changes Modal - shown when merge from target branch brought changes */}
-      <Modal
-        isOpen={!!pendingMergeInfo && !!activeTab}
-        onClose={() => setPendingMergeInfo(null)}
-        title="Target Branch Had Changes"
-        width="500px"
-      >
-        <Modal.Body>
-          <div className="mb-4">
-            <div className="text-sm text-copilot-text mb-2">
-              Your branch has been synced with the latest changes from {pendingMergeInfo?.targetBranch || targetBranch || 'main'}. The following files were updated:
             </div>
-            {pendingMergeInfo && pendingMergeInfo.incomingFiles.length > 0 ? (
-              <div className="bg-copilot-bg rounded border border-copilot-surface max-h-40 overflow-y-auto">
-                {pendingMergeInfo.incomingFiles.map((filePath) => (
-                  <div
-                    key={filePath}
-                    className="px-3 py-1.5 text-xs text-copilot-warning font-mono truncate"
-                    title={filePath}
+            <div className="text-sm text-copilot-text-muted mb-4">
+              We recommend testing your changes before completing the merge to{' '}
+              {pendingMergeInfo?.targetBranch || targetBranch || 'main'}.
+            </div>
+            <Modal.Footer>
+              <Button variant="ghost" onClick={() => setPendingMergeInfo(null)}>
+                Test First
+              </Button>
+              <Button
+                variant="primary"
+                onClick={async () => {
+                  if (!activeTab) return;
+                  setIsCommitting(true);
+                  try {
+                    const mergeTarget = pendingMergeInfo?.targetBranch || targetBranch || 'main';
+                    const result = await window.electronAPI.git.mergeToMain(
+                      activeTab.cwd,
+                      removeWorktreeAfterMerge,
+                      mergeTarget,
+                      activeTab.untrackedFiles || []
+                    );
+                    if (result.success) {
+                      if (removeWorktreeAfterMerge && activeTab.cwd.includes('.copilot-sessions')) {
+                        const sessionId = activeTab.cwd.split(/[/\\]/).pop() || '';
+                        if (sessionId) {
+                          await window.electronAPI.worktree.removeSession({
+                            sessionId,
+                            force: true,
+                          });
+                          handleCloseTab(activeTab.id);
+                        }
+                      }
+                      updateTab(activeTab.id, {
+                        gitBranchRefresh: (activeTab.gitBranchRefresh || 0) + 1,
+                      });
+                    } else {
+                      setCommitError(result.error || 'Merge failed');
+                    }
+                  } catch (error) {
+                    setCommitError(String(error));
+                  } finally {
+                    setIsCommitting(false);
+                    setPendingMergeInfo(null);
+                    setCommitAction('push');
+                    setRemoveWorktreeAfterMerge(false);
+                  }
+                }}
+                isLoading={isCommitting}
+              >
+                Merge Now
+              </Button>
+            </Modal.Footer>
+          </Modal.Body>
+        </Modal>
+
+        {/* MCP Server Modal */}
+        <Modal
+          isOpen={showMcpModal}
+          onClose={() => setShowMcpModal(false)}
+          title={editingMcpServer ? 'Edit MCP Server' : 'Add MCP Server'}
+          width="450px"
+        >
+          <Modal.Body className="space-y-4" data-clarity-mask="true">
+            {/* Server Name */}
+            <div>
+              <label className="text-xs text-copilot-text-muted mb-1 block">Server Name</label>
+              <input
+                type="text"
+                value={mcpFormData.name}
+                onChange={(e) => setMcpFormData({ ...mcpFormData, name: e.target.value })}
+                className="w-full bg-copilot-bg border border-copilot-border rounded px-3 py-2 text-sm text-copilot-text placeholder-copilot-text-muted focus:border-copilot-accent outline-none"
+                placeholder="my-mcp-server"
+                autoFocus
+              />
+            </div>
+
+            {/* Server Type */}
+            <div>
+              <label className="text-xs text-copilot-text-muted mb-1 block">Type</label>
+              <div className="flex gap-2">
+                {(['local', 'http', 'sse'] as const).map((type) => (
+                  <Button
+                    key={type}
+                    variant={mcpFormData.type === type ? 'primary' : 'secondary'}
+                    size="sm"
+                    onClick={() => setMcpFormData({ ...mcpFormData, type })}
                   >
-                    {filePath}
-                  </div>
+                    {type === 'local' ? 'Local/Stdio' : type.toUpperCase()}
+                  </Button>
                 ))}
               </div>
-            ) : (
-              <div className="text-xs text-copilot-text-muted italic">
-                (Unable to determine changed files)
+            </div>
+
+            {/* Local Server Config */}
+            {mcpFormData.type === 'local' && (
+              <>
+                <div>
+                  <label className="text-xs text-copilot-text-muted mb-1 block">Command</label>
+                  <input
+                    type="text"
+                    value={mcpFormData.command}
+                    onChange={(e) =>
+                      setMcpFormData({
+                        ...mcpFormData,
+                        command: e.target.value,
+                      })
+                    }
+                    className="w-full bg-copilot-bg border border-copilot-border rounded px-3 py-2 text-sm text-copilot-text font-mono placeholder-copilot-text-muted focus:border-copilot-accent outline-none"
+                    placeholder="npx"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-copilot-text-muted mb-1 block">
+                    Arguments (space-separated)
+                  </label>
+                  <input
+                    type="text"
+                    value={mcpFormData.args}
+                    onChange={(e) => setMcpFormData({ ...mcpFormData, args: e.target.value })}
+                    className="w-full bg-copilot-bg border border-copilot-border rounded px-3 py-2 text-sm text-copilot-text font-mono placeholder-copilot-text-muted focus:border-copilot-accent outline-none"
+                    placeholder="-y @my-mcp-server"
+                  />
+                </div>
+              </>
+            )}
+
+            {/* Remote Server Config */}
+            {(mcpFormData.type === 'http' || mcpFormData.type === 'sse') && (
+              <div>
+                <label className="text-xs text-copilot-text-muted mb-1 block">URL</label>
+                <input
+                  type="text"
+                  value={mcpFormData.url}
+                  onChange={(e) => setMcpFormData({ ...mcpFormData, url: e.target.value })}
+                  className="w-full bg-copilot-bg border border-copilot-border rounded px-3 py-2 text-sm text-copilot-text font-mono placeholder-copilot-text-muted focus:border-copilot-accent outline-none"
+                  placeholder="https://mcp-server.example.com"
+                />
               </div>
             )}
-          </div>
-          <div className="text-sm text-copilot-text-muted mb-4">
-            We recommend testing your changes before completing the merge to {pendingMergeInfo?.targetBranch || targetBranch || 'main'}.
-          </div>
-          <Modal.Footer>
-            <Button
-              variant="ghost"
-              onClick={() => setPendingMergeInfo(null)}
-            >
-              Test First
-            </Button>
-            <Button
-              variant="primary"
-              onClick={async () => {
-                if (!activeTab) return;
-                setIsCommitting(true);
-                try {
-                  const mergeTarget = pendingMergeInfo?.targetBranch || targetBranch || 'main';
-                  const result = await window.electronAPI.git.mergeToMain(activeTab.cwd, removeWorktreeAfterMerge, mergeTarget, activeTab.untrackedFiles || []);
-                  if (result.success) {
-                    if (removeWorktreeAfterMerge && activeTab.cwd.includes('.copilot-sessions')) {
-                      const sessionId = activeTab.cwd.split(/[/\\]/).pop() || '';
-                      if (sessionId) {
-                        await window.electronAPI.worktree.removeSession({ sessionId, force: true });
-                        handleCloseTab(activeTab.id);
-                      }
-                    }
-                    updateTab(activeTab.id, { 
-                      gitBranchRefresh: (activeTab.gitBranchRefresh || 0) + 1
-                    });
-                  } else {
-                    setCommitError(result.error || 'Merge failed');
-                  }
-                } catch (error) {
-                  setCommitError(String(error));
-                } finally {
-                  setIsCommitting(false);
-                  setPendingMergeInfo(null);
-                  setCommitAction('push');
-                  setRemoveWorktreeAfterMerge(false);
-                }
-              }}
-              isLoading={isCommitting}
-            >
-              Merge Now
-            </Button>
-          </Modal.Footer>
-        </Modal.Body>
-      </Modal>
 
-      {/* MCP Server Modal */}
-      <Modal
-        isOpen={showMcpModal}
-        onClose={() => setShowMcpModal(false)}
-        title={editingMcpServer ? "Edit MCP Server" : "Add MCP Server"}
-        width="450px"
-      >
-        <Modal.Body className="space-y-4" data-clarity-mask="true">
-          {/* Server Name */}
-          <div>
-            <label className="text-xs text-copilot-text-muted mb-1 block">
-              Server Name
-            </label>
-            <input
-              type="text"
-              value={mcpFormData.name}
-              onChange={(e) =>
-                setMcpFormData({ ...mcpFormData, name: e.target.value })
-              }
-              className="w-full bg-copilot-bg border border-copilot-border rounded px-3 py-2 text-sm text-copilot-text placeholder-copilot-text-muted focus:border-copilot-accent outline-none"
-              placeholder="my-mcp-server"
-              autoFocus
-            />
-          </div>
-
-          {/* Server Type */}
-          <div>
-            <label className="text-xs text-copilot-text-muted mb-1 block">
-              Type
-            </label>
-            <div className="flex gap-2">
-              {(["local", "http", "sse"] as const).map((type) => (
-                <Button
-                  key={type}
-                  variant={mcpFormData.type === type ? "primary" : "secondary"}
-                  size="sm"
-                  onClick={() => setMcpFormData({ ...mcpFormData, type })}
-                >
-                  {type === "local" ? "Local/Stdio" : type.toUpperCase()}
-                </Button>
-              ))}
-            </div>
-          </div>
-
-          {/* Local Server Config */}
-          {mcpFormData.type === "local" && (
-            <>
-              <div>
-                <label className="text-xs text-copilot-text-muted mb-1 block">
-                  Command
-                </label>
-                <input
-                  type="text"
-                  value={mcpFormData.command}
-                  onChange={(e) =>
-                    setMcpFormData({
-                      ...mcpFormData,
-                      command: e.target.value,
-                    })
-                  }
-                  className="w-full bg-copilot-bg border border-copilot-border rounded px-3 py-2 text-sm text-copilot-text font-mono placeholder-copilot-text-muted focus:border-copilot-accent outline-none"
-                  placeholder="npx"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-copilot-text-muted mb-1 block">
-                  Arguments (space-separated)
-                </label>
-                <input
-                  type="text"
-                  value={mcpFormData.args}
-                  onChange={(e) =>
-                    setMcpFormData({ ...mcpFormData, args: e.target.value })
-                  }
-                  className="w-full bg-copilot-bg border border-copilot-border rounded px-3 py-2 text-sm text-copilot-text font-mono placeholder-copilot-text-muted focus:border-copilot-accent outline-none"
-                  placeholder="-y @my-mcp-server"
-                />
-              </div>
-            </>
-          )}
-
-          {/* Remote Server Config */}
-          {(mcpFormData.type === "http" || mcpFormData.type === "sse") && (
+            {/* Tools */}
             <div>
               <label className="text-xs text-copilot-text-muted mb-1 block">
-                URL
+                Tools (* for all, or comma-separated list)
               </label>
               <input
                 type="text"
-                value={mcpFormData.url}
-                onChange={(e) =>
-                  setMcpFormData({ ...mcpFormData, url: e.target.value })
-                }
+                value={mcpFormData.tools}
+                onChange={(e) => setMcpFormData({ ...mcpFormData, tools: e.target.value })}
                 className="w-full bg-copilot-bg border border-copilot-border rounded px-3 py-2 text-sm text-copilot-text font-mono placeholder-copilot-text-muted focus:border-copilot-accent outline-none"
-                placeholder="https://mcp-server.example.com"
+                placeholder="*"
               />
             </div>
-          )}
 
-          {/* Tools */}
-          <div>
-            <label className="text-xs text-copilot-text-muted mb-1 block">
-              Tools (* for all, or comma-separated list)
-            </label>
-            <input
-              type="text"
-              value={mcpFormData.tools}
-              onChange={(e) =>
-                setMcpFormData({ ...mcpFormData, tools: e.target.value })
-              }
-              className="w-full bg-copilot-bg border border-copilot-border rounded px-3 py-2 text-sm text-copilot-text font-mono placeholder-copilot-text-muted focus:border-copilot-accent outline-none"
-              placeholder="*"
-            />
-          </div>
-
-          {/* Actions */}
-          <Modal.Footer className="pt-2">
-            <Button variant="ghost" onClick={() => setShowMcpModal(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              onClick={handleSaveMcpServer}
-              disabled={
-                !mcpFormData.name.trim() ||
-                (mcpFormData.type === "local"
-                  ? !mcpFormData.command.trim()
-                  : !mcpFormData.url.trim())
-              }
-            >
-              {editingMcpServer ? "Save Changes" : "Add Server"}
-            </Button>
-          </Modal.Footer>
-        </Modal.Body>
-      </Modal>
-
-      {/* MCP JSON View Modal */}
-      <Modal
-        isOpen={showMcpJsonModal}
-        onClose={() => setShowMcpJsonModal(false)}
-        title="MCP Configuration"
-        width="600px"
-      >
-        <Modal.Body data-clarity-mask="true">
-          <div className="mb-3">
-            <pre className="bg-copilot-bg border border-copilot-border rounded p-3 text-xs text-copilot-text font-mono overflow-auto max-h-96 whitespace-pre-wrap">
-              {JSON.stringify({ mcpServers }, null, 2)}
-            </pre>
-          </div>
-          <Modal.Footer className="pt-2">
-            <Button variant="ghost" onClick={() => setShowMcpJsonModal(false)}>
-              Close
-            </Button>
-            <Button
-              variant="primary"
-              onClick={handleOpenMcpConfigInEditor}
-            >
-              Open in Editor
-            </Button>
-          </Modal.Footer>
-        </Modal.Body>
-      </Modal>
-
-      {/* Session History Modal */}
-      <SessionHistory
-        isOpen={showSessionHistory}
-        onClose={() => setShowSessionHistory(false)}
-        sessions={previousSessions}
-        activeSessions={tabs}
-        activeSessionId={activeTabId}
-        onResumeSession={handleResumePreviousSession}
-        onSwitchToSession={handleSwitchTab}
-        onDeleteSession={handleDeleteSessionFromHistory}
-        onRemoveWorktreeSession={handleRemoveWorktreeSession}
-        onOpenWorktreeSession={handleOpenWorktreeSession}
-      />
-
-      {/* Create Worktree Session Modal */}
-      <CreateWorktreeSession
-        isOpen={showCreateWorktree}
-        onClose={() => setShowCreateWorktree(false)}
-        repoPath={worktreeRepoPath}
-        onSessionCreated={handleWorktreeSessionCreated}
-      />
-
-      {/* Terminal Output Shrink Modal */}
-      {pendingTerminalOutput && (
-        <TerminalOutputShrinkModal
-          isOpen={!!pendingTerminalOutput}
-          onClose={() => setPendingTerminalOutput(null)}
-          onConfirm={handleShrinkModalConfirm}
-          output={pendingTerminalOutput.output}
-          lineCount={pendingTerminalOutput.lineCount}
-        />
-      )}
-
-      {/* Image Lightbox Modal */}
-      {lightboxImage && (
-        <div 
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm cursor-pointer"
-          onClick={() => setLightboxImage(null)}
-        >
-          <div className="relative max-w-[90vw] max-h-[90vh]">
-            <img
-              src={lightboxImage.src}
-              alt={lightboxImage.alt}
-              className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl"
-              onClick={(e) => e.stopPropagation()}
-            />
-            <button
-              onClick={() => setLightboxImage(null)}
-              className="absolute -top-3 -right-3 w-8 h-8 bg-copilot-surface text-copilot-text rounded-full flex items-center justify-center hover:bg-copilot-surface-hover transition-colors shadow-lg"
-              title="Close"
-            >
-              <CloseIcon size={16} />
-            </button>
-            <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-sm px-3 py-2 rounded-b-lg truncate">
-              {lightboxImage.alt}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* File Preview Modal */}
-      <FilePreviewModal
-        isOpen={!!filePreviewPath}
-        onClose={() => setFilePreviewPath(null)}
-        filePath={filePreviewPath || ''}
-        cwd={activeTab?.cwd}
-        isGitRepo={isGitRepo}
-        editedFiles={activeTab ? getCleanEditedFiles(activeTab.editedFiles) : []}
-        untrackedFiles={activeTab?.untrackedFiles || []}
-        conflictedFiles={conflictedFiles}
-        fileViewMode={activeTab?.fileViewMode || 'flat'}
-        onUntrackFile={(filePath) => {
-          if (activeTab) {
-            const newUntracked = [...(activeTab.untrackedFiles || []), filePath];
-            updateTab(activeTab.id, { untrackedFiles: newUntracked });
-          }
-        }}
-        onRetrackFile={(filePath) => {
-          if (activeTab) {
-            const newUntracked = (activeTab.untrackedFiles || []).filter(f => f !== filePath);
-            updateTab(activeTab.id, { untrackedFiles: newUntracked });
-          }
-        }}
-        onViewModeChange={(mode) => {
-          if (activeTab) {
-            updateTab(activeTab.id, { fileViewMode: mode });
-          }
-        }}
-      />
-
-      {/* Update Available Modal */}
-      <UpdateAvailableModal
-        isOpen={showUpdateModal}
-        onClose={() => setShowUpdateModal(false)}
-        currentVersion={updateInfo?.currentVersion || buildInfo.baseVersion}
-        newVersion={updateInfo?.latestVersion || ''}
-        onDontRemind={() => {
-          if (updateInfo?.latestVersion) {
-            window.electronAPI.updates.dismissVersion(updateInfo.latestVersion);
-          }
-        }}
-      />
-
-      {/* Release Notes Modal */}
-      <ReleaseNotesModal
-        isOpen={showReleaseNotesModal}
-        onClose={() => {
-          setShowReleaseNotesModal(false);
-          // Show update modal if there's an update available
-          if (updateInfo) {
-            setShowUpdateModal(true);
-          }
-        }}
-        version={buildInfo.baseVersion}
-        releaseNotes={buildInfo.releaseNotes || ''}
-      />
-
-      {/* Welcome Wizard - Spotlight Tour */}
-      <SpotlightTour
-        isOpen={showWelcomeWizard}
-        onClose={() => setShowWelcomeWizard(false)}
-        onComplete={async () => {
-          try {
-            await window.electronAPI.wizard.markWelcomeAsSeen();
-          } catch (error) {
-            console.error('Failed to mark welcome wizard as seen:', error);
-          }
-        }}
-      />
-
-      {/* Session Context Menu (right-click on tab) */}
-      {contextMenu && (
-        <div
-          ref={contextMenuRef}
-          className="fixed z-50 bg-copilot-surface border border-copilot-border rounded-lg shadow-lg py-1 min-w-[160px]"
-          style={{ top: contextMenu.y, left: contextMenu.x }}
-        >
-          {(() => {
-            const tab = tabs.find((t) => t.id === contextMenu.tabId);
-            const isMarked = tab?.markedForReview;
-            return (
-              <>
-                <button
-                  onClick={() => handleToggleMarkForReview(contextMenu.tabId)}
-                  className="w-full px-3 py-1.5 text-left text-xs text-copilot-text hover:bg-copilot-bg transition-colors flex items-center gap-2"
-                >
-                  <span className={`w-2 h-2 rounded-full ${isMarked ? 'bg-copilot-text-muted' : 'bg-cyan-500'}`} />
-                  {isMarked ? 'Remove Mark' : 'Mark for Review'}
-                </button>
-                <button
-                  onClick={() => handleOpenNoteModal(contextMenu.tabId)}
-                  className="w-full px-3 py-1.5 text-left text-xs text-copilot-text hover:bg-copilot-bg transition-colors flex items-center gap-2"
-                >
-                  <EditIcon size={10} />
-                  {tab?.reviewNote ? 'Edit Note...' : 'Add Note...'}
-                </button>
-                <div className="border-t border-copilot-border my-1" />
-                <button
-                  onClick={() => {
-                    setTabs((prev) =>
-                      prev.map((t) =>
-                        t.id === contextMenu.tabId
-                          ? { ...t, isRenaming: true, renameDraft: t.name }
-                          : t,
-                      ),
-                    );
-                    setContextMenu(null);
-                  }}
-                  className="w-full px-3 py-1.5 text-left text-xs text-copilot-text hover:bg-copilot-bg transition-colors flex items-center gap-2"
-                >
-                  <EditIcon size={10} />
-                  Rename...
-                </button>
-              </>
-            );
-          })()}
-        </div>
-      )}
-
-      {/* Note Input Modal */}
-      {noteInputModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="bg-copilot-surface border border-copilot-border rounded-lg shadow-xl w-full max-w-md mx-4 p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-medium text-copilot-text">
-                {noteInputModal.currentNote ? 'Edit Review Note' : 'Add Review Note'}
-              </h3>
-              <button
-                onClick={() => {
-                  setNoteInputModal(null);
-                  setNoteInputValue("");
-                }}
-                className="text-copilot-text-muted hover:text-copilot-text"
-              >
-                <CloseIcon size={14} />
-              </button>
-            </div>
-            <textarea
-              autoFocus
-              value={noteInputValue}
-              onChange={(e) => setNoteInputValue(e.target.value)}
-              placeholder="Leave a note to remind yourself what to do when you return..."
-              className="w-full h-24 px-3 py-2 text-sm bg-copilot-bg border border-copilot-border rounded text-copilot-text placeholder:text-copilot-text-muted resize-none focus:outline-none focus:border-copilot-accent"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                  handleSaveNote();
-                }
-                if (e.key === 'Escape') {
-                  setNoteInputModal(null);
-                  setNoteInputValue("");
-                }
-              }}
-            />
-            <div className="flex justify-end gap-2 mt-3">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setNoteInputModal(null);
-                  setNoteInputValue("");
-                }}
-              >
+            {/* Actions */}
+            <Modal.Footer className="pt-2">
+              <Button variant="ghost" onClick={() => setShowMcpModal(false)}>
                 Cancel
               </Button>
               <Button
                 variant="primary"
-                size="sm"
-                onClick={handleSaveNote}
+                onClick={handleSaveMcpServer}
+                disabled={
+                  !mcpFormData.name.trim() ||
+                  (mcpFormData.type === 'local'
+                    ? !mcpFormData.command.trim()
+                    : !mcpFormData.url.trim())
+                }
               >
-                Save Note
+                {editingMcpServer ? 'Save Changes' : 'Add Server'}
               </Button>
+            </Modal.Footer>
+          </Modal.Body>
+        </Modal>
+
+        {/* MCP JSON View Modal */}
+        <Modal
+          isOpen={showMcpJsonModal}
+          onClose={() => setShowMcpJsonModal(false)}
+          title="MCP Configuration"
+          width="600px"
+        >
+          <Modal.Body data-clarity-mask="true">
+            <div className="mb-3">
+              <pre className="bg-copilot-bg border border-copilot-border rounded p-3 text-xs text-copilot-text font-mono overflow-auto max-h-96 whitespace-pre-wrap">
+                {JSON.stringify({ mcpServers }, null, 2)}
+              </pre>
             </div>
-            <p className="text-[10px] text-copilot-text-muted mt-2">
-              Tip: Press {navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+Enter to save
-            </p>
+            <Modal.Footer className="pt-2">
+              <Button variant="ghost" onClick={() => setShowMcpJsonModal(false)}>
+                Close
+              </Button>
+              <Button variant="primary" onClick={handleOpenMcpConfigInEditor}>
+                Open in Editor
+              </Button>
+            </Modal.Footer>
+          </Modal.Body>
+        </Modal>
+
+        {/* Session History Modal */}
+        <SessionHistory
+          isOpen={showSessionHistory}
+          onClose={() => setShowSessionHistory(false)}
+          sessions={previousSessions}
+          activeSessions={tabs}
+          activeSessionId={activeTabId}
+          onResumeSession={handleResumePreviousSession}
+          onSwitchToSession={handleSwitchTab}
+          onDeleteSession={handleDeleteSessionFromHistory}
+          onRemoveWorktreeSession={handleRemoveWorktreeSession}
+          onOpenWorktreeSession={handleOpenWorktreeSession}
+        />
+
+        {/* Create Worktree Session Modal */}
+        <CreateWorktreeSession
+          isOpen={showCreateWorktree}
+          onClose={() => setShowCreateWorktree(false)}
+          repoPath={worktreeRepoPath}
+          onSessionCreated={handleWorktreeSessionCreated}
+        />
+
+        {/* Terminal Output Shrink Modal */}
+        {pendingTerminalOutput && (
+          <TerminalOutputShrinkModal
+            isOpen={!!pendingTerminalOutput}
+            onClose={() => setPendingTerminalOutput(null)}
+            onConfirm={handleShrinkModalConfirm}
+            output={pendingTerminalOutput.output}
+            lineCount={pendingTerminalOutput.lineCount}
+          />
+        )}
+
+        {/* Image Lightbox Modal */}
+        {lightboxImage && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm cursor-pointer"
+            onClick={() => setLightboxImage(null)}
+          >
+            <div className="relative max-w-[90vw] max-h-[90vh]">
+              <img
+                src={lightboxImage.src}
+                alt={lightboxImage.alt}
+                className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
+              />
+              <button
+                onClick={() => setLightboxImage(null)}
+                className="absolute -top-3 -right-3 w-8 h-8 bg-copilot-surface text-copilot-text rounded-full flex items-center justify-center hover:bg-copilot-surface-hover transition-colors shadow-lg"
+                title="Close"
+              >
+                <CloseIcon size={16} />
+              </button>
+              <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-sm px-3 py-2 rounded-b-lg truncate">
+                {lightboxImage.alt}
+              </div>
+            </div>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+
+        {/* File Preview Modal */}
+        <FilePreviewModal
+          isOpen={!!filePreviewPath}
+          onClose={() => setFilePreviewPath(null)}
+          filePath={filePreviewPath || ''}
+          cwd={activeTab?.cwd}
+          isGitRepo={isGitRepo}
+          editedFiles={activeTab ? getCleanEditedFiles(activeTab.editedFiles) : []}
+          untrackedFiles={activeTab?.untrackedFiles || []}
+          conflictedFiles={conflictedFiles}
+          fileViewMode={activeTab?.fileViewMode || 'flat'}
+          onUntrackFile={(filePath) => {
+            if (activeTab) {
+              const newUntracked = [...(activeTab.untrackedFiles || []), filePath];
+              updateTab(activeTab.id, { untrackedFiles: newUntracked });
+            }
+          }}
+          onRetrackFile={(filePath) => {
+            if (activeTab) {
+              const newUntracked = (activeTab.untrackedFiles || []).filter((f) => f !== filePath);
+              updateTab(activeTab.id, { untrackedFiles: newUntracked });
+            }
+          }}
+          onViewModeChange={(mode) => {
+            if (activeTab) {
+              updateTab(activeTab.id, { fileViewMode: mode });
+            }
+          }}
+        />
+
+        {/* Update Available Modal */}
+        <UpdateAvailableModal
+          isOpen={showUpdateModal}
+          onClose={() => setShowUpdateModal(false)}
+          currentVersion={updateInfo?.currentVersion || buildInfo.baseVersion}
+          newVersion={updateInfo?.latestVersion || ''}
+          onDontRemind={() => {
+            if (updateInfo?.latestVersion) {
+              window.electronAPI.updates.dismissVersion(updateInfo.latestVersion);
+            }
+          }}
+        />
+
+        {/* Release Notes Modal */}
+        <ReleaseNotesModal
+          isOpen={showReleaseNotesModal}
+          onClose={() => {
+            setShowReleaseNotesModal(false);
+            // Show update modal if there's an update available
+            if (updateInfo) {
+              setShowUpdateModal(true);
+            }
+          }}
+          version={buildInfo.baseVersion}
+          releaseNotes={buildInfo.releaseNotes || ''}
+        />
+
+        {/* Welcome Wizard - Spotlight Tour */}
+        <SpotlightTour
+          isOpen={showWelcomeWizard}
+          onClose={() => setShowWelcomeWizard(false)}
+          onComplete={async () => {
+            try {
+              await window.electronAPI.wizard.markWelcomeAsSeen();
+            } catch (error) {
+              console.error('Failed to mark welcome wizard as seen:', error);
+            }
+          }}
+        />
+
+        {/* Session Context Menu (right-click on tab) */}
+        {contextMenu && (
+          <div
+            ref={contextMenuRef}
+            className="fixed z-50 bg-copilot-surface border border-copilot-border rounded-lg shadow-lg py-1 min-w-[160px]"
+            style={{ top: contextMenu.y, left: contextMenu.x }}
+          >
+            {(() => {
+              const tab = tabs.find((t) => t.id === contextMenu.tabId);
+              const isMarked = tab?.markedForReview;
+              return (
+                <>
+                  <button
+                    onClick={() => handleToggleMarkForReview(contextMenu.tabId)}
+                    className="w-full px-3 py-1.5 text-left text-xs text-copilot-text hover:bg-copilot-bg transition-colors flex items-center gap-2"
+                  >
+                    <span
+                      className={`w-2 h-2 rounded-full ${isMarked ? 'bg-copilot-text-muted' : 'bg-cyan-500'}`}
+                    />
+                    {isMarked ? 'Remove Mark' : 'Mark for Review'}
+                  </button>
+                  <button
+                    onClick={() => handleOpenNoteModal(contextMenu.tabId)}
+                    className="w-full px-3 py-1.5 text-left text-xs text-copilot-text hover:bg-copilot-bg transition-colors flex items-center gap-2"
+                  >
+                    <EditIcon size={10} />
+                    {tab?.reviewNote ? 'Edit Note...' : 'Add Note...'}
+                  </button>
+                  <div className="border-t border-copilot-border my-1" />
+                  <button
+                    onClick={() => {
+                      setTabs((prev) =>
+                        prev.map((t) =>
+                          t.id === contextMenu.tabId
+                            ? { ...t, isRenaming: true, renameDraft: t.name }
+                            : t
+                        )
+                      );
+                      setContextMenu(null);
+                    }}
+                    className="w-full px-3 py-1.5 text-left text-xs text-copilot-text hover:bg-copilot-bg transition-colors flex items-center gap-2"
+                  >
+                    <EditIcon size={10} />
+                    Rename...
+                  </button>
+                </>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* Note Input Modal */}
+        {noteInputModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+            <div className="bg-copilot-surface border border-copilot-border rounded-lg shadow-xl w-full max-w-md mx-4 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-medium text-copilot-text">
+                  {noteInputModal.currentNote ? 'Edit Review Note' : 'Add Review Note'}
+                </h3>
+                <button
+                  onClick={() => {
+                    setNoteInputModal(null);
+                    setNoteInputValue('');
+                  }}
+                  className="text-copilot-text-muted hover:text-copilot-text"
+                >
+                  <CloseIcon size={14} />
+                </button>
+              </div>
+              <textarea
+                autoFocus
+                value={noteInputValue}
+                onChange={(e) => setNoteInputValue(e.target.value)}
+                placeholder="Leave a note to remind yourself what to do when you return..."
+                className="w-full h-24 px-3 py-2 text-sm bg-copilot-bg border border-copilot-border rounded text-copilot-text placeholder:text-copilot-text-muted resize-none focus:outline-none focus:border-copilot-accent"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                    handleSaveNote();
+                  }
+                  if (e.key === 'Escape') {
+                    setNoteInputModal(null);
+                    setNoteInputValue('');
+                  }
+                }}
+              />
+              <div className="flex justify-end gap-2 mt-3">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setNoteInputModal(null);
+                    setNoteInputValue('');
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button variant="primary" size="sm" onClick={handleSaveNote}>
+                  Save Note
+                </Button>
+              </div>
+              <p className="text-[10px] text-copilot-text-muted mt-2">
+                Tip: Press {navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+Enter to save
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
     </TerminalProvider>
   );
 };

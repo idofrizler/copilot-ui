@@ -1,15 +1,15 @@
-import { afterEach, vi } from 'vitest'
+import { afterEach, vi } from 'vitest';
 
 // This file is used for jsdom tests, but some tests run in Node (e.g. src/main/*.test.ts).
 // Make the setup a no-op in Node.
 if (typeof window !== 'undefined') {
-  await import('@testing-library/jest-dom/vitest')
-  const { cleanup } = await import('@testing-library/react')
+  await import('@testing-library/jest-dom/vitest');
+  const { cleanup } = await import('@testing-library/react');
 
   // Cleanup after each test
   afterEach(() => {
-    cleanup()
-  })
+    cleanup();
+  });
 
   // Mock window.electronAPI
   Object.defineProperty(window, 'electronAPI', {
@@ -19,7 +19,7 @@ if (typeof window !== 'undefined') {
         listSessions: vi.fn().mockResolvedValue({ sessions: [] }),
       },
     },
-  })
+  });
 
   // Mock window.matchMedia
   Object.defineProperty(window, 'matchMedia', {
@@ -34,23 +34,23 @@ if (typeof window !== 'undefined') {
       removeEventListener: vi.fn(),
       dispatchEvent: vi.fn(),
     })),
-  })
+  });
 
   // Mock ResizeObserver
   class ResizeObserverMock {
-    observe = vi.fn()
-    unobserve = vi.fn()
-    disconnect = vi.fn()
+    observe = vi.fn();
+    unobserve = vi.fn();
+    disconnect = vi.fn();
   }
 
-  window.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver
+  window.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver;
 
   // Mock IntersectionObserver
   class IntersectionObserverMock {
-    observe = vi.fn()
-    unobserve = vi.fn()
-    disconnect = vi.fn()
+    observe = vi.fn();
+    unobserve = vi.fn();
+    disconnect = vi.fn();
   }
 
-  window.IntersectionObserver = IntersectionObserverMock as unknown as typeof IntersectionObserver
+  window.IntersectionObserver = IntersectionObserverMock as unknown as typeof IntersectionObserver;
 }

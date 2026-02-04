@@ -1,6 +1,6 @@
 /**
  * Telemetry module using Microsoft Clarity
- * 
+ *
  * This module provides telemetry tracking for app usage patterns without collecting PII.
  * It tracks: app versions, feature usage, and general adoption metrics.
  */
@@ -69,7 +69,7 @@ export function setTag(key: string, value: string): void {
 export const TelemetryEvents = {
   // Session events
   SESSION_CREATED: 'session_created',
-  
+
   // Feature events
   FEATURE_RALPH_ENABLED: 'feature_ralph_enabled',
   FEATURE_LISA_ENABLED: 'feature_lisa_enabled',

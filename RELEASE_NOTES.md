@@ -8,12 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## 1.1.0
 
 ### Added
+
 - **Staging Build Workflow**: New staging branch for thorough testing before production releases
 - **Version Update Notifications**: Popup alerts when a new version is available, with "Don't remind me" option
 - **Release Notes Display**: Automatic display of release notes on first startup of a new version
 - **Automatic Version Bumping**: Minor versions are automatically incremented when releasing from staging to main
 
 ### Changed
+
 - Improved release process with GitHub Actions workflows for staging and production
 
 ---
@@ -21,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## 1.0.0
 
 ### Added
+
 - Initial release of Copilot Skins
 - Native desktop GUI for GitHub Copilot
 - Multiple theme support

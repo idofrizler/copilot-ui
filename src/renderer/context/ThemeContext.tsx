@@ -1,13 +1,6 @@
-import React, {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-  useCallback,
-  useMemo,
-} from "react";
-import type { Theme, ThemeColors } from "../themes";
-import { builtInThemes, darkTheme, lightTheme } from "../themes";
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import type { Theme, ThemeColors } from '../themes';
+import { builtInThemes, darkTheme, lightTheme } from '../themes';
 
 interface ThemeContextValue {
   /** Current theme preference ('system' or a theme id) */
@@ -37,31 +30,31 @@ function applyThemeToDocument(theme: Theme): void {
 
   // Map theme color keys to CSS variable names
   const cssVarMap: Record<keyof ThemeColors, string> = {
-    bg: "--copilot-bg",
-    surface: "--copilot-surface",
-    surfaceHover: "--copilot-surface-hover",
-    border: "--copilot-border",
-    borderHover: "--copilot-border-hover",
-    accent: "--copilot-accent",
-    accentHover: "--copilot-accent-hover",
-    accentMuted: "--copilot-accent-muted",
-    text: "--copilot-text",
-    textMuted: "--copilot-text-muted",
-    textInverse: "--copilot-text-inverse",
-    success: "--copilot-success",
-    successMuted: "--copilot-success-muted",
-    warning: "--copilot-warning",
-    warningMuted: "--copilot-warning-muted",
-    error: "--copilot-error",
-    errorMuted: "--copilot-error-muted",
-    scrollbarThumb: "--copilot-scrollbar-thumb",
-    scrollbarThumbHover: "--copilot-scrollbar-thumb-hover",
-    selection: "--copilot-selection",
-    shadow: "--copilot-shadow",
-    shadowStrong: "--copilot-shadow-strong",
-    terminalBg: "--copilot-terminal-bg",
-    terminalText: "--copilot-terminal-text",
-    terminalCursor: "--copilot-terminal-cursor",
+    bg: '--copilot-bg',
+    surface: '--copilot-surface',
+    surfaceHover: '--copilot-surface-hover',
+    border: '--copilot-border',
+    borderHover: '--copilot-border-hover',
+    accent: '--copilot-accent',
+    accentHover: '--copilot-accent-hover',
+    accentMuted: '--copilot-accent-muted',
+    text: '--copilot-text',
+    textMuted: '--copilot-text-muted',
+    textInverse: '--copilot-text-inverse',
+    success: '--copilot-success',
+    successMuted: '--copilot-success-muted',
+    warning: '--copilot-warning',
+    warningMuted: '--copilot-warning-muted',
+    error: '--copilot-error',
+    errorMuted: '--copilot-error-muted',
+    scrollbarThumb: '--copilot-scrollbar-thumb',
+    scrollbarThumbHover: '--copilot-scrollbar-thumb-hover',
+    selection: '--copilot-selection',
+    shadow: '--copilot-shadow',
+    shadowStrong: '--copilot-shadow-strong',
+    terminalBg: '--copilot-terminal-bg',
+    terminalText: '--copilot-terminal-text',
+    terminalCursor: '--copilot-terminal-cursor',
   };
 
   // Apply each color as a CSS variable
@@ -73,18 +66,16 @@ function applyThemeToDocument(theme: Theme): void {
   }
 
   // Set data-theme attribute for any CSS that needs it
-  root.setAttribute("data-theme", theme.type);
+  root.setAttribute('data-theme', theme.type);
 }
 
 interface ThemeProviderProps {
   children: React.ReactNode;
 }
 
-export function ThemeProvider({
-  children,
-}: ThemeProviderProps): React.ReactElement {
-  const [themePreference, setThemePreference] = useState<string>("system");
-  const [systemTheme, setSystemTheme] = useState<"light" | "dark">("dark");
+export function ThemeProvider({ children }: ThemeProviderProps): React.ReactElement {
+  const [themePreference, setThemePreference] = useState<string>('system');
+  const [systemTheme, setSystemTheme] = useState<'light' | 'dark'>('dark');
   const [externalThemes, setExternalThemes] = useState<Theme[]>([]);
   const [invalidThemeFiles, setInvalidThemeFiles] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -96,8 +87,8 @@ export function ThemeProvider({
 
   // Resolve the active theme based on preference and system theme
   const activeTheme = useMemo(() => {
-    if (themePreference === "system") {
-      return systemTheme === "dark" ? darkTheme : lightTheme;
+    if (themePreference === 'system') {
+      return systemTheme === 'dark' ? darkTheme : lightTheme;
     }
 
     const found = availableThemes.find((t) => t.id === themePreference);
@@ -108,7 +99,7 @@ export function ThemeProvider({
   useEffect(() => {
     async function init() {
       // Disable transitions during initial load
-      document.documentElement.classList.add("no-transitions");
+      document.documentElement.classList.add('no-transitions');
 
       try {
         // Load saved preference
@@ -122,19 +113,18 @@ export function ThemeProvider({
         setSystemTheme(sysTheme);
 
         // Load external themes
-        const { themes, invalidFiles } =
-          await window.electronAPI.theme.listExternal();
+        const { themes, invalidFiles } = await window.electronAPI.theme.listExternal();
         setExternalThemes(themes as unknown as Theme[]);
         setInvalidThemeFiles(invalidFiles);
       } catch (err) {
-        console.error("Failed to initialize themes:", err);
+        console.error('Failed to initialize themes:', err);
       } finally {
         setIsLoading(false);
 
         // Re-enable transitions after a brief delay
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
-            document.documentElement.classList.remove("no-transitions");
+            document.documentElement.classList.remove('no-transitions');
           });
         });
       }
@@ -145,11 +135,9 @@ export function ThemeProvider({
 
   // Subscribe to system theme changes
   useEffect(() => {
-    const unsubscribe = window.electronAPI.theme.onSystemChange(
-      ({ systemTheme: newTheme }) => {
-        setSystemTheme(newTheme);
-      },
-    );
+    const unsubscribe = window.electronAPI.theme.onSystemChange(({ systemTheme: newTheme }) => {
+      setSystemTheme(newTheme);
+    });
 
     return unsubscribe;
   }, []);
@@ -174,8 +162,7 @@ export function ThemeProvider({
 
     if (result.success && result.theme) {
       // Reload external themes
-      const { themes, invalidFiles } =
-        await window.electronAPI.theme.listExternal();
+      const { themes, invalidFiles } = await window.electronAPI.theme.listExternal();
       setExternalThemes(themes as unknown as Theme[]);
       setInvalidThemeFiles(invalidFiles);
 
@@ -189,7 +176,7 @@ export function ThemeProvider({
       return { success: false };
     }
 
-    return { success: false, error: result.error || "Theme file is not valid" };
+    return { success: false, error: result.error || 'Theme file is not valid' };
   }, [setTheme]);
 
   const value: ThemeContextValue = {
@@ -202,9 +189,7 @@ export function ThemeProvider({
     isLoading,
   };
 
-  return (
-    <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
-  );
+  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 
 /**
@@ -213,7 +198,7 @@ export function ThemeProvider({
 export function useTheme(): ThemeContextValue {
   const context = useContext(ThemeContext);
   if (!context) {
-    throw new Error("useTheme must be used within a ThemeProvider");
+    throw new Error('useTheme must be used within a ThemeProvider');
   }
   return context;
 }

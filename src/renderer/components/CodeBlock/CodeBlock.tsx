@@ -1,16 +1,16 @@
-import React, { useState, useCallback } from 'react'
-import { CopyIcon, CheckIcon, PlayIcon } from '../Icons'
-import { useTerminal } from '../../context/TerminalContext'
+import React, { useState, useCallback } from 'react';
+import { CopyIcon, CheckIcon, PlayIcon } from '../Icons';
+import { useTerminal } from '../../context/TerminalContext';
 
 export interface CodeBlockWithCopyProps {
   /** The code content to display */
-  children: React.ReactNode
+  children: React.ReactNode;
   /** Whether this is an ASCII diagram (affects styling) */
-  isDiagram?: boolean
+  isDiagram?: boolean;
   /** The text content to copy (extracted from children) */
-  textContent: string
+  textContent: string;
   /** Whether this code block appears to be a CLI command (shows run button) */
-  isCliCommand?: boolean
+  isCliCommand?: boolean;
 }
 
 /**
@@ -24,40 +24,40 @@ export const CodeBlockWithCopy: React.FC<CodeBlockWithCopyProps> = ({
   textContent,
   isCliCommand = false,
 }) => {
-  const [copied, setCopied] = useState(false)
-  const [executed, setExecuted] = useState(false)
-  const terminal = useTerminal()
+  const [copied, setCopied] = useState(false);
+  const [executed, setExecuted] = useState(false);
+  const terminal = useTerminal();
 
   const handleCopy = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(textContent)
-      setCopied(true)
+      await navigator.clipboard.writeText(textContent);
+      setCopied(true);
       // Reset the copied state after 2 seconds
-      setTimeout(() => setCopied(false), 2000)
+      setTimeout(() => setCopied(false), 2000);
     } catch (err) {
-      console.error('Failed to copy text:', err)
+      console.error('Failed to copy text:', err);
     }
-  }, [textContent])
+  }, [textContent]);
 
   const handleRunInTerminal = useCallback(() => {
     if (!terminal) {
-      console.error('Terminal context not available')
-      return
+      console.error('Terminal context not available');
+      return;
     }
-    terminal.runCommand(textContent)
-    setExecuted(true)
+    terminal.runCommand(textContent);
+    setExecuted(true);
     // Reset the executed state after 2 seconds
-    setTimeout(() => setExecuted(false), 2000)
-  }, [terminal, textContent])
+    setTimeout(() => setExecuted(false), 2000);
+  }, [terminal, textContent]);
 
-  const showRunButton = isCliCommand && terminal !== null
+  const showRunButton = isCliCommand && terminal !== null;
 
   return (
     <div className="relative group" data-clarity-mask="true">
-      <pre className={`bg-copilot-bg rounded p-2 my-2 overflow-x-auto text-xs max-w-full ${isDiagram ? 'ascii-diagram' : ''}`}>
-        <code className="text-copilot-text">
-          {children}
-        </code>
+      <pre
+        className={`bg-copilot-bg rounded p-2 my-2 overflow-x-auto text-xs max-w-full ${isDiagram ? 'ascii-diagram' : ''}`}
+      >
+        <code className="text-copilot-text">{children}</code>
       </pre>
       <div className="absolute top-1 right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-all duration-150">
         {showRunButton && (
@@ -88,7 +88,7 @@ export const CodeBlockWithCopy: React.FC<CodeBlockWithCopyProps> = ({
         </button>
       </div>
     </div>
-  )
-}
+  );
+};
 
-export default CodeBlockWithCopy
+export default CodeBlockWithCopy;

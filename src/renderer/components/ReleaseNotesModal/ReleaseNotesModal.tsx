@@ -1,14 +1,14 @@
-import React from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import { Modal } from '../Modal'
-import { Button } from '../Button'
+import React from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { Modal } from '../Modal';
+import { Button } from '../Button';
 
 export interface ReleaseNotesModalProps {
-  isOpen: boolean
-  onClose: () => void
-  version: string
-  releaseNotes: string
+  isOpen: boolean;
+  onClose: () => void;
+  version: string;
+  releaseNotes: string;
 }
 
 export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({
@@ -44,9 +44,7 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({
               </svg>
             </div>
             <div>
-              <h4 className="text-copilot-text font-medium">
-                Copilot Skins v{version}
-              </h4>
+              <h4 className="text-copilot-text font-medium">Copilot Skins v{version}</h4>
               <p className="text-copilot-text-muted text-xs">
                 You've been updated to the latest version
               </p>
@@ -74,14 +72,10 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({
                     </li>
                   ),
                   p: ({ children }) => (
-                    <p className="text-copilot-text-muted text-sm mb-2">
-                      {children}
-                    </p>
+                    <p className="text-copilot-text-muted text-sm mb-2">{children}</p>
                   ),
                   strong: ({ children }) => (
-                    <strong className="text-copilot-text font-semibold">
-                      {children}
-                    </strong>
+                    <strong className="text-copilot-text font-semibold">{children}</strong>
                   ),
                   a: ({ href, children }) => (
                     <a
@@ -107,7 +101,7 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({
         </Button>
       </Modal.Footer>
     </Modal>
-  )
-}
+  );
+};
 
-export default ReleaseNotesModal
+export default ReleaseNotesModal;

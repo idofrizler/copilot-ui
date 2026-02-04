@@ -1,8 +1,8 @@
-export type Status = "connecting" | "connected" | "disconnected";
+export type Status = 'connecting' | 'connected' | 'disconnected';
 
 export interface Message {
   id: string;
-  role: "user" | "assistant" | "system" | "error";
+  role: 'user' | 'assistant' | 'system' | 'error';
   content: string;
   isStreaming?: boolean;
   isPendingInjection?: boolean; // True for injected messages until agent acknowledges them
@@ -16,7 +16,7 @@ export interface Message {
 export interface ActiveTool {
   toolCallId: string;
   toolName: string;
-  status: "running" | "done";
+  status: 'running' | 'done';
   input?: Record<string, unknown>; // Tool input (path, old_str, new_str, etc.)
   output?: unknown; // Tool output
 }
@@ -89,7 +89,7 @@ export interface PreviousSession {
     id: string; // Worktree session ID (e.g., "repo--branch")
     branch: string;
     worktreePath: string;
-    status: "active" | "idle" | "orphaned";
+    status: 'active' | 'idle' | 'orphaned';
     diskUsage?: string;
   };
 }
@@ -104,9 +104,9 @@ export interface WorktreeRemovalStatus {
 // See: https://github.com/anthropics/claude-code/tree/main/plugins/ralph-wiggum
 // Enhanced based on: https://github.com/gemini-cli-extensions/ralph
 // And Anthropic's research: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
-export const RALPH_COMPLETION_SIGNAL = "<promise>COMPLETE</promise>";
-export const RALPH_STATE_FILENAME = ".copilot/ralph-state.json";
-export const RALPH_PROGRESS_FILENAME = "ralph-progress.md";
+export const RALPH_COMPLETION_SIGNAL = '<promise>COMPLETE</promise>';
+export const RALPH_STATE_FILENAME = '.copilot/ralph-state.json';
+export const RALPH_PROGRESS_FILENAME = 'ralph-progress.md';
 
 export interface RalphConfig {
   originalPrompt: string;
@@ -123,10 +123,16 @@ export interface RalphConfig {
 // Lisa Simpson loop configuration - multi-phase analytical workflow
 // Phases: Plan → Plan Review → Execute → Code Review → Validate → Final Review → COMPLETE
 // The Reviewer engages after each phase, providing feedback and can send back to any previous phase
-export type LisaPhase = 'plan' | 'plan-review' | 'execute' | 'code-review' | 'validate' | 'final-review';
-export const LISA_PHASE_COMPLETE_SIGNAL = "<lisa-phase>COMPLETE</lisa-phase>";
-export const LISA_REVIEW_APPROVE_SIGNAL = "<lisa-review>APPROVED</lisa-review>";
-export const LISA_REVIEW_REJECT_PREFIX = "<lisa-review>REJECT:"; // followed by phase name to return to
+export type LisaPhase =
+  | 'plan'
+  | 'plan-review'
+  | 'execute'
+  | 'code-review'
+  | 'validate'
+  | 'final-review';
+export const LISA_PHASE_COMPLETE_SIGNAL = '<lisa-phase>COMPLETE</lisa-phase>';
+export const LISA_REVIEW_APPROVE_SIGNAL = '<lisa-review>APPROVED</lisa-review>';
+export const LISA_REVIEW_REJECT_PREFIX = '<lisa-review>REJECT:'; // followed by phase name to return to
 export interface LisaConfig {
   originalPrompt: string;
   currentPhase: LisaPhase;
@@ -145,7 +151,7 @@ export interface ContextUsage {
 }
 
 // Compaction status
-export type CompactionStatus = "idle" | "compacting" | "completed";
+export type CompactionStatus = 'idle' | 'compacting' | 'completed';
 
 // Detected choice option for user selection
 export interface DetectedChoice {

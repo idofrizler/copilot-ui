@@ -1,0 +1,18 @@
+# Build outputs
+out/
+release/
+dist/
+
+# Dependencies
+node_modules/
+
+# Generated files
+*.min.js
+*.min.css
+build-info.json
+
+# Patches
+patches/
+
+# Lock files
+package-lock.json

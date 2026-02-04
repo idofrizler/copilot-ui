@@ -173,8 +173,8 @@ describe('extractTextContent', () => {
   it('extracts text from React-like element structure', () => {
     const element = {
       props: {
-        children: 'hello'
-      }
+        children: 'hello',
+      },
     };
     expect(extractTextContent(element)).toBe('hello');
   });

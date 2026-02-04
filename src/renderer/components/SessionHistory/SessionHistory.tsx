@@ -1,52 +1,55 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react'
-import { Modal } from '../Modal'
-import { Button } from '../Button'
-import { Spinner } from '../Spinner'
-import { ClockIcon, ZapIcon, GitBranchIcon } from '../Icons'
-import { PreviousSession, TabState, WorktreeRemovalStatus } from '../../types'
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { Modal } from '../Modal';
+import { Button } from '../Button';
+import { Spinner } from '../Spinner';
+import { ClockIcon, ZapIcon, GitBranchIcon } from '../Icons';
+import { PreviousSession, TabState, WorktreeRemovalStatus } from '../../types';
 
 // Filter options for the session list
-type SessionFilter = 'all' | 'worktree'
+type SessionFilter = 'all' | 'worktree';
 
 // Extended session type that includes active flag
 interface DisplaySession extends PreviousSession {
-  isActive?: boolean
+  isActive?: boolean;
 }
 
 // Full worktree data including lastAccessedAt for time categorization
 interface WorktreeData {
-  id: string
-  branch: string
-  worktreePath: string
-  status: 'active' | 'idle' | 'orphaned'
-  diskUsage?: string
-  lastAccessedAt: string
+  id: string;
+  branch: string;
+  worktreePath: string;
+  status: 'active' | 'idle' | 'orphaned';
+  diskUsage?: string;
+  lastAccessedAt: string;
 }
 
 interface SessionHistoryProps {
-  isOpen: boolean
-  onClose: () => void
-  sessions: PreviousSession[]
-  activeSessions: TabState[]
-  activeSessionId: string | null
-  onResumeSession: (session: PreviousSession) => void
-  onSwitchToSession: (sessionId: string) => void
-  onDeleteSession: (sessionId: string) => void
-  onRemoveWorktreeSession?: (worktreeId: string, worktreePath: string) => Promise<{ success: boolean; error?: string }>
-  onOpenWorktreeSession?: (session: { worktreePath: string; branch: string }) => void
-  initialFilter?: SessionFilter
+  isOpen: boolean;
+  onClose: () => void;
+  sessions: PreviousSession[];
+  activeSessions: TabState[];
+  activeSessionId: string | null;
+  onResumeSession: (session: PreviousSession) => void;
+  onSwitchToSession: (sessionId: string) => void;
+  onDeleteSession: (sessionId: string) => void;
+  onRemoveWorktreeSession?: (
+    worktreeId: string,
+    worktreePath: string
+  ) => Promise<{ success: boolean; error?: string }>;
+  onOpenWorktreeSession?: (session: { worktreePath: string; branch: string }) => void;
+  initialFilter?: SessionFilter;
 }
 
 // Helper to categorize sessions by time period
 const categorizeByTime = (sessions: DisplaySession[]) => {
-  const now = new Date()
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const yesterday = new Date(today)
-  yesterday.setDate(yesterday.getDate() - 1)
-  const lastWeek = new Date(today)
-  lastWeek.setDate(lastWeek.getDate() - 7)
-  const lastMonth = new Date(today)
-  lastMonth.setDate(lastMonth.getDate() - 30)
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const lastWeek = new Date(today);
+  lastWeek.setDate(lastWeek.getDate() - 7);
+  const lastMonth = new Date(today);
+  lastMonth.setDate(lastMonth.getDate() - 30);
 
   const categories: { label: string; sessions: DisplaySession[] }[] = [
     { label: 'Today', sessions: [] },
@@ -54,56 +57,56 @@ const categorizeByTime = (sessions: DisplaySession[]) => {
     { label: 'Last 7 Days', sessions: [] },
     { label: 'Last 30 Days', sessions: [] },
     { label: 'Older', sessions: [] },
-  ]
+  ];
 
   for (const session of sessions) {
-    const sessionDate = new Date(session.modifiedTime)
+    const sessionDate = new Date(session.modifiedTime);
     if (sessionDate >= today) {
-      categories[0].sessions.push(session)
+      categories[0].sessions.push(session);
     } else if (sessionDate >= yesterday) {
-      categories[1].sessions.push(session)
+      categories[1].sessions.push(session);
     } else if (sessionDate >= lastWeek) {
-      categories[2].sessions.push(session)
+      categories[2].sessions.push(session);
     } else if (sessionDate >= lastMonth) {
-      categories[3].sessions.push(session)
+      categories[3].sessions.push(session);
     } else {
-      categories[4].sessions.push(session)
+      categories[4].sessions.push(session);
     }
   }
 
-  return categories.filter(c => c.sessions.length > 0)
-}
+  return categories.filter((c) => c.sessions.length > 0);
+};
 
 // Format relative time
 const formatRelativeTime = (isoDate: string) => {
-  const date = new Date(isoDate)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffMins = Math.floor(diffMs / 60000)
-  const diffHours = Math.floor(diffMs / 3600000)
-  const diffDays = Math.floor(diffMs / 86400000)
+  const date = new Date(isoDate);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
 
-  if (diffMins < 1) return 'Just now'
-  if (diffMins < 60) return `${diffMins}m ago`
-  if (diffHours < 24) return `${diffHours}h ago`
-  if (diffDays < 7) return `${diffDays}d ago`
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-}
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+};
 
 // Get shortened path for display - replaces home directory with ~
 const shortenPath = (path: string | undefined) => {
-  if (!path) return ''
+  if (!path) return '';
   // Replace home directory with ~
-  const homeDir = '/Users/'
+  const homeDir = '/Users/';
   if (path.startsWith(homeDir)) {
-    const afterUsers = path.slice(homeDir.length)
-    const slashIndex = afterUsers.indexOf('/')
+    const afterUsers = path.slice(homeDir.length);
+    const slashIndex = afterUsers.indexOf('/');
     if (slashIndex !== -1) {
-      return '~' + afterUsers.slice(slashIndex)
+      return '~' + afterUsers.slice(slashIndex);
     }
   }
-  return path
-}
+  return path;
+};
 
 export const SessionHistory: React.FC<SessionHistoryProps> = ({
   isOpen,
@@ -118,82 +121,94 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
   onOpenWorktreeSession,
   initialFilter = 'all',
 }) => {
-  const [searchQuery, setSearchQuery] = useState('')
-  const [filter, setFilter] = useState<SessionFilter>(initialFilter)
-  const [isPruning, setIsPruning] = useState(false)
-  const [actionInProgress, setActionInProgress] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [successMessage, setSuccessMessage] = useState<string | null>(null)
-  const [confirmRemove, setConfirmRemove] = useState<{ 
-    sessionId: string
-    worktreeId: string
-    worktreePath: string
-    hasUncommitted: boolean
-    hasUnpushed: boolean 
-  } | null>(null)
-  const searchInputRef = useRef<HTMLInputElement>(null)
-  
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filter, setFilter] = useState<SessionFilter>(initialFilter);
+  const [isPruning, setIsPruning] = useState(false);
+  const [actionInProgress, setActionInProgress] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState<{
+    sessionId: string;
+    worktreeId: string;
+    worktreePath: string;
+    hasUncommitted: boolean;
+    hasUnpushed: boolean;
+  } | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
   // Worktree data fetched directly (for detecting active worktrees and adding standalone worktrees)
-  const [worktreeMap, setWorktreeMap] = useState<Map<string, WorktreeData>>(new Map())
+  const [worktreeMap, setWorktreeMap] = useState<Map<string, WorktreeData>>(new Map());
 
   // Fetch worktree list when modal opens to properly detect active worktrees
   useEffect(() => {
     if (isOpen) {
       const fetchWorktrees = async () => {
         try {
-          if (!window.electronAPI?.worktree?.listSessions) return
-          const result = await window.electronAPI.worktree.listSessions()
+          if (!window.electronAPI?.worktree?.listSessions) return;
+          const result = await window.electronAPI.worktree.listSessions();
           if (result?.sessions) {
-            const map = new Map<string, WorktreeData>()
-            result.sessions.forEach((wt: { id: string; branch: string; worktreePath: string; status: 'active' | 'idle' | 'orphaned'; diskUsage?: string; lastAccessedAt?: string; createdAt?: string }) => {
-              map.set(wt.worktreePath, {
-                id: wt.id,
-                branch: wt.branch,
-                worktreePath: wt.worktreePath,
-                status: wt.status,
-                diskUsage: wt.diskUsage,
-                lastAccessedAt: wt.lastAccessedAt || wt.createdAt || new Date().toISOString(),
-              })
-            })
-            setWorktreeMap(map)
+            const map = new Map<string, WorktreeData>();
+            result.sessions.forEach(
+              (wt: {
+                id: string;
+                branch: string;
+                worktreePath: string;
+                status: 'active' | 'idle' | 'orphaned';
+                diskUsage?: string;
+                lastAccessedAt?: string;
+                createdAt?: string;
+              }) => {
+                map.set(wt.worktreePath, {
+                  id: wt.id,
+                  branch: wt.branch,
+                  worktreePath: wt.worktreePath,
+                  status: wt.status,
+                  diskUsage: wt.diskUsage,
+                  lastAccessedAt: wt.lastAccessedAt || wt.createdAt || new Date().toISOString(),
+                });
+              }
+            );
+            setWorktreeMap(map);
           }
         } catch (err) {
-          console.error('Failed to fetch worktree list:', err)
+          console.error('Failed to fetch worktree list:', err);
         }
-      }
-      fetchWorktrees()
+      };
+      fetchWorktrees();
     }
-  }, [isOpen])
+  }, [isOpen]);
 
   // Reset filter to initialFilter when modal opens
   useEffect(() => {
     if (isOpen) {
-      setSearchQuery('')
-      setFilter(initialFilter)
-      setError(null)
-      setSuccessMessage(null)
-      setConfirmRemove(null)
+      setSearchQuery('');
+      setFilter(initialFilter);
+      setError(null);
+      setSuccessMessage(null);
+      setConfirmRemove(null);
       // Small delay to ensure modal is rendered
       setTimeout(() => {
-        searchInputRef.current?.focus()
-      }, 100)
+        searchInputRef.current?.focus();
+      }, 100);
     }
-  }, [isOpen, initialFilter])
+  }, [isOpen, initialFilter]);
 
   // Combine active sessions, previous sessions, and standalone worktree sessions
   const allSessions: DisplaySession[] = useMemo(() => {
     // Convert active tabs to DisplaySession format, enriching with worktree data from live worktreeMap
-    const activeDisplaySessions: DisplaySession[] = activeSessions.map(tab => {
+    const activeDisplaySessions: DisplaySession[] = activeSessions.map((tab) => {
       // Match tab.cwd to worktreePath to find worktree data (from live worktree list)
-      const worktreeData = tab.cwd ? worktreeMap.get(tab.cwd) : undefined
+      const worktreeData = tab.cwd ? worktreeMap.get(tab.cwd) : undefined;
       // Convert WorktreeData to PreviousSession['worktree'] format (exclude lastAccessedAt)
-      const worktree = worktreeData ? {
-        id: worktreeData.id,
-        branch: worktreeData.branch,
-        worktreePath: worktreeData.worktreePath,
-        status: worktreeData.status,
-        diskUsage: worktreeData.diskUsage,
-      } : undefined
+      const worktree = worktreeData
+        ? {
+            id: worktreeData.id,
+            branch: worktreeData.branch,
+            worktreePath: worktreeData.worktreePath,
+            status: worktreeData.status,
+            diskUsage: worktreeData.diskUsage,
+          }
+        : undefined;
       return {
         sessionId: tab.id,
         name: tab.name,
@@ -201,30 +216,30 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
         cwd: tab.cwd,
         isActive: true,
         worktree,
-      }
-    })
-    
+      };
+    });
+
     // Filter out any previous sessions that are now active (shouldn't happen but just in case)
-    const activeIds = new Set(activeSessions.map(t => t.id))
+    const activeIds = new Set(activeSessions.map((t) => t.id));
     const filteredPrevious: DisplaySession[] = sessions
-      .filter(s => !activeIds.has(s.sessionId))
-      .map(s => ({ ...s, isActive: false }))
-    
+      .filter((s) => !activeIds.has(s.sessionId))
+      .map((s) => ({ ...s, isActive: false }));
+
     // Collect worktree paths that are already represented
-    const coveredWorktreePaths = new Set<string>()
+    const coveredWorktreePaths = new Set<string>();
     for (const session of activeDisplaySessions) {
       if (session.worktree?.worktreePath) {
-        coveredWorktreePaths.add(session.worktree.worktreePath)
+        coveredWorktreePaths.add(session.worktree.worktreePath);
       }
     }
     for (const session of filteredPrevious) {
       if (session.worktree?.worktreePath) {
-        coveredWorktreePaths.add(session.worktree.worktreePath)
+        coveredWorktreePaths.add(session.worktree.worktreePath);
       }
     }
-    
+
     // Add standalone worktree sessions (worktrees without a matching Copilot session)
-    const standaloneWorktrees: DisplaySession[] = []
+    const standaloneWorktrees: DisplaySession[] = [];
     for (const [worktreePath, worktreeData] of worktreeMap) {
       if (!coveredWorktreePaths.has(worktreePath)) {
         standaloneWorktrees.push({
@@ -240,159 +255,185 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
             status: worktreeData.status,
             diskUsage: worktreeData.diskUsage,
           },
-        })
+        });
       }
     }
-    
+
     // Combine: active sessions first (they're "today"), then previous, then standalone worktrees
-    return [...activeDisplaySessions, ...filteredPrevious, ...standaloneWorktrees]
-  }, [activeSessions, sessions, worktreeMap])
+    return [...activeDisplaySessions, ...filteredPrevious, ...standaloneWorktrees];
+  }, [activeSessions, sessions, worktreeMap]);
 
   // Filter sessions based on search query AND filter type
   const filteredSessions = useMemo(() => {
-    let result = allSessions
+    let result = allSessions;
 
     // Apply filter type
     if (filter === 'worktree') {
-      result = result.filter(session => session.worktree)
+      result = result.filter((session) => session.worktree);
     }
 
     // Apply search query
     if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase()
-      result = result.filter(session => {
-        const name = (session.name || '').toLowerCase()
-        const sessionId = session.sessionId.toLowerCase()
-        const cwd = (session.cwd || '').toLowerCase()
-        const branch = (session.worktree?.branch || '').toLowerCase()
-        return name.includes(query) || sessionId.includes(query) || cwd.includes(query) || branch.includes(query)
-      })
+      const query = searchQuery.toLowerCase();
+      result = result.filter((session) => {
+        const name = (session.name || '').toLowerCase();
+        const sessionId = session.sessionId.toLowerCase();
+        const cwd = (session.cwd || '').toLowerCase();
+        const branch = (session.worktree?.branch || '').toLowerCase();
+        return (
+          name.includes(query) ||
+          sessionId.includes(query) ||
+          cwd.includes(query) ||
+          branch.includes(query)
+        );
+      });
     }
 
-    return result
-  }, [allSessions, searchQuery, filter])
+    return result;
+  }, [allSessions, searchQuery, filter]);
 
   // Count worktree sessions for filter badge
   const worktreeCount = useMemo(() => {
-    return allSessions.filter(s => s.worktree).length
-  }, [allSessions])
+    return allSessions.filter((s) => s.worktree).length;
+  }, [allSessions]);
 
   // Categorize filtered sessions
   const categorizedSessions = useMemo(() => {
-    return categorizeByTime(filteredSessions)
-  }, [filteredSessions])
+    return categorizeByTime(filteredSessions);
+  }, [filteredSessions]);
 
   const handleSessionClick = (session: DisplaySession) => {
     if (session.worktree && onOpenWorktreeSession) {
       // Open worktree session
-      onOpenWorktreeSession({ worktreePath: session.worktree.worktreePath, branch: session.worktree.branch })
-      onClose()
+      onOpenWorktreeSession({
+        worktreePath: session.worktree.worktreePath,
+        branch: session.worktree.branch,
+      });
+      onClose();
     } else if (session.isActive) {
       // Switch to the active session
-      onSwitchToSession(session.sessionId)
-      onClose()
+      onSwitchToSession(session.sessionId);
+      onClose();
     } else {
       // Resume a previous session
-      onResumeSession(session)
-      onClose()
+      onResumeSession(session);
+      onClose();
     }
-  }
+  };
 
   const handleDeleteClick = async (e: React.MouseEvent, session: DisplaySession) => {
-    e.stopPropagation() // Prevent triggering session click
-    if (session.isActive) return
+    e.stopPropagation(); // Prevent triggering session click
+    if (session.isActive) return;
 
     // For worktree sessions, check for uncommitted/unpushed changes first
     if (session.worktree && onRemoveWorktreeSession) {
-      setActionInProgress(`remove-${session.sessionId}`)
-      setError(null)
+      setActionInProgress(`remove-${session.sessionId}`);
+      setError(null);
       try {
-        const status = await window.electronAPI.git.getWorkingStatus(session.worktree.worktreePath)
+        const status = await window.electronAPI.git.getWorkingStatus(session.worktree.worktreePath);
         if (status.hasUncommittedChanges || status.hasUnpushedCommits) {
           setConfirmRemove({
             sessionId: session.sessionId,
             worktreeId: session.worktree.id,
             worktreePath: session.worktree.worktreePath,
             hasUncommitted: status.hasUncommittedChanges,
-            hasUnpushed: status.hasUnpushedCommits
-          })
-          setActionInProgress(null)
-          return
+            hasUnpushed: status.hasUnpushedCommits,
+          });
+          setActionInProgress(null);
+          return;
         }
         // No uncommitted changes, proceed with removal
-        await doWorktreeRemove(session.sessionId, session.worktree.id, session.worktree.worktreePath)
+        await doWorktreeRemove(
+          session.sessionId,
+          session.worktree.id,
+          session.worktree.worktreePath
+        );
       } catch (err) {
-        setError(String(err))
-        setActionInProgress(null)
+        setError(String(err));
+        setActionInProgress(null);
       }
     } else {
       // Regular session deletion
-      onDeleteSession(session.sessionId)
+      onDeleteSession(session.sessionId);
     }
-  }
+  };
 
   const doWorktreeRemove = async (sessionId: string, worktreeId: string, worktreePath: string) => {
-    if (!onRemoveWorktreeSession) return
-    setActionInProgress(`remove-${sessionId}`)
+    if (!onRemoveWorktreeSession) return;
+    setActionInProgress(`remove-${sessionId}`);
     try {
-      const result = await onRemoveWorktreeSession(worktreeId, worktreePath)
+      const result = await onRemoveWorktreeSession(worktreeId, worktreePath);
       if (result.success) {
-        setSuccessMessage('Worktree removed successfully')
-        setTimeout(() => setSuccessMessage(null), 3000)
+        setSuccessMessage('Worktree removed successfully');
+        setTimeout(() => setSuccessMessage(null), 3000);
         // Refresh worktree list to remove the deleted session
         if (window.electronAPI?.worktree?.listSessions) {
-          const refreshResult = await window.electronAPI.worktree.listSessions()
+          const refreshResult = await window.electronAPI.worktree.listSessions();
           if (refreshResult?.sessions) {
-            const map = new Map<string, WorktreeData>()
-            refreshResult.sessions.forEach((wt: { id: string; branch: string; worktreePath: string; status: 'active' | 'idle' | 'orphaned'; diskUsage?: string; lastAccessedAt?: string; createdAt?: string }) => {
-              map.set(wt.worktreePath, {
-                id: wt.id,
-                branch: wt.branch,
-                worktreePath: wt.worktreePath,
-                status: wt.status,
-                diskUsage: wt.diskUsage,
-                lastAccessedAt: wt.lastAccessedAt || wt.createdAt || new Date().toISOString(),
-              })
-            })
-            setWorktreeMap(map)
+            const map = new Map<string, WorktreeData>();
+            refreshResult.sessions.forEach(
+              (wt: {
+                id: string;
+                branch: string;
+                worktreePath: string;
+                status: 'active' | 'idle' | 'orphaned';
+                diskUsage?: string;
+                lastAccessedAt?: string;
+                createdAt?: string;
+              }) => {
+                map.set(wt.worktreePath, {
+                  id: wt.id,
+                  branch: wt.branch,
+                  worktreePath: wt.worktreePath,
+                  status: wt.status,
+                  diskUsage: wt.diskUsage,
+                  lastAccessedAt: wt.lastAccessedAt || wt.createdAt || new Date().toISOString(),
+                });
+              }
+            );
+            setWorktreeMap(map);
           }
         }
       } else {
-        setError(result.error || 'Failed to remove worktree')
+        setError(result.error || 'Failed to remove worktree');
       }
     } catch (err) {
-      setError(String(err))
+      setError(String(err));
     } finally {
-      setActionInProgress(null)
-      setConfirmRemove(null)
+      setActionInProgress(null);
+      setConfirmRemove(null);
     }
-  }
+  };
 
   const handlePrune = async () => {
-    setIsPruning(true)
-    setError(null)
+    setIsPruning(true);
+    setError(null);
     try {
-      if (!window.electronAPI?.worktree?.pruneSessions) return
-      const result = await window.electronAPI.worktree.pruneSessions()
+      if (!window.electronAPI?.worktree?.pruneSessions) return;
+      const result = await window.electronAPI.worktree.pruneSessions();
       if (result.pruned.length > 0) {
-        setSuccessMessage(`Pruned ${result.pruned.length} stale session(s)`)
-        setTimeout(() => setSuccessMessage(null), 3000)
+        setSuccessMessage(`Pruned ${result.pruned.length} stale session(s)`);
+        setTimeout(() => setSuccessMessage(null), 3000);
       }
     } catch (err) {
-      setError(String(err))
+      setError(String(err));
     } finally {
-      setIsPruning(false)
+      setIsPruning(false);
     }
-  }
+  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'active': return 'text-copilot-success'
-      case 'idle': return 'text-copilot-text-muted'
-      case 'orphaned': return 'text-copilot-warning'
-      default: return 'text-copilot-text-muted'
+      case 'active':
+        return 'text-copilot-success';
+      case 'idle':
+        return 'text-copilot-text-muted';
+      case 'orphaned':
+        return 'text-copilot-warning';
+      default:
+        return 'text-copilot-text-muted';
     }
-  }
+  };
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Session History" width="650px">
@@ -406,8 +447,8 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
         {error && (
           <div className="text-copilot-error text-sm p-2 m-3 mb-0 bg-copilot-error/10 rounded flex items-center">
             {error}
-            <button 
-              onClick={() => setError(null)} 
+            <button
+              onClick={() => setError(null)}
               className="ml-auto text-copilot-text-muted hover:text-copilot-text"
             >
               ✕
@@ -446,8 +487,8 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
               <button
                 onClick={() => setFilter('all')}
                 className={`px-3 py-2 text-xs transition-colors ${
-                  filter === 'all' 
-                    ? 'bg-copilot-surface text-copilot-text' 
+                  filter === 'all'
+                    ? 'bg-copilot-surface text-copilot-text'
                     : 'text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface/50'
                 }`}
               >
@@ -456,8 +497,8 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
               <button
                 onClick={() => setFilter('worktree')}
                 className={`px-3 py-2 text-xs transition-colors border-l border-copilot-border flex items-center gap-1 ${
-                  filter === 'worktree' 
-                    ? 'bg-copilot-surface text-copilot-text' 
+                  filter === 'worktree'
+                    ? 'bg-copilot-surface text-copilot-text'
                     : 'text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface/50'
                 }`}
               >
@@ -496,18 +537,20 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
                   <div className="px-3 py-1.5 text-xs font-medium text-copilot-text-muted bg-copilot-bg/50 sticky top-0">
                     {category.label}
                   </div>
-                  
+
                   {/* Sessions in Category */}
                   {category.sessions.map((session) => {
-                    const isCurrentSession = session.sessionId === activeSessionId
-                    const isRemoving = actionInProgress === `remove-${session.sessionId}`
+                    const isCurrentSession = session.sessionId === activeSessionId;
+                    const isRemoving = actionInProgress === `remove-${session.sessionId}`;
                     return (
                       <div
                         key={session.sessionId}
                         onClick={() => !isRemoving && handleSessionClick(session)}
                         role="button"
                         tabIndex={0}
-                        onKeyDown={(e) => e.key === 'Enter' && !isRemoving && handleSessionClick(session)}
+                        onKeyDown={(e) =>
+                          e.key === 'Enter' && !isRemoving && handleSessionClick(session)
+                        }
                         className={`w-full px-3 py-2 flex items-center gap-3 hover:bg-copilot-surface transition-colors text-left group cursor-pointer ${isCurrentSession ? 'bg-copilot-surface/50' : ''} ${isRemoving ? 'opacity-50' : ''}`}
                       >
                         {/* Status Icon - consistent for all sessions */}
@@ -524,11 +567,11 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
                             strokeWidth={1.5}
                           />
                         )}
-                        
+
                         {/* Session Name/Branch */}
                         <span className="flex-1 min-w-0 text-sm text-copilot-text truncate flex items-center gap-1.5">
-                          {session.worktree 
-                            ? session.worktree.branch 
+                          {session.worktree
+                            ? session.worktree.branch
                             : session.name || `Session ${session.sessionId.slice(0, 8)}...`}
                           {session.worktree && (
                             <GitBranchIcon
@@ -547,11 +590,13 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
                               {session.worktree?.diskUsage || ''}
                             </span>
                           )}
-                          
+
                           {/* Time/badge column - fixed width, flex to align right */}
                           <div className="w-20 flex justify-end items-center">
                             {session.isActive ? (
-                              <span className={`text-xs ${isCurrentSession ? 'text-copilot-accent' : 'text-copilot-success'}`}>
+                              <span
+                                className={`text-xs ${isCurrentSession ? 'text-copilot-accent' : 'text-copilot-success'}`}
+                              >
                                 {isCurrentSession ? 'current' : 'active'}
                               </span>
                             ) : (
@@ -563,13 +608,23 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
                                   onClick={(e) => handleDeleteClick(e, session)}
                                   disabled={isRemoving}
                                   className="hidden group-hover:flex items-center justify-center text-copilot-text-muted hover:text-copilot-error transition-colors"
-                                  title={session.worktree ? "Remove worktree" : "Delete session"}
+                                  title={session.worktree ? 'Remove worktree' : 'Delete session'}
                                 >
                                   {isRemoving ? (
                                     <Spinner />
                                   ) : (
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    <svg
+                                      className="w-4 h-4"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      viewBox="0 0 24 24"
+                                    >
+                                      <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth={1.5}
+                                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                      />
                                     </svg>
                                   )}
                                 </button>
@@ -578,7 +633,7 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
                           </div>
                         </div>
                       </div>
-                    )
+                    );
                   })}
                 </div>
               ))}
@@ -590,20 +645,19 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
         <div className="px-3 py-2 border-t border-copilot-border text-xs text-copilot-text-muted flex items-center justify-between">
           <span>
             {searchQuery ? (
-              <>{filteredSessions.length} of {allSessions.length} sessions</>
+              <>
+                {filteredSessions.length} of {allSessions.length} sessions
+              </>
             ) : filter === 'worktree' ? (
               <>{worktreeCount} worktree sessions</>
             ) : (
-              <>{allSessions.length} sessions ({activeSessions.length} active)</>
+              <>
+                {allSessions.length} sessions ({activeSessions.length} active)
+              </>
             )}
           </span>
           {filter === 'worktree' && worktreeCount > 0 && (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={handlePrune}
-              disabled={isPruning}
-            >
+            <Button variant="secondary" size="sm" onClick={handlePrune} disabled={isPruning}>
               {isPruning ? 'Pruning...' : 'Prune Stale'}
             </Button>
           )}
@@ -612,7 +666,12 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
 
       {/* Confirmation dialog for worktree removal with uncommitted/unpushed changes */}
       {confirmRemove && (
-        <Modal isOpen={true} onClose={() => setConfirmRemove(null)} title="Confirm Removal" width="400px">
+        <Modal
+          isOpen={true}
+          onClose={() => setConfirmRemove(null)}
+          title="Confirm Removal"
+          width="400px"
+        >
           <Modal.Body>
             <div className="text-sm text-copilot-text mb-4">
               This worktree has:
@@ -629,9 +688,15 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
             <Button variant="ghost" onClick={() => setConfirmRemove(null)}>
               Cancel
             </Button>
-            <Button 
-              variant="primary" 
-              onClick={() => doWorktreeRemove(confirmRemove.sessionId, confirmRemove.worktreeId, confirmRemove.worktreePath)}
+            <Button
+              variant="primary"
+              onClick={() =>
+                doWorktreeRemove(
+                  confirmRemove.sessionId,
+                  confirmRemove.worktreeId,
+                  confirmRemove.worktreePath
+                )
+              }
               className="bg-copilot-error hover:bg-copilot-error/80"
             >
               Remove Anyway
@@ -640,7 +705,7 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
         </Modal>
       )}
     </Modal>
-  )
-}
+  );
+};
 
-export default SessionHistory
+export default SessionHistory;

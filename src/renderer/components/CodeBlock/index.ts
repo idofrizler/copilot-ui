@@ -1,2 +1,2 @@
-export * from './CodeBlock'
-export { default as CodeBlockWithCopy } from './CodeBlock'
+export * from './CodeBlock';
+export { default as CodeBlockWithCopy } from './CodeBlock';

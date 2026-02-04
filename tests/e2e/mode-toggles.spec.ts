@@ -28,34 +28,34 @@ test.describe('Ralph/Lisa Mode Screenshots', () => {
     const chevron = page.locator('button svg').first();
     await chevron.click({ force: true });
     await page.waitForTimeout(1000);
-    
+
     // Screenshot showing expanded input area with Ralph/Lisa
-    await page.screenshot({ 
+    await page.screenshot({
       path: 'evidence/screenshots/08-ralph-lisa-modes.png',
     });
-    
+
     // Try clicking Ralph button
     const ralphButton = page.locator('button').filter({ hasText: 'Ralph' }).first();
     if (await ralphButton.isVisible({ timeout: 2000 })) {
       await ralphButton.click({ force: true });
       await page.waitForTimeout(500);
-      await page.screenshot({ 
+      await page.screenshot({
         path: 'evidence/screenshots/09-ralph-mode-enabled.png',
       });
     }
-    
+
     // Try clicking Lisa button
     const lisaButton = page.locator('button').filter({ hasText: 'Lisa' }).first();
     if (await lisaButton.isVisible({ timeout: 2000 })) {
       await lisaButton.click({ force: true });
       await page.waitForTimeout(500);
-      await page.screenshot({ 
+      await page.screenshot({
         path: 'evidence/screenshots/10-lisa-mode-enabled.png',
       });
     }
-    
+
     // Final overview
-    await page.screenshot({ 
+    await page.screenshot({
       path: 'evidence/screenshots/11-final-state.png',
     });
   });

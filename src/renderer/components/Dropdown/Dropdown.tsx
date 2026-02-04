@@ -1,51 +1,51 @@
-import React, { useState, useRef, useCallback } from 'react'
-import { useClickOutside } from '../../hooks/useClickOutside'
-import { ChevronDownIcon } from '../Icons'
+import React, { useState, useRef, useCallback } from 'react';
+import { useClickOutside } from '../../hooks/useClickOutside';
+import { ChevronDownIcon } from '../Icons';
 
 export interface DropdownOption<T = string> {
   /** Unique identifier for the option */
-  id: T
+  id: T;
   /** Display label */
-  label: string
+  label: string;
   /** Optional left icon */
-  icon?: React.ReactNode
+  icon?: React.ReactNode;
   /** Optional right content (e.g., badge, multiplier) */
-  rightContent?: React.ReactNode
+  rightContent?: React.ReactNode;
   /** Additional description text below the label */
-  description?: string
+  description?: string;
 }
 
 export interface DropdownProps<T = string> {
   /** Currently selected value */
-  value: T | null
+  value: T | null;
   /** List of options */
-  options: DropdownOption<T>[]
+  options: DropdownOption<T>[];
   /** Callback when option selected */
-  onSelect: (id: T) => void
+  onSelect: (id: T) => void;
   /** Custom trigger content (overrides default) */
-  trigger?: React.ReactNode
+  trigger?: React.ReactNode;
   /** Placeholder when no value selected */
-  placeholder?: string
+  placeholder?: string;
   /** Show chevron icon (default: true) */
-  showChevron?: boolean
+  showChevron?: boolean;
   /** Additional class for trigger button */
-  className?: string
+  className?: string;
   /** Minimum width for dropdown menu */
-  minWidth?: string
+  minWidth?: string;
   /** Indices after which to show dividers */
-  dividers?: number[]
+  dividers?: number[];
   /** Additional actions at bottom of dropdown */
-  footerActions?: React.ReactNode
+  footerActions?: React.ReactNode;
   /** Alignment of dropdown menu */
-  align?: 'left' | 'right'
+  align?: 'left' | 'right';
   /** Title/tooltip for trigger button */
-  title?: string
+  title?: string;
   /** Disabled state */
-  disabled?: boolean
+  disabled?: boolean;
   /** Test ID for automated testing */
-  testId?: string
+  testId?: string;
   /** Callback when dropdown is opened */
-  onOpen?: () => void
+  onOpen?: () => void;
 }
 
 export function Dropdown<T = string>({
@@ -65,33 +65,33 @@ export function Dropdown<T = string>({
   testId,
   onOpen,
 }: DropdownProps<T>): React.ReactElement {
-  const [isOpen, setIsOpen] = useState(false)
-  const dropdownRef = useRef<HTMLDivElement>(null)
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   const handleClose = useCallback(() => {
-    setIsOpen(false)
-  }, [])
+    setIsOpen(false);
+  }, []);
 
-  useClickOutside(dropdownRef, handleClose, isOpen)
+  useClickOutside(dropdownRef, handleClose, isOpen);
 
-  const selectedOption = options.find((opt) => opt.id === value)
-  const displayLabel = selectedOption?.label || placeholder
+  const selectedOption = options.find((opt) => opt.id === value);
+  const displayLabel = selectedOption?.label || placeholder;
 
   const handleToggle = (e: React.MouseEvent) => {
-    e.stopPropagation()
+    e.stopPropagation();
     if (!disabled) {
-      const nextOpen = !isOpen
+      const nextOpen = !isOpen;
       if (nextOpen) {
-        onOpen?.()
+        onOpen?.();
       }
-      setIsOpen(nextOpen)
+      setIsOpen(nextOpen);
     }
-  }
+  };
 
   const handleSelect = (id: T) => {
-    onSelect(id)
-    setIsOpen(false)
-  }
+    onSelect(id);
+    setIsOpen(false);
+  };
 
   return (
     <div className="relative no-drag" ref={dropdownRef} data-testid={testId}>
@@ -133,9 +133,7 @@ export function Dropdown<T = string>({
                 </span>
                 {option.rightContent}
               </button>
-              {dividers.includes(index) && (
-                <div className="border-t border-copilot-border my-1" />
-              )}
+              {dividers.includes(index) && <div className="border-t border-copilot-border my-1" />}
             </React.Fragment>
           ))}
 
@@ -148,7 +146,7 @@ export function Dropdown<T = string>({
         </div>
       )}
     </div>
-  )
+  );
 }
 
-export default Dropdown
+export default Dropdown;

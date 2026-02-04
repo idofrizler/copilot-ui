@@ -1,21 +1,21 @@
-import React, { useEffect, useRef, useCallback, useState } from 'react'
-import { Terminal as XTerm } from '@xterm/xterm'
-import { FitAddon } from '@xterm/addon-fit'
-import '@xterm/xterm/css/xterm.css'
+import React, { useEffect, useRef, useCallback, useState } from 'react';
+import { Terminal as XTerm } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
+import '@xterm/xterm/css/xterm.css';
 
 // Regex to split paths on both Unix (/) and Windows (\) separators
-const PATH_SEP_REGEX = /[\\/]/
+const PATH_SEP_REGEX = /[\\/]/;
 
-const MIN_HEIGHT = 100
-const MAX_HEIGHT = 600
-const DEFAULT_HEIGHT = 192 // h-48 equivalent
+const MIN_HEIGHT = 100;
+const MAX_HEIGHT = 600;
+const DEFAULT_HEIGHT = 192; // h-48 equivalent
 
 interface TerminalPanelProps {
-  sessionId: string
-  cwd: string
-  isOpen: boolean
-  onClose: () => void
-  onSendToAgent: (output: string, lineCount: number) => void
+  sessionId: string;
+  cwd: string;
+  isOpen: boolean;
+  onClose: () => void;
+  onSendToAgent: (output: string, lineCount: number) => void;
 }
 
 export const TerminalPanel: React.FC<TerminalPanelProps> = ({
@@ -25,24 +25,24 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
   onClose,
   onSendToAgent,
 }) => {
-  const terminalRef = useRef<HTMLDivElement>(null)
-  const xtermRef = useRef<XTerm | null>(null)
-  const fitAddonRef = useRef<FitAddon | null>(null)
-  const [isInitialized, setIsInitialized] = useState(false)
-  const [isConnected, setIsConnected] = useState(false)
-  const [bufferLineCount, setBufferLineCount] = useState(0)
-  const [terminalHeight, setTerminalHeight] = useState(DEFAULT_HEIGHT)
-  const [isResizing, setIsResizing] = useState(false)
-  const sessionIdRef = useRef(sessionId)
+  const terminalRef = useRef<HTMLDivElement>(null);
+  const xtermRef = useRef<XTerm | null>(null);
+  const fitAddonRef = useRef<FitAddon | null>(null);
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
+  const [bufferLineCount, setBufferLineCount] = useState(0);
+  const [terminalHeight, setTerminalHeight] = useState(DEFAULT_HEIGHT);
+  const [isResizing, setIsResizing] = useState(false);
+  const sessionIdRef = useRef(sessionId);
 
   // Keep sessionId ref in sync
   useEffect(() => {
-    sessionIdRef.current = sessionId
-  }, [sessionId])
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
 
   // Initialize terminal
   useEffect(() => {
-    if (!isOpen || !terminalRef.current || isInitialized) return
+    if (!isOpen || !terminalRef.current || isInitialized) return;
 
     const xterm = new XTerm({
       cursorBlink: true,
@@ -56,256 +56,262 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
         selectionBackground: 'var(--copilot-selection, rgba(255, 255, 255, 0.3))',
       },
       allowProposedApi: true,
-    })
+    });
 
-    const fitAddon = new FitAddon()
-    xterm.loadAddon(fitAddon)
+    const fitAddon = new FitAddon();
+    xterm.loadAddon(fitAddon);
 
-    xterm.open(terminalRef.current)
-    fitAddon.fit()
+    xterm.open(terminalRef.current);
+    fitAddon.fit();
 
     // Handle special key combinations for the terminal
     // Return true = xterm handles it, false = browser/Electron handles it
     xterm.attachCustomKeyEventHandler((event) => {
       // Only handle keydown events
-      if (event.type !== 'keydown') return true
-      
-      const isMac = navigator.platform.includes('Mac')
-      const isCtrlOrCmd = isMac ? event.metaKey : event.ctrlKey
-      
+      if (event.type !== 'keydown') return true;
+
+      const isMac = navigator.platform.includes('Mac');
+      const isCtrlOrCmd = isMac ? event.metaKey : event.ctrlKey;
+
       // Handle Ctrl/Cmd+C - send SIGINT (ETX character) to the terminal
       // This allows interrupting running processes
       if (isCtrlOrCmd && event.key === 'c') {
         // Don't let the browser/Electron intercept this
-        event.preventDefault()
-        event.stopPropagation()
+        event.preventDefault();
+        event.stopPropagation();
         // Send ETX (End of Text / Ctrl+C / 0x03) to the PTY
-        window.electronAPI.pty.write(sessionIdRef.current, '\x03')
-        return false
+        window.electronAPI.pty.write(sessionIdRef.current, '\x03');
+        return false;
       }
-      
+
       // Handle Ctrl/Cmd+V - paste
       if (isCtrlOrCmd && event.key === 'v') {
-        event.preventDefault()
-        event.stopPropagation()
+        event.preventDefault();
+        event.stopPropagation();
         // Read from clipboard and send to terminal
-        navigator.clipboard.readText().then(text => {
-          if (text) {
-            window.electronAPI.pty.write(sessionIdRef.current, text)
-          }
-        }).catch(() => {
-          // Clipboard access denied - ignore
-        })
-        return false
+        navigator.clipboard
+          .readText()
+          .then((text) => {
+            if (text) {
+              window.electronAPI.pty.write(sessionIdRef.current, text);
+            }
+          })
+          .catch(() => {
+            // Clipboard access denied - ignore
+          });
+        return false;
       }
-      
+
       // Handle Ctrl+Arrow keys for word navigation in terminal
       // On macOS, also handle Option+Arrow as that's more common for word navigation
       // Send ESC b (word-left) and ESC f (word-right) which work in bash/zsh
-      const isWordNavModifier = isMac 
-        ? (event.altKey && !event.ctrlKey && !event.metaKey)  // Option+Arrow on macOS
-        : (event.ctrlKey && !event.metaKey && !event.altKey)  // Ctrl+Arrow on Linux/Windows
-      
+      const isWordNavModifier = isMac
+        ? event.altKey && !event.ctrlKey && !event.metaKey // Option+Arrow on macOS
+        : event.ctrlKey && !event.metaKey && !event.altKey; // Ctrl+Arrow on Linux/Windows
+
       if (isWordNavModifier && !event.shiftKey) {
         if (event.key === 'ArrowLeft') {
-          event.preventDefault()
-          event.stopPropagation()
+          event.preventDefault();
+          event.stopPropagation();
           // Send ESC b (word backward) - works in bash/zsh
-          window.electronAPI.pty.write(sessionIdRef.current, '\x1bb')
-          return false
+          window.electronAPI.pty.write(sessionIdRef.current, '\x1bb');
+          return false;
         }
         if (event.key === 'ArrowRight') {
-          event.preventDefault()
-          event.stopPropagation()
+          event.preventDefault();
+          event.stopPropagation();
           // Send ESC f (word forward) - works in bash/zsh
-          window.electronAPI.pty.write(sessionIdRef.current, '\x1bf')
-          return false
+          window.electronAPI.pty.write(sessionIdRef.current, '\x1bf');
+          return false;
         }
       }
-      
-      // Let xterm handle all other key events
-      return true
-    })
 
-    xtermRef.current = xterm
-    fitAddonRef.current = fitAddon
-    setIsInitialized(true)
+      // Let xterm handle all other key events
+      return true;
+    });
+
+    xtermRef.current = xterm;
+    fitAddonRef.current = fitAddon;
+    setIsInitialized(true);
 
     // Handle user input
     xterm.onData((data) => {
-      window.electronAPI.pty.write(sessionIdRef.current, data)
-    })
+      window.electronAPI.pty.write(sessionIdRef.current, data);
+    });
 
     // Create PTY
     window.electronAPI.pty.create(sessionId, cwd).then((result) => {
       if (result.success) {
-        setIsConnected(true)
-        setBufferLineCount(0)
+        setIsConnected(true);
+        setBufferLineCount(0);
         // Resize PTY to match terminal
-        const dims = fitAddon.proposeDimensions()
+        const dims = fitAddon.proposeDimensions();
         if (dims) {
-          window.electronAPI.pty.resize(sessionId, dims.cols, dims.rows)
+          window.electronAPI.pty.resize(sessionId, dims.cols, dims.rows);
         }
       } else {
-        xterm.writeln(`\x1b[31mFailed to create terminal: ${result.error}\x1b[0m`)
+        xterm.writeln(`\x1b[31mFailed to create terminal: ${result.error}\x1b[0m`);
       }
-    })
+    });
 
     return () => {
       // Cleanup will be done when component unmounts or panel closes
-    }
-  }, [isOpen, sessionId, cwd, isInitialized])
+    };
+  }, [isOpen, sessionId, cwd, isInitialized]);
 
   // Handle PTY data
   useEffect(() => {
-    if (!isInitialized) return
+    if (!isInitialized) return;
 
     const unsubscribeData = window.electronAPI.pty.onData((data) => {
       if (data.sessionId === sessionIdRef.current && xtermRef.current) {
-        xtermRef.current.write(data.data)
+        xtermRef.current.write(data.data);
         // Count newlines for line count estimate
-        const newLines = (data.data.match(/\n/g) || []).length
-        setBufferLineCount(prev => prev + newLines)
+        const newLines = (data.data.match(/\n/g) || []).length;
+        setBufferLineCount((prev) => prev + newLines);
       }
-    })
+    });
 
     const unsubscribeExit = window.electronAPI.pty.onExit((data) => {
       if (data.sessionId === sessionIdRef.current) {
-        setIsConnected(false)
+        setIsConnected(false);
         if (xtermRef.current) {
-          xtermRef.current.writeln(`\x1b[33m\r\nProcess exited with code ${data.exitCode}\x1b[0m`)
+          xtermRef.current.writeln(`\x1b[33m\r\nProcess exited with code ${data.exitCode}\x1b[0m`);
         }
       }
-    })
+    });
 
     return () => {
-      unsubscribeData()
-      unsubscribeExit()
-    }
-  }, [isInitialized])
+      unsubscribeData();
+      unsubscribeExit();
+    };
+  }, [isInitialized]);
 
   // Handle resize
   useEffect(() => {
-    if (!isOpen || !fitAddonRef.current) return
+    if (!isOpen || !fitAddonRef.current) return;
 
     const handleResize = () => {
       if (fitAddonRef.current) {
-        fitAddonRef.current.fit()
-        const dims = fitAddonRef.current.proposeDimensions()
+        fitAddonRef.current.fit();
+        const dims = fitAddonRef.current.proposeDimensions();
         if (dims && isConnected) {
-          window.electronAPI.pty.resize(sessionIdRef.current, dims.cols, dims.rows)
+          window.electronAPI.pty.resize(sessionIdRef.current, dims.cols, dims.rows);
         }
       }
-    }
+    };
 
     // Fit on open
-    setTimeout(handleResize, 100)
+    setTimeout(handleResize, 100);
 
-    window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
-  }, [isOpen, isConnected])
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [isOpen, isConnected]);
 
   // Cleanup on close - only cleanup when component unmounts (tab closed), not when hidden
   useEffect(() => {
     // Return cleanup function that runs on unmount
     return () => {
       // Use refs which are always current, not stale closure values
-      window.electronAPI.pty.close(sessionIdRef.current)
+      window.electronAPI.pty.close(sessionIdRef.current);
       if (xtermRef.current) {
-        xtermRef.current.dispose()
-        xtermRef.current = null
+        xtermRef.current.dispose();
+        xtermRef.current = null;
       }
-      fitAddonRef.current = null
-    }
-  }, []) // Empty deps - only run cleanup on unmount
+      fitAddonRef.current = null;
+    };
+  }, []); // Empty deps - only run cleanup on unmount
 
   const handleSendToAgent = useCallback(async () => {
-    const result = await window.electronAPI.pty.getOutput(sessionIdRef.current)
+    const result = await window.electronAPI.pty.getOutput(sessionIdRef.current);
     if (result.success && result.output) {
       // Strip ANSI codes for cleaner output
-      const cleanOutput = result.output.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
-      const lineCount = (cleanOutput.match(/\n/g) || []).length + 1
-      onSendToAgent(cleanOutput, lineCount)
+      const cleanOutput = result.output.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+      const lineCount = (cleanOutput.match(/\n/g) || []).length + 1;
+      onSendToAgent(cleanOutput, lineCount);
     }
-  }, [onSendToAgent])
+  }, [onSendToAgent]);
 
   const handleClearBuffer = useCallback(async () => {
-    const result = await window.electronAPI.pty.clearBuffer(sessionIdRef.current)
+    const result = await window.electronAPI.pty.clearBuffer(sessionIdRef.current);
     if (result.success) {
-      setBufferLineCount(0)
+      setBufferLineCount(0);
       // Also clear the terminal display
       if (xtermRef.current) {
-        xtermRef.current.clear()
+        xtermRef.current.clear();
       }
     }
-  }, [])
+  }, []);
 
   const handleRestart = useCallback(async () => {
-    setIsConnected(false)
+    setIsConnected(false);
     // Close existing PTY and wait
-    await window.electronAPI.pty.close(sessionIdRef.current)
+    await window.electronAPI.pty.close(sessionIdRef.current);
     // Small delay to ensure cleanup
-    await new Promise(resolve => setTimeout(resolve, 100))
+    await new Promise((resolve) => setTimeout(resolve, 100));
     // Clear terminal display
     if (xtermRef.current) {
-      xtermRef.current.clear()
+      xtermRef.current.clear();
     }
     // Create new PTY
-    const result = await window.electronAPI.pty.create(sessionIdRef.current, cwd)
+    const result = await window.electronAPI.pty.create(sessionIdRef.current, cwd);
     if (result.success) {
-      setIsConnected(true)
-      setBufferLineCount(0)
+      setIsConnected(true);
+      setBufferLineCount(0);
       if (fitAddonRef.current) {
-        const dims = fitAddonRef.current.proposeDimensions()
+        const dims = fitAddonRef.current.proposeDimensions();
         if (dims) {
-          window.electronAPI.pty.resize(sessionIdRef.current, dims.cols, dims.rows)
+          window.electronAPI.pty.resize(sessionIdRef.current, dims.cols, dims.rows);
         }
       }
     } else if (xtermRef.current) {
-      xtermRef.current.writeln(`\x1b[31mFailed to restart: ${result.error}\x1b[0m`)
+      xtermRef.current.writeln(`\x1b[31mFailed to restart: ${result.error}\x1b[0m`);
     }
-  }, [cwd])
+  }, [cwd]);
 
   // Handle resize drag
-  const handleResizeStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    setIsResizing(true)
-    const startY = e.clientY
-    const startHeight = terminalHeight
+  const handleResizeStart = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      setIsResizing(true);
+      const startY = e.clientY;
+      const startHeight = terminalHeight;
 
-    const handleMouseMove = (moveEvent: MouseEvent) => {
-      const deltaY = moveEvent.clientY - startY
-      const newHeight = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, startHeight + deltaY))
-      setTerminalHeight(newHeight)
-    }
+      const handleMouseMove = (moveEvent: MouseEvent) => {
+        const deltaY = moveEvent.clientY - startY;
+        const newHeight = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, startHeight + deltaY));
+        setTerminalHeight(newHeight);
+      };
 
-    const handleMouseUp = () => {
-      setIsResizing(false)
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
-      // Refit terminal after resize
-      if (fitAddonRef.current) {
-        fitAddonRef.current.fit()
-        const dims = fitAddonRef.current.proposeDimensions()
-        if (dims && isConnected) {
-          window.electronAPI.pty.resize(sessionIdRef.current, dims.cols, dims.rows)
+      const handleMouseUp = () => {
+        setIsResizing(false);
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+        // Refit terminal after resize
+        if (fitAddonRef.current) {
+          fitAddonRef.current.fit();
+          const dims = fitAddonRef.current.proposeDimensions();
+          if (dims && isConnected) {
+            window.electronAPI.pty.resize(sessionIdRef.current, dims.cols, dims.rows);
+          }
         }
-      }
-    }
+      };
 
-    document.addEventListener('mousemove', handleMouseMove)
-    document.addEventListener('mouseup', handleMouseUp)
-  }, [terminalHeight, isConnected])
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    },
+    [terminalHeight, isConnected]
+  );
 
   // Refit terminal when height changes during drag
   useEffect(() => {
     if (isResizing && fitAddonRef.current) {
-      fitAddonRef.current.fit()
+      fitAddonRef.current.fit();
     }
-  }, [terminalHeight, isResizing])
+  }, [terminalHeight, isResizing]);
 
   return (
-    <div 
+    <div
       className={`flex flex-col border-b border-copilot-border bg-copilot-terminal-bg ${!isOpen ? 'hidden' : ''}`}
       data-tour="terminal-panel"
       data-clarity-mask="true"
@@ -313,7 +319,9 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
       {/* Terminal Header */}
       <div className="flex items-center justify-between px-3 py-1.5 bg-copilot-surface border-b border-copilot-border">
         <div className="flex items-center gap-2 min-w-0">
-          <span className={`w-2 h-2 rounded-full shrink-0 ${isConnected ? 'bg-copilot-success' : 'bg-copilot-error'}`} />
+          <span
+            className={`w-2 h-2 rounded-full shrink-0 ${isConnected ? 'bg-copilot-success' : 'bg-copilot-error'}`}
+          />
           <span className="text-[10px] text-copilot-text-muted font-mono truncate" title={cwd}>
             {cwd.split(PATH_SEP_REGEX).slice(-2).join('/')}
           </span>
@@ -355,23 +363,20 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
           </button>
         </div>
       </div>
-      
+
       {/* Terminal Container */}
-      <div 
-        ref={terminalRef} 
+      <div
+        ref={terminalRef}
         className="overflow-hidden"
         style={{ height: `${terminalHeight}px`, backgroundColor: '#000' }}
       />
-      
+
       {/* Resize Handle */}
-      <div
-        onMouseDown={handleResizeStart}
-        className="h-0 cursor-ns-resize shrink-0 relative z-10"
-      >
+      <div onMouseDown={handleResizeStart} className="h-0 cursor-ns-resize shrink-0 relative z-10">
         <div className="absolute inset-x-0 -bottom-1 h-2 hover:bg-copilot-accent/50 transition-colors" />
       </div>
     </div>
-  )
-}
+  );
+};
 
-export default TerminalPanel
+export default TerminalPanel;

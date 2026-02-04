@@ -5,8 +5,8 @@ export interface Skill {
   description: string;
   license?: string;
   path: string;
-  type: "personal" | "project";
-  source: "copilot" | "claude"; // Which config folder it came from
+  type: 'personal' | 'project';
+  source: 'copilot' | 'claude'; // Which config folder it came from
 }
 
 export interface SkillsResult {

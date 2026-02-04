@@ -1,15 +1,15 @@
-import { test, _electron as electron, ElectronApplication, Page, expect } from '@playwright/test'
-import path from 'path'
-import fs from 'fs'
+import { test, _electron as electron, ElectronApplication, Page, expect } from '@playwright/test';
+import path from 'path';
+import fs from 'fs';
 
-let electronApp: ElectronApplication
-let window: Page
+let electronApp: ElectronApplication;
+let window: Page;
 
-const screenshotDir = path.join(__dirname, '../../evidence/screenshots')
+const screenshotDir = path.join(__dirname, '../../evidence/screenshots');
 
 // Ensure screenshot directory exists
 if (!fs.existsSync(screenshotDir)) {
-  fs.mkdirSync(screenshotDir, { recursive: true })
+  fs.mkdirSync(screenshotDir, { recursive: true });
 }
 
 test.beforeAll(async () => {
@@ -20,57 +20,62 @@ test.beforeAll(async () => {
       ...process.env,
       NODE_ENV: 'test',
     },
-  })
-  
+  });
+
   // Wait for the first window
-  window = await electronApp.firstWindow()
-  
+  window = await electronApp.firstWindow();
+
   // Wait for app to be ready
-  await window.waitForLoadState('domcontentloaded')
-  await window.waitForTimeout(3000) // Give app time to initialize
-})
+  await window.waitForLoadState('domcontentloaded');
+  await window.waitForTimeout(3000); // Give app time to initialize
+});
 
 test.afterAll(async () => {
-  await electronApp?.close()
-})
+  await electronApp?.close();
+});
 
 test.describe('Files Preview Overlay - Stash & Tree View (NEW LOCATION)', () => {
-  
   test('01 - Initial app state showing right panel', async () => {
-    await window.screenshot({ 
+    await window.screenshot({
       path: path.join(screenshotDir, '01-initial-app-state.png'),
-      fullPage: true 
-    })
-    
+      fullPage: true,
+    });
+
     // Verify Edited Files section exists
-    const editedFilesSection = window.locator('[data-tour="edited-files"]')
-    await expect(editedFilesSection).toBeVisible()
-  })
+    const editedFilesSection = window.locator('[data-tour="edited-files"]');
+    await expect(editedFilesSection).toBeVisible();
+  });
 
   test('02 - Expand Edited Files section - verify NO toggle button', async () => {
     // Click on Edited Files to expand
-    const editedFilesButton = window.locator('[data-tour="edited-files"] button:has-text("Edited Files")')
-    await editedFilesButton.click()
-    await window.waitForTimeout(500)
-    
-    await window.screenshot({ 
+    const editedFilesButton = window.locator(
+      '[data-tour="edited-files"] button:has-text("Edited Files")'
+    );
+    await editedFilesButton.click();
+    await window.waitForTimeout(500);
+
+    await window.screenshot({
       path: path.join(screenshotDir, '02-edited-files-no-toggle.png'),
-      fullPage: true 
-    })
-    
+      fullPage: true,
+    });
+
     // Verify NO tree/flat toggle button in header (it should be in overlay now)
-    const toggleButton = window.locator('[data-tour="edited-files"] button[title*="view"]')
-    const toggleVisible = await toggleButton.isVisible().catch(() => false)
-    console.log('Toggle button in Edited Files section:', toggleVisible ? 'FOUND (should NOT be)' : 'NOT FOUND (correct)')
-  })
+    const toggleButton = window.locator('[data-tour="edited-files"] button[title*="view"]');
+    const toggleVisible = await toggleButton.isVisible().catch(() => false);
+    console.log(
+      'Toggle button in Edited Files section:',
+      toggleVisible ? 'FOUND (should NOT be)' : 'NOT FOUND (correct)'
+    );
+  });
 
   test('03 - Demo: Files Preview Overlay with Two-Panel Layout', async () => {
     // Inject a demo overlay showing the new two-panel design
     await window.evaluate(() => {
-      const container = document.createElement('div')
-      container.id = 'files-overlay-demo'
-      container.className = 'fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center'
-      
+      const container = document.createElement('div');
+      container.id = 'files-overlay-demo';
+      container.className =
+        'fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center';
+
       container.innerHTML = `
         <div style="width: 90%; max-width: 1100px; max-height: 85vh;" class="bg-copilot-surface border border-copilot-border rounded-lg shadow-xl flex flex-col overflow-hidden">
           <!-- Header -->
@@ -106,7 +111,15 @@ test.describe('Files Preview Overlay - Stash & Tree View (NEW LOCATION)', () => 
             <!-- Left Sidebar - File List -->
             <div class="w-64 shrink-0 border-r border-copilot-border bg-copilot-surface overflow-y-auto">
               <div class="py-1">
-                ${['src/renderer/App.tsx', 'src/main/main.ts', 'src/renderer/types/session.ts', 'package.json', 'tests/e2e/test.spec.ts'].map((f, i) => `
+                ${[
+                  'src/renderer/App.tsx',
+                  'src/main/main.ts',
+                  'src/renderer/types/session.ts',
+                  'package.json',
+                  'tests/e2e/test.spec.ts',
+                ]
+                  .map(
+                    (f, i) => `
                   <div class="group flex items-center gap-1.5 py-1 px-3 text-[11px] cursor-pointer ${i === 0 ? 'bg-copilot-accent/20 text-copilot-text' : 'text-copilot-text-muted hover:bg-copilot-surface hover:text-copilot-text'}">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0 text-copilot-success">
                       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -118,7 +131,9 @@ test.describe('Files Preview Overlay - Stash & Tree View (NEW LOCATION)', () => 
                       </svg>
                     </button>
                   </div>
-                `).join('')}
+                `
+                  )
+                  .join('')}
               </div>
               
               <!-- Stashed Section -->
@@ -164,30 +179,31 @@ test.describe('Files Preview Overlay - Stash & Tree View (NEW LOCATION)', () => 
             </div>
           </div>
         </div>
-      `
-      
-      document.body.appendChild(container)
-      document.getElementById('close-overlay')?.addEventListener('click', () => container.remove())
-    })
-    
-    await window.waitForTimeout(500)
-    
-    await window.screenshot({ 
+      `;
+
+      document.body.appendChild(container);
+      document.getElementById('close-overlay')?.addEventListener('click', () => container.remove());
+    });
+
+    await window.waitForTimeout(500);
+
+    await window.screenshot({
       path: path.join(screenshotDir, '03-files-overlay-two-panel.png'),
-      fullPage: true 
-    })
-  })
+      fullPage: true,
+    });
+  });
 
   test('04 - Demo: Tree View in Overlay', async () => {
     await window.evaluate(() => {
-      document.getElementById('files-overlay-demo')?.remove()
-    })
-    
+      document.getElementById('files-overlay-demo')?.remove();
+    });
+
     await window.evaluate(() => {
-      const container = document.createElement('div')
-      container.id = 'tree-overlay-demo'
-      container.className = 'fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center'
-      
+      const container = document.createElement('div');
+      container.id = 'tree-overlay-demo';
+      container.className =
+        'fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center';
+
       container.innerHTML = `
         <div style="width: 90%; max-width: 1100px; max-height: 85vh;" class="bg-copilot-surface border border-copilot-border rounded-lg shadow-xl flex flex-col overflow-hidden">
           <!-- Header with Toggle -->
@@ -323,30 +339,33 @@ test.describe('Files Preview Overlay - Stash & Tree View (NEW LOCATION)', () => 
             </div>
           </div>
         </div>
-      `
-      
-      document.body.appendChild(container)
-      document.getElementById('close-tree-overlay')?.addEventListener('click', () => container.remove())
-    })
-    
-    await window.waitForTimeout(500)
-    
-    await window.screenshot({ 
+      `;
+
+      document.body.appendChild(container);
+      document
+        .getElementById('close-tree-overlay')
+        ?.addEventListener('click', () => container.remove());
+    });
+
+    await window.waitForTimeout(500);
+
+    await window.screenshot({
       path: path.join(screenshotDir, '04-tree-view-in-overlay.png'),
-      fullPage: true 
-    })
-  })
+      fullPage: true,
+    });
+  });
 
   test('05 - Demo: Stash Button on Hover', async () => {
     await window.evaluate(() => {
-      document.getElementById('tree-overlay-demo')?.remove()
-    })
-    
+      document.getElementById('tree-overlay-demo')?.remove();
+    });
+
     await window.evaluate(() => {
-      const container = document.createElement('div')
-      container.id = 'stash-hover-demo'
-      container.className = 'fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center'
-      
+      const container = document.createElement('div');
+      container.id = 'stash-hover-demo';
+      container.className =
+        'fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center';
+
       container.innerHTML = `
         <div class="bg-copilot-surface border border-copilot-border rounded-lg p-6 max-w-md">
           <h3 class="text-sm font-medium text-copilot-text mb-4">Stash Button Visibility</h3>
@@ -397,30 +416,33 @@ test.describe('Files Preview Overlay - Stash & Tree View (NEW LOCATION)', () => 
           
           <button id="close-stash-hover" class="mt-4 w-full py-2 text-xs text-copilot-text-muted hover:text-copilot-text border border-copilot-border rounded">Close</button>
         </div>
-      `
-      
-      document.body.appendChild(container)
-      document.getElementById('close-stash-hover')?.addEventListener('click', () => container.remove())
-    })
-    
-    await window.waitForTimeout(500)
-    
-    await window.screenshot({ 
+      `;
+
+      document.body.appendChild(container);
+      document
+        .getElementById('close-stash-hover')
+        ?.addEventListener('click', () => container.remove());
+    });
+
+    await window.waitForTimeout(500);
+
+    await window.screenshot({
       path: path.join(screenshotDir, '05-stash-button-on-hover.png'),
-      fullPage: true 
-    })
-  })
+      fullPage: true,
+    });
+  });
 
   test('06 - Demo: Stashed Files Section', async () => {
     await window.evaluate(() => {
-      document.getElementById('stash-hover-demo')?.remove()
-    })
-    
+      document.getElementById('stash-hover-demo')?.remove();
+    });
+
     await window.evaluate(() => {
-      const container = document.createElement('div')
-      container.id = 'stashed-section-demo'
-      container.className = 'fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center'
-      
+      const container = document.createElement('div');
+      container.id = 'stashed-section-demo';
+      container.className =
+        'fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center';
+
       container.innerHTML = `
         <div class="bg-copilot-surface border border-copilot-border rounded-lg p-4 w-72">
           <h3 class="text-sm font-medium text-copilot-text mb-3">Sidebar with Stashed Section</h3>
@@ -471,44 +493,46 @@ test.describe('Files Preview Overlay - Stash & Tree View (NEW LOCATION)', () => 
           
           <button id="close-stashed-section" class="mt-4 w-full py-2 text-xs text-copilot-text-muted hover:text-copilot-text border border-copilot-border rounded">Close</button>
         </div>
-      `
-      
-      document.body.appendChild(container)
-      document.getElementById('close-stashed-section')?.addEventListener('click', () => container.remove())
-    })
-    
-    await window.waitForTimeout(500)
-    
-    await window.screenshot({ 
+      `;
+
+      document.body.appendChild(container);
+      document
+        .getElementById('close-stashed-section')
+        ?.addEventListener('click', () => container.remove());
+    });
+
+    await window.waitForTimeout(500);
+
+    await window.screenshot({
       path: path.join(screenshotDir, '06-stashed-section.png'),
-      fullPage: true 
-    })
-  })
+      fullPage: true,
+    });
+  });
 
   test('07 - Clean up demos', async () => {
     await window.evaluate(() => {
-      document.getElementById('stashed-section-demo')?.remove()
-    })
-    
-    await window.screenshot({ 
+      document.getElementById('stashed-section-demo')?.remove();
+    });
+
+    await window.screenshot({
       path: path.join(screenshotDir, '07-clean-state.png'),
-      fullPage: true 
-    })
-  })
+      fullPage: true,
+    });
+  });
 
   test('08 - Verify FilePreviewModal component exports', async () => {
     // Verify the component accepts the new props
     const componentExists = await window.evaluate(() => {
       // Check that FilePreviewModal is imported and rendered
-      const modal = document.querySelector('[data-testid="file-preview-modal"]')
-      return modal !== null || true // Component may not be visible but exists
-    })
-    
-    await window.screenshot({ 
+      const modal = document.querySelector('[data-testid="file-preview-modal"]');
+      return modal !== null || true; // Component may not be visible but exists
+    });
+
+    await window.screenshot({
       path: path.join(screenshotDir, '08-final-state.png'),
-      fullPage: true 
-    })
-    
-    expect(componentExists).toBeTruthy()
-  })
-})
+      fullPage: true,
+    });
+
+    expect(componentExists).toBeTruthy();
+  });
+});

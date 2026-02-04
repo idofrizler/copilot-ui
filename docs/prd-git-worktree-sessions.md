@@ -13,9 +13,10 @@
 ✅ **IPC Handlers:** Added to `src/main/main.ts` - All worktree operations exposed  
 ✅ **Preload API:** `src/preload/preload.ts` - Renderer can access worktree functions  
 ✅ **UI Components:** `src/renderer/components/WorktreeSessions/` - List and create modals  
-✅ **Unit Tests:** `src/main/worktree.test.ts` - 5 tests covering core functionality  
+✅ **Unit Tests:** `src/main/worktree.test.ts` - 5 tests covering core functionality
 
 ### Files Added/Modified:
+
 - `src/main/worktree.ts` (new) - Core worktree session manager
 - `src/main/worktree.test.ts` (new) - Unit tests
 - `src/main/main.ts` (modified) - Added IPC handlers
@@ -30,6 +31,7 @@
 ### 1.1 Problem Statement
 
 Currently, users cannot run multiple Copilot CLI sessions on the same repository simultaneously. Attempting to do so causes:
+
 - File lock conflicts
 - Uncommitted change collisions
 - Branch switching interference between sessions
@@ -40,18 +42,19 @@ This limits users who want to work on multiple features/bugs in parallel or coll
 ### 1.2 Proposed Solution
 
 Leverage Git worktrees to create isolated working directories for each session. Each worktree:
+
 - Has its own working directory, index, and HEAD
 - Shares commit history, remotes, and refs with the main repository
 - Is tied to a specific branch (one branch = one session)
 
 ### 1.3 Success Metrics
 
-| Metric | Target |
-|--------|--------|
-| Sessions can run in parallel without conflicts | 100% |
-| Session startup time (excluding npm install) | < 5 seconds |
-| Disk overhead per session (excluding node_modules) | < 50MB |
-| User-reported data loss incidents | 0 |
+| Metric                                             | Target      |
+| -------------------------------------------------- | ----------- |
+| Sessions can run in parallel without conflicts     | 100%        |
+| Session startup time (excluding npm install)       | < 5 seconds |
+| Disk overhead per session (excluding node_modules) | < 50MB      |
+| User-reported data loss incidents                  | 0           |
 
 ---
 
@@ -60,12 +63,15 @@ Leverage Git worktrees to create isolated working directories for each session. 
 ### 2.1 Primary Use Cases
 
 **US-1: Parallel Feature Development**
+
 > As a developer, I want to start a new Copilot session on a feature branch while another session is working on a different branch, so I can context-switch between tasks without losing progress.
 
 **US-2: Isolated Experimentation**
+
 > As a developer, I want to experiment with a risky refactor in an isolated session, so I can easily discard it without affecting my main working directory.
 
 **US-3: Long-Running Sessions**
+
 > As a developer, I want to leave a session open for a multi-day feature, while still being able to do quick fixes on other branches in separate sessions.
 
 ### 2.2 Out of Scope (v1)
@@ -83,60 +89,60 @@ Leverage Git worktrees to create isolated working directories for each session. 
 
 #### 3.1.1 Session Creation
 
-| Requirement | Description |
-|-------------|-------------|
-| **FR-1.1** | When user starts a session specifying a branch, system SHALL create a git worktree for that branch |
-| **FR-1.2** | Worktree SHALL be created at `~/.copilot-sessions/<repo-name>--<branch-name>/` |
-| **FR-1.3** | If branch does not exist, system SHALL create it based on current HEAD of main/master |
-| **FR-1.4** | If branch exists, system SHALL check it out in the new worktree |
-| **FR-1.5** | System SHALL detect if branch is already checked out in another worktree and reject with clear error |
-| **FR-1.6** | System SHALL change working directory to the new worktree |
+| Requirement | Description                                                                                          |
+| ----------- | ---------------------------------------------------------------------------------------------------- |
+| **FR-1.1**  | When user starts a session specifying a branch, system SHALL create a git worktree for that branch   |
+| **FR-1.2**  | Worktree SHALL be created at `~/.copilot-sessions/<repo-name>--<branch-name>/`                       |
+| **FR-1.3**  | If branch does not exist, system SHALL create it based on current HEAD of main/master                |
+| **FR-1.4**  | If branch exists, system SHALL check it out in the new worktree                                      |
+| **FR-1.5**  | System SHALL detect if branch is already checked out in another worktree and reject with clear error |
+| **FR-1.6**  | System SHALL change working directory to the new worktree                                            |
 
 #### 3.1.2 Session Active State
 
-| Requirement | Description |
-|-------------|-------------|
-| **FR-2.1** | All file operations SHALL occur within the worktree directory |
-| **FR-2.2** | Git commands SHALL operate on the worktree's branch |
-| **FR-2.3** | System SHALL track session metadata (start time, repo, branch) in `~/.copilot-sessions/sessions.json` |
-| **FR-2.4** | User MAY commit and push changes at any time |
+| Requirement | Description                                                                                           |
+| ----------- | ----------------------------------------------------------------------------------------------------- |
+| **FR-2.1**  | All file operations SHALL occur within the worktree directory                                         |
+| **FR-2.2**  | Git commands SHALL operate on the worktree's branch                                                   |
+| **FR-2.3**  | System SHALL track session metadata (start time, repo, branch) in `~/.copilot-sessions/sessions.json` |
+| **FR-2.4**  | User MAY commit and push changes at any time                                                          |
 
 #### 3.1.3 Session Termination
 
-| Requirement | Description |
-|-------------|-------------|
-| **FR-3.1** | On graceful session end, system SHALL prompt user: "Commit changes? Push? Discard?" |
-| **FR-3.2** | If user chooses to keep changes, system SHALL ensure changes are committed |
-| **FR-3.3** | System SHALL remove worktree via `git worktree remove <path>` |
-| **FR-3.4** | System SHALL update `sessions.json` to mark session as closed |
-| **FR-3.5** | System SHALL NOT delete the branch (user may want to continue later) |
+| Requirement | Description                                                                         |
+| ----------- | ----------------------------------------------------------------------------------- |
+| **FR-3.1**  | On graceful session end, system SHALL prompt user: "Commit changes? Push? Discard?" |
+| **FR-3.2**  | If user chooses to keep changes, system SHALL ensure changes are committed          |
+| **FR-3.3**  | System SHALL remove worktree via `git worktree remove <path>`                       |
+| **FR-3.4**  | System SHALL update `sessions.json` to mark session as closed                       |
+| **FR-3.5**  | System SHALL NOT delete the branch (user may want to continue later)                |
 
 #### 3.1.4 Session Recovery
 
-| Requirement | Description |
-|-------------|-------------|
-| **FR-4.1** | On startup, system SHALL check for orphaned worktrees (session crashed) |
-| **FR-4.2** | For orphaned sessions with uncommitted changes, system SHALL prompt: "Recover session <branch>?" |
-| **FR-4.3** | System SHALL provide command to list all active sessions: `copilot sessions list` |
-| **FR-4.4** | System SHALL provide command to clean up stale sessions: `copilot sessions prune` |
+| Requirement | Description                                                                                      |
+| ----------- | ------------------------------------------------------------------------------------------------ |
+| **FR-4.1**  | On startup, system SHALL check for orphaned worktrees (session crashed)                          |
+| **FR-4.2**  | For orphaned sessions with uncommitted changes, system SHALL prompt: "Recover session <branch>?" |
+| **FR-4.3**  | System SHALL provide command to list all active sessions: `copilot sessions list`                |
+| **FR-4.4**  | System SHALL provide command to clean up stale sessions: `copilot sessions prune`                |
 
 ### 3.2 Dependency Management
 
-| Requirement | Description |
-|-------------|-------------|
-| **FR-5.1** | System SHALL install dependencies in the worktree if `package.json` (or equivalent) exists |
-| **FR-5.2** | On macOS (APFS), system SHOULD use copy-on-write (`cp -c`) to clone `node_modules` from main repo |
-| **FR-5.3** | If CoW not available, system SHALL run standard `npm install` / `yarn` / `pnpm install` |
-| **FR-5.4** | System SHALL detect package manager from lockfile (package-lock.json → npm, yarn.lock → yarn, pnpm-lock.yaml → pnpm) |
+| Requirement | Description                                                                                                          |
+| ----------- | -------------------------------------------------------------------------------------------------------------------- |
+| **FR-5.1**  | System SHALL install dependencies in the worktree if `package.json` (or equivalent) exists                           |
+| **FR-5.2**  | On macOS (APFS), system SHOULD use copy-on-write (`cp -c`) to clone `node_modules` from main repo                    |
+| **FR-5.3**  | If CoW not available, system SHALL run standard `npm install` / `yarn` / `pnpm install`                              |
+| **FR-5.4**  | System SHALL detect package manager from lockfile (package-lock.json → npm, yarn.lock → yarn, pnpm-lock.yaml → pnpm) |
 
 ### 3.3 User Interface
 
-| Requirement | Description |
-|-------------|-------------|
-| **FR-6.1** | Session prompt SHALL indicate current branch and that it's a worktree session |
-| **FR-6.2** | `copilot sessions list` SHALL display: branch name, repo, created date, status, disk usage |
-| **FR-6.3** | `copilot sessions switch <branch>` SHALL allow switching between existing sessions |
-| **FR-6.4** | Tab completion SHALL work for branch names in session commands |
+| Requirement | Description                                                                                |
+| ----------- | ------------------------------------------------------------------------------------------ |
+| **FR-6.1**  | Session prompt SHALL indicate current branch and that it's a worktree session              |
+| **FR-6.2**  | `copilot sessions list` SHALL display: branch name, repo, created date, status, disk usage |
+| **FR-6.3**  | `copilot sessions switch <branch>` SHALL allow switching between existing sessions         |
+| **FR-6.4**  | Tab completion SHALL work for branch names in session commands                             |
 
 ---
 
@@ -144,37 +150,37 @@ Leverage Git worktrees to create isolated working directories for each session. 
 
 ### 4.1 Performance
 
-| Requirement | Target |
-|-------------|--------|
-| **NFR-1.1** | Worktree creation (excluding deps) | < 3 seconds |
-| **NFR-1.2** | Worktree removal | < 1 second |
-| **NFR-1.3** | Session list command | < 500ms |
+| Requirement | Target                                 |
+| ----------- | -------------------------------------- | ----------- |
+| **NFR-1.1** | Worktree creation (excluding deps)     | < 3 seconds |
+| **NFR-1.2** | Worktree removal                       | < 1 second  |
+| **NFR-1.3** | Session list command                   | < 500ms     |
 | **NFR-1.4** | CoW node_modules copy (when available) | < 5 seconds |
 
 ### 4.2 Reliability
 
-| Requirement | Description |
-|-------------|-------------|
+| Requirement | Description                                                                |
+| ----------- | -------------------------------------------------------------------------- |
 | **NFR-2.1** | System SHALL NOT lose uncommitted changes on crash—they remain in worktree |
-| **NFR-2.2** | System SHALL handle git lock files gracefully (retry with backoff) |
-| **NFR-2.3** | System SHALL validate worktree integrity before operations |
+| **NFR-2.2** | System SHALL handle git lock files gracefully (retry with backoff)         |
+| **NFR-2.3** | System SHALL validate worktree integrity before operations                 |
 
 ### 4.3 Disk Management
 
-| Requirement | Description |
-|-------------|-------------|
-| **NFR-3.1** | System SHALL warn if disk space < 1GB before creating new session |
+| Requirement | Description                                                               |
+| ----------- | ------------------------------------------------------------------------- |
+| **NFR-3.1** | System SHALL warn if disk space < 1GB before creating new session         |
 | **NFR-3.2** | `sessions prune` SHALL remove worktrees older than 30 days (configurable) |
-| **NFR-3.3** | System SHALL track and display per-session disk usage |
+| **NFR-3.3** | System SHALL track and display per-session disk usage                     |
 
 ### 4.4 Compatibility
 
-| Requirement | Description |
-|-------------|-------------|
-| **NFR-4.1** | SHALL support Git 2.20+ (worktree features stabilized) |
-| **NFR-4.2** | SHALL work on macOS, Linux, Windows (WSL) |
+| Requirement | Description                                                          |
+| ----------- | -------------------------------------------------------------------- |
+| **NFR-4.1** | SHALL support Git 2.20+ (worktree features stabilized)               |
+| **NFR-4.2** | SHALL work on macOS, Linux, Windows (WSL)                            |
 | **NFR-4.3** | SHALL support repos with submodules (submodules cloned per worktree) |
-| **NFR-4.4** | SHALL work with GitHub, GitLab, Bitbucket, Azure DevOps remotes |
+| **NFR-4.4** | SHALL work with GitHub, GitLab, Bitbucket, Azure DevOps remotes      |
 
 ---
 
@@ -216,13 +222,13 @@ Leverage Git worktrees to create isolated working directories for each session. 
 
 ### 5.3 Core Commands
 
-| Command | Git Operation |
-|---------|---------------|
-| Create session | `git worktree add <path> -b <branch>` or `git worktree add <path> <existing-branch>` |
-| Remove session | `git worktree remove <path>` |
-| List sessions | `git worktree list` + `sessions.json` metadata |
-| Prune orphans | `git worktree prune` |
-| Check conflicts | `git worktree list --porcelain` (parse for branch) |
+| Command         | Git Operation                                                                        |
+| --------------- | ------------------------------------------------------------------------------------ |
+| Create session  | `git worktree add <path> -b <branch>` or `git worktree add <path> <existing-branch>` |
+| Remove session  | `git worktree remove <path>`                                                         |
+| List sessions   | `git worktree list` + `sessions.json` metadata                                       |
+| Prune orphans   | `git worktree prune`                                                                 |
+| Check conflicts | `git worktree list --porcelain` (parse for branch)                                   |
 
 ### 5.4 Dependency Optimization Flow
 
@@ -312,13 +318,13 @@ Switched back to: /Users/dev/Git/copilot-ui (main)
 
 ## 7. Error Handling
 
-| Scenario | Behavior |
-|----------|----------|
-| Branch already in use by another worktree | Error: "Branch 'X' is already checked out in session at <path>. Use `copilot sessions switch X` to switch to it." |
-| Git version too old | Error: "Git 2.20+ required for worktree support. Found: 2.17. Please upgrade." |
-| Disk space low | Warning: "Low disk space (450MB free). Session may fail if dependencies are large. Continue? [y/N]" |
-| Worktree creation fails | Error with git output, suggest: "Try `git worktree prune` to clean up stale references." |
-| Main repo has uncommitted changes when creating session | Warning: "Main repo has uncommitted changes. They will NOT be in new session. Continue? [y/N]" |
+| Scenario                                                | Behavior                                                                                                          |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Branch already in use by another worktree               | Error: "Branch 'X' is already checked out in session at <path>. Use `copilot sessions switch X` to switch to it." |
+| Git version too old                                     | Error: "Git 2.20+ required for worktree support. Found: 2.17. Please upgrade."                                    |
+| Disk space low                                          | Warning: "Low disk space (450MB free). Session may fail if dependencies are large. Continue? [y/N]"               |
+| Worktree creation fails                                 | Error with git output, suggest: "Try `git worktree prune` to clean up stale references."                          |
+| Main repo has uncommitted changes when creating session | Warning: "Main repo has uncommitted changes. They will NOT be in new session. Continue? [y/N]"                    |
 
 ---
 
@@ -344,11 +350,11 @@ Users may configure via `~/.copilot/config.json`:
 
 ### 9.1 Rollout Phases
 
-| Phase | Scope | Timeline |
-|-------|-------|----------|
-| **Alpha** | Internal team testing | Week 1-2 |
-| **Beta** | Opt-in via feature flag | Week 3-4 |
-| **GA** | Default for new sessions | Week 5+ |
+| Phase     | Scope                    | Timeline |
+| --------- | ------------------------ | -------- |
+| **Alpha** | Internal team testing    | Week 1-2 |
+| **Beta**  | Opt-in via feature flag  | Week 3-4 |
+| **GA**    | Default for new sessions | Week 5+  |
 
 ### 9.2 Feature Flag
 
@@ -366,14 +372,14 @@ COPILOT_WORKTREE_SESSIONS=1 copilot start --branch my-feature
 
 ## 10. Future Considerations (v2+)
 
-| Feature | Description |
-|---------|-------------|
-| **Session templates** | Pre-configure branches with specific settings |
-| **Session sharing** | Export/import session state for collaboration |
-| **Auto-sync** | Automatically rebase on main branch updates |
-| **Cloud backup** | Persist session state to cloud for cross-machine access |
-| **Sparse checkout** | Combine with sparse-checkout for large monorepos |
-| **Containerized sessions** | Run each session in isolated container with deps |
+| Feature                    | Description                                             |
+| -------------------------- | ------------------------------------------------------- |
+| **Session templates**      | Pre-configure branches with specific settings           |
+| **Session sharing**        | Export/import session state for collaboration           |
+| **Auto-sync**              | Automatically rebase on main branch updates             |
+| **Cloud backup**           | Persist session state to cloud for cross-machine access |
+| **Sparse checkout**        | Combine with sparse-checkout for large monorepos        |
+| **Containerized sessions** | Run each session in isolated container with deps        |
 
 ---
 

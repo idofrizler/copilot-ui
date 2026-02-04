@@ -56,6 +56,7 @@ Click "Add to Message" and the terminal's output buffer gets attached to your ne
 ### Windows Additional Requirements
 
 Windows requires additional build tools for native modules:
+
 - **Python 3.x** (for node-gyp)
 - **Visual Studio Build Tools 2022** with C++ workload (Spectre libraries not required - automatically patched)
 - **PowerShell 7+** (for running scripts)
@@ -74,21 +75,25 @@ This installs Windows prerequisites and npm dependencies automatically. After ru
 <summary><b>Manual Windows Setup (if automated script fails)</b></summary>
 
 1. **Install PowerShell 7+:**
+
    ```powershell
    winget install Microsoft.PowerShell
    ```
 
 2. **Install Python:**
+
    ```powershell
    winget install Python.Python.3.12
    ```
 
 3. **Install Visual Studio Build Tools:**
+
    ```powershell
    winget install Microsoft.VisualStudio.2022.BuildTools --silent --override "--wait --quiet --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
    ```
 
 4. **Set PowerShell execution policy:**
+
    ```powershell
    Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
    ```
@@ -103,8 +108,9 @@ If you're using an AI coding agent: **tell it to clone this repo, install deps, 
 
 Suggested prompt:
 
-> Clone `https://github.com/idofrizler/copilot-ui.git`, install dependencies, and build a signed/unsigned installer for my OS.  
-> - macOS: output a `.dmg`  
+> Clone `https://github.com/idofrizler/copilot-ui.git`, install dependencies, and build a signed/unsigned installer for my OS.
+>
+> - macOS: output a `.dmg`
 > - Windows: output an `.exe`
 
 ### macOS (build a DMG)
@@ -144,7 +150,6 @@ npm run build
 This app uses the official [GitHub Copilot SDK](https://www.npmjs.com/package/@github/copilot-sdk) to communicate directly with GitHub Copilot. It creates a native Electron window with a React-based chat interface.
 
 The SDK uses your existing GitHub authentication (via `gh` CLI) to authenticate requests.
-
 
 ## License
 

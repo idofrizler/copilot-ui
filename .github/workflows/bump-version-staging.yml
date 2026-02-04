@@ -44,11 +44,11 @@ jobs:
         run: |
           current_version=$(node -p "require('./package.json').version.split('+')[0].split('-')[0]")
           echo "Current version: $current_version"
-          
+
           IFS='.' read -r major minor patch <<< "$current_version"
-          
+
           bump_type="${{ github.event.inputs.version_bump }}"
-          
+
           case $bump_type in
             major)
               new_version="$((major + 1)).0.0"
@@ -60,7 +60,7 @@ jobs:
               new_version="$major.$minor.$((patch + 1))"
               ;;
           esac
-          
+
           echo "New version: $new_version"
           echo "new_version=$new_version" >> $GITHUB_OUTPUT
 
@@ -74,5 +74,5 @@ jobs:
           git add package.json package-lock.json
           git commit -m "chore: bump version to $new_version [skip ci]"
           git push
-          
+
           echo "✅ Version bumped to $new_version on staging"

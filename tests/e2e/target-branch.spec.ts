@@ -1,15 +1,15 @@
-import { test, expect, _electron as electron, ElectronApplication, Page } from '@playwright/test'
-import path from 'path'
-import fs from 'fs'
+import { test, expect, _electron as electron, ElectronApplication, Page } from '@playwright/test';
+import path from 'path';
+import fs from 'fs';
 
-let electronApp: ElectronApplication
-let window: Page
+let electronApp: ElectronApplication;
+let window: Page;
 
-const screenshotDir = path.join(__dirname, '../../evidence/screenshots')
+const screenshotDir = path.join(__dirname, '../../evidence/screenshots');
 
 // Ensure screenshot directory exists
 if (!fs.existsSync(screenshotDir)) {
-  fs.mkdirSync(screenshotDir, { recursive: true })
+  fs.mkdirSync(screenshotDir, { recursive: true });
 }
 
 test.beforeAll(async () => {
@@ -20,51 +20,51 @@ test.beforeAll(async () => {
       ...process.env,
       NODE_ENV: 'test',
     },
-  })
-  
+  });
+
   // Wait for the first window
-  window = await electronApp.firstWindow()
-  
+  window = await electronApp.firstWindow();
+
   // Wait for app to be ready
-  await window.waitForLoadState('domcontentloaded')
-  await window.waitForTimeout(3000)
-})
+  await window.waitForLoadState('domcontentloaded');
+  await window.waitForTimeout(3000);
+});
 
 test.afterAll(async () => {
-  await electronApp?.close()
-})
+  await electronApp?.close();
+});
 
 test.describe('Target Branch Selector Feature - Issue #110', () => {
   test('01 - App loads with sidebar showing Git Branch section', async () => {
-    await window.screenshot({ 
+    await window.screenshot({
       path: path.join(screenshotDir, 'target-branch-01-app-initial.png'),
-      fullPage: true 
-    })
-    const title = await window.title()
-    expect(title).toBeTruthy()
-  })
+      fullPage: true,
+    });
+    const title = await window.title();
+    expect(title).toBeTruthy();
+  });
 
   test('02 - Show Edited Files section', async () => {
     // Click on Edited Files to expand
-    const editedFilesButton = window.locator('button:has-text("Edited Files")')
-    const isVisible = await editedFilesButton.isVisible().catch(() => false)
+    const editedFilesButton = window.locator('button:has-text("Edited Files")');
+    const isVisible = await editedFilesButton.isVisible().catch(() => false);
     if (isVisible) {
-      await editedFilesButton.click()
-      await window.waitForTimeout(500)
+      await editedFilesButton.click();
+      await window.waitForTimeout(500);
     }
-    
-    await window.screenshot({ 
+
+    await window.screenshot({
       path: path.join(screenshotDir, 'target-branch-02-edited-files.png'),
-      fullPage: true 
-    })
-  })
+      fullPage: true,
+    });
+  });
 
   test('03 - Render SearchableBranchSelect component via injection', async () => {
     // Inject a standalone test version of the SearchableBranchSelect component
     await window.evaluate(() => {
       // Create a test container div
-      const testContainer = document.createElement('div')
-      testContainer.id = 'test-searchable-branch-select'
+      const testContainer = document.createElement('div');
+      testContainer.id = 'test-searchable-branch-select';
       testContainer.style.cssText = `
         position: fixed;
         top: 50%;
@@ -77,8 +77,8 @@ test.describe('Target Branch Selector Feature - Issue #110', () => {
         box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
         min-width: 400px;
         border: 1px solid #333;
-      `
-      
+      `;
+
       // Create HTML structure that mimics the SearchableBranchSelect component
       testContainer.innerHTML = `
         <div style="color: #fff; font-family: system-ui, -apple-system, sans-serif;">
@@ -149,22 +149,22 @@ test.describe('Target Branch Selector Feature - Issue #110', () => {
             ✓ Selection persists across sessions per repository
           </p>
         </div>
-      `
-      
-      document.body.appendChild(testContainer)
-    })
-    
-    await window.waitForTimeout(500)
-    await window.screenshot({ 
+      `;
+
+      document.body.appendChild(testContainer);
+    });
+
+    await window.waitForTimeout(500);
+    await window.screenshot({
       path: path.join(screenshotDir, 'target-branch-03-component-dropdown.png'),
-      fullPage: true 
-    })
-  })
+      fullPage: true,
+    });
+  });
 
   test('04 - Show component with selected branch', async () => {
     // Update the injected component to show a selected state
     await window.evaluate(() => {
-      const container = document.getElementById('test-searchable-branch-select')
+      const container = document.getElementById('test-searchable-branch-select');
       if (container) {
         container.innerHTML = `
           <div style="color: #fff; font-family: system-ui, -apple-system, sans-serif;">
@@ -192,23 +192,23 @@ test.describe('Target Branch Selector Feature - Issue #110', () => {
               ✓ Will create PR targeting: develop
             </p>
           </div>
-        `
+        `;
       }
-    })
-    
-    await window.waitForTimeout(300)
-    await window.screenshot({ 
+    });
+
+    await window.waitForTimeout(300);
+    await window.screenshot({
       path: path.join(screenshotDir, 'target-branch-04-branch-selected.png'),
-      fullPage: true 
-    })
-  })
+      fullPage: true,
+    });
+  });
 
   test('05 - Show commit modal mockup with target branch', async () => {
     // Create a full commit modal mockup showing the target branch selector
     await window.evaluate(() => {
-      const container = document.getElementById('test-searchable-branch-select')
+      const container = document.getElementById('test-searchable-branch-select');
       if (container) {
-        container.style.minWidth = '500px'
+        container.style.minWidth = '500px';
         container.innerHTML = `
           <div style="color: #fff; font-family: system-ui, -apple-system, sans-serif;">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
@@ -289,28 +289,28 @@ test.describe('Target Branch Selector Feature - Issue #110', () => {
               <button style="padding: 10px 20px; background: #3b82f6; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-weight: 500;">Commit & Create PR</button>
             </div>
           </div>
-        `
+        `;
       }
-    })
-    
-    await window.waitForTimeout(300)
-    await window.screenshot({ 
+    });
+
+    await window.waitForTimeout(300);
+    await window.screenshot({
       path: path.join(screenshotDir, 'target-branch-05-commit-modal.png'),
-      fullPage: true 
-    })
-  })
+      fullPage: true,
+    });
+  });
 
   test('06 - Clean up injected component', async () => {
     await window.evaluate(() => {
-      const container = document.getElementById('test-searchable-branch-select')
+      const container = document.getElementById('test-searchable-branch-select');
       if (container) {
-        container.remove()
+        container.remove();
       }
-    })
-    
-    await window.screenshot({ 
+    });
+
+    await window.screenshot({
       path: path.join(screenshotDir, 'target-branch-06-cleanup.png'),
-      fullPage: true 
-    })
-  })
-})
+      fullPage: true,
+    });
+  });
+});

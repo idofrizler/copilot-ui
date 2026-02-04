@@ -1,2 +1,2 @@
-export * from './WindowControls'
-export { default } from './WindowControls'
+export * from './WindowControls';
+export { default } from './WindowControls';

@@ -1,2 +1,2 @@
-export { SearchableBranchSelect } from './SearchableBranchSelect'
-export type { SearchableBranchSelectProps } from './SearchableBranchSelect'
+export { SearchableBranchSelect } from './SearchableBranchSelect';
+export type { SearchableBranchSelectProps } from './SearchableBranchSelect';

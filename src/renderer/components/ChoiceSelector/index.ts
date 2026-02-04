@@ -1,2 +1,2 @@
-export { ChoiceSelector } from './ChoiceSelector'
-export { default } from './ChoiceSelector'
+export { ChoiceSelector } from './ChoiceSelector';
+export { default } from './ChoiceSelector';

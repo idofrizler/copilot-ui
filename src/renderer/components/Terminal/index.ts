@@ -1,2 +1,2 @@
-export { TerminalPanel } from './TerminalPanel'
-export { TerminalOutputShrinkModal } from './TerminalOutputShrinkModal'
+export { TerminalPanel } from './TerminalPanel';
+export { TerminalOutputShrinkModal } from './TerminalOutputShrinkModal';

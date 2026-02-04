@@ -10,7 +10,12 @@ vi.mock('@microsoft/clarity', () => ({
 }));
 
 import Clarity from '@microsoft/clarity';
-import { initTelemetry, trackEvent, setTag, TelemetryEvents } from '../../src/renderer/utils/telemetry';
+import {
+  initTelemetry,
+  trackEvent,
+  setTag,
+  TelemetryEvents,
+} from '../../src/renderer/utils/telemetry';
 
 describe('Telemetry Module', () => {
   beforeEach(() => {

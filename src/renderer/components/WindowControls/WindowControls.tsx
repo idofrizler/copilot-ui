@@ -1,14 +1,14 @@
-import React from 'react'
+import React from 'react';
 
 export interface WindowControlsProps {
   /** Additional CSS classes */
-  className?: string
+  className?: string;
   /** Callback when close is clicked (optional, defaults to window.electronAPI.window.close) */
-  onClose?: () => void
+  onClose?: () => void;
   /** Callback when minimize is clicked (optional, defaults to window.electronAPI.window.minimize) */
-  onMinimize?: () => void
+  onMinimize?: () => void;
   /** Callback when maximize is clicked (optional, defaults to window.electronAPI.window.maximize) */
-  onMaximize?: () => void
+  onMaximize?: () => void;
 }
 
 export const WindowControls: React.FC<WindowControlsProps> = ({
@@ -19,27 +19,27 @@ export const WindowControls: React.FC<WindowControlsProps> = ({
 }) => {
   const handleClose = () => {
     if (onClose) {
-      onClose()
+      onClose();
     } else {
-      window.electronAPI.window.close()
+      window.electronAPI.window.close();
     }
-  }
+  };
 
   const handleMinimize = () => {
     if (onMinimize) {
-      onMinimize()
+      onMinimize();
     } else {
-      window.electronAPI.window.minimize()
+      window.electronAPI.window.minimize();
     }
-  }
+  };
 
   const handleMaximize = () => {
     if (onMaximize) {
-      onMaximize()
+      onMaximize();
     } else {
-      window.electronAPI.window.maximize()
+      window.electronAPI.window.maximize();
     }
-  }
+  };
 
   return (
     <div className={`flex items-center gap-1.5 no-drag ${className}`}>
@@ -59,7 +59,7 @@ export const WindowControls: React.FC<WindowControlsProps> = ({
         aria-label="Maximize window"
       />
     </div>
-  )
-}
+  );
+};
 
-export default WindowControls
+export default WindowControls;

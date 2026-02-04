@@ -8,21 +8,21 @@
   --copilot-bg: rgba(30, 30, 30, 0.85);
   --copilot-surface: rgba(45, 45, 45, 0.9);
   --copilot-surface-hover: rgba(55, 55, 55, 0.9);
-  
+
   /* Borders */
   --copilot-border: rgba(70, 70, 70, 0.5);
   --copilot-border-hover: rgba(90, 90, 90, 0.6);
-  
+
   /* Accent colors */
   --copilot-accent: #58a6ff;
   --copilot-accent-hover: #79b8ff;
   --copilot-accent-muted: rgba(88, 166, 255, 0.25);
-  
+
   /* Text colors */
   --copilot-text: #e6edf3;
   --copilot-text-muted: #8b949e;
   --copilot-text-inverse: #1e1e1e;
-  
+
   /* Status colors */
   --copilot-success: #3fb950;
   --copilot-success-muted: rgba(63, 185, 80, 0.4);
@@ -30,18 +30,18 @@
   --copilot-warning-muted: rgba(210, 153, 34, 0.4);
   --copilot-error: #f85149;
   --copilot-error-muted: rgba(248, 81, 73, 0.4);
-  
+
   /* Scrollbar */
   --copilot-scrollbar-thumb: rgba(139, 148, 158, 0.3);
   --copilot-scrollbar-thumb-hover: rgba(139, 148, 158, 0.5);
-  
+
   /* Selection */
   --copilot-selection: rgba(88, 166, 255, 0.3);
-  
+
   /* Shadows */
   --copilot-shadow: rgba(0, 0, 0, 0.2);
   --copilot-shadow-strong: rgba(0, 0, 0, 0.4);
-  
+
   /* Terminal */
   --copilot-terminal-bg: transparent;
   --copilot-terminal-text: #e6edf3;
@@ -53,12 +53,13 @@ html,
 html *,
 html *::before,
 html *::after {
-  transition: background-color 150ms ease, 
-              border-color 150ms ease, 
-              color 150ms ease,
-              box-shadow 150ms ease,
-              fill 150ms ease,
-              stroke 150ms ease;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    box-shadow 150ms ease,
+    fill 150ms ease,
+    stroke 150ms ease;
 }
 
 /* Disable transitions on page load */
@@ -76,11 +77,15 @@ html.no-transitions *::after {
   box-sizing: border-box;
 }
 
-html, body, #root {
+html,
+body,
+#root {
   height: 100%;
   width: 100%;
   overflow: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell',
+    sans-serif;
   background: transparent;
   color: var(--copilot-text);
 }
@@ -167,7 +172,8 @@ kbd {
 
 /* Status glow animation */
 @keyframes status-glow {
-  0%, 100% {
+  0%,
+  100% {
     box-shadow: 0 0 4px var(--copilot-success-muted);
   }
   50% {
@@ -199,7 +205,7 @@ button,
 
 /* Window shadow when focused */
 #root > div {
-  box-shadow: 
+  box-shadow:
     0 0 0 1px var(--copilot-border),
     0 8px 32px var(--copilot-shadow-strong),
     0 2px 8px var(--copilot-shadow);
@@ -239,25 +245,27 @@ button,
  */
 .ascii-diagram {
   /* Font stack prioritizing fonts with good box-drawing character support */
-  font-family: 'SF Mono', 'Menlo', 'Monaco', 'Cascadia Code', 'Consolas', 'DejaVu Sans Mono', 'Liberation Mono', monospace !important;
-  
+  font-family:
+    'SF Mono', 'Menlo', 'Monaco', 'Cascadia Code', 'Consolas', 'DejaVu Sans Mono',
+    'Liberation Mono', monospace !important;
+
   /* Tight line-height ensures vertical lines (│) align across rows */
   line-height: 1.2 !important;
-  
+
   /* Zero letter-spacing prevents gaps in horizontal lines (─) */
   letter-spacing: 0 !important;
-  
+
   /* Preserve exact whitespace for proper alignment */
   white-space: pre !important;
-  
+
   /* Prevent any text rendering optimizations that might affect alignment */
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  
+
   /* Ensure consistent sizing */
   font-size: inherit;
-  
+
   /* Prevent word wrapping which would break diagrams */
   word-wrap: normal;
   overflow-wrap: normal;

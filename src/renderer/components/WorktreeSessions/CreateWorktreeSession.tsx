@@ -1,174 +1,189 @@
-import React, { useState, useEffect } from 'react'
-import { Modal } from '../Modal'
-import { Button } from '../Button'
-import { Spinner } from '../Spinner'
-import { RalphIcon, LisaIcon, ChevronDownIcon, ChevronRightIcon } from '../Icons/Icons'
+import React, { useState, useEffect } from 'react';
+import { Modal } from '../Modal';
+import { Button } from '../Button';
+import { Spinner } from '../Spinner';
+import { RalphIcon, LisaIcon, ChevronDownIcon, ChevronRightIcon } from '../Icons/Icons';
 
 export interface IssueComment {
-  body: string
-  user: { login: string }
-  created_at: string
+  body: string;
+  user: { login: string };
+  created_at: string;
 }
 
 export interface IssueInfo {
-  url: string
-  title: string
-  body: string | null
-  comments?: IssueComment[]
+  url: string;
+  title: string;
+  body: string | null;
+  comments?: IssueComment[];
 }
 
 interface CreateWorktreeSessionProps {
-  isOpen: boolean
-  onClose: () => void
-  repoPath: string
-  onSessionCreated: (worktreePath: string, branch: string, autoStart?: { issueInfo: IssueInfo; useRalphWiggum?: boolean; ralphMaxIterations?: number; useLisaSimpson?: boolean }) => void
+  isOpen: boolean;
+  onClose: () => void;
+  repoPath: string;
+  onSessionCreated: (
+    worktreePath: string,
+    branch: string,
+    autoStart?: {
+      issueInfo: IssueInfo;
+      useRalphWiggum?: boolean;
+      ralphMaxIterations?: number;
+      useLisaSimpson?: boolean;
+    }
+  ) => void;
 }
 
 export const CreateWorktreeSession: React.FC<CreateWorktreeSessionProps> = ({
   isOpen,
   onClose,
   repoPath,
-  onSessionCreated
+  onSessionCreated,
 }) => {
-  const [branch, setBranch] = useState('')
-  const [issueUrl, setIssueUrl] = useState('')
-  const [isCreating, setIsCreating] = useState(false)
-  const [isFetchingIssue, setIsFetchingIssue] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [gitSupported, setGitSupported] = useState<boolean | null>(null)
-  const [gitVersion, setGitVersion] = useState<string>('')
-  const [issueTitle, setIssueTitle] = useState<string | null>(null)
-  const [issueBody, setIssueBody] = useState<string | null>(null)
-  const [issueComments, setIssueComments] = useState<IssueComment[] | undefined>(undefined)
-  const [autoStart, setAutoStart] = useState(false)
-  const [useRalphWiggum, setUseRalphWiggum] = useState(false)
-  const [ralphMaxIterations, setRalphMaxIterations] = useState(5)
-  const [useLisaSimpson, setUseLisaSimpson] = useState(false)
-  const [showIssueSection, setShowIssueSection] = useState(false)
+  const [branch, setBranch] = useState('');
+  const [issueUrl, setIssueUrl] = useState('');
+  const [isCreating, setIsCreating] = useState(false);
+  const [isFetchingIssue, setIsFetchingIssue] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [gitSupported, setGitSupported] = useState<boolean | null>(null);
+  const [gitVersion, setGitVersion] = useState<string>('');
+  const [issueTitle, setIssueTitle] = useState<string | null>(null);
+  const [issueBody, setIssueBody] = useState<string | null>(null);
+  const [issueComments, setIssueComments] = useState<IssueComment[] | undefined>(undefined);
+  const [autoStart, setAutoStart] = useState(false);
+  const [useRalphWiggum, setUseRalphWiggum] = useState(false);
+  const [ralphMaxIterations, setRalphMaxIterations] = useState(5);
+  const [useLisaSimpson, setUseLisaSimpson] = useState(false);
+  const [showIssueSection, setShowIssueSection] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
-      setBranch('')
-      setIssueUrl('')
-      setError(null)
-      setIssueTitle(null)
-      setIssueBody(null)
-      setIssueComments(undefined)
-      setAutoStart(false)
-      setUseRalphWiggum(false)
-      setRalphMaxIterations(5)
-      setUseLisaSimpson(false)
-      setShowIssueSection(false)
-      checkGitVersion()
+      setBranch('');
+      setIssueUrl('');
+      setError(null);
+      setIssueTitle(null);
+      setIssueBody(null);
+      setIssueComments(undefined);
+      setAutoStart(false);
+      setUseRalphWiggum(false);
+      setRalphMaxIterations(5);
+      setUseLisaSimpson(false);
+      setShowIssueSection(false);
+      checkGitVersion();
     }
-  }, [isOpen])
+  }, [isOpen]);
 
   const checkGitVersion = async () => {
     try {
-      const result = await window.electronAPI.worktree.checkGitVersion()
-      setGitSupported(result.supported)
-      setGitVersion(result.version)
+      const result = await window.electronAPI.worktree.checkGitVersion();
+      setGitSupported(result.supported);
+      setGitVersion(result.version);
     } catch {
-      setGitSupported(false)
-      setGitVersion('unknown')
+      setGitSupported(false);
+      setGitVersion('unknown');
     }
-  }
+  };
 
   const handleFetchIssue = async () => {
-    if (!issueUrl.trim()) return
-    
-    setIsFetchingIssue(true)
-    setError(null)
-    setIssueTitle(null)
-    
+    if (!issueUrl.trim()) return;
+
+    setIsFetchingIssue(true);
+    setError(null);
+    setIssueTitle(null);
+
     try {
-      const url = issueUrl.trim()
-      
+      const url = issueUrl.trim();
+
       // Detect if this is a GitHub issue or Azure DevOps work item
-      const isGitHub = /github\.com\/[^/]+\/[^/]+\/issues\/\d+/.test(url)
-      const isAzureDevOps = /dev\.azure\.com\/[^/]+\/[^/]+\/_workitems\/edit\/\d+/.test(url) ||
-                           /[^.]+\.visualstudio\.com\/[^/]+\/_workitems\/edit\/\d+/.test(url)
-      
+      const isGitHub = /github\.com\/[^/]+\/[^/]+\/issues\/\d+/.test(url);
+      const isAzureDevOps =
+        /dev\.azure\.com\/[^/]+\/[^/]+\/_workitems\/edit\/\d+/.test(url) ||
+        /[^.]+\.visualstudio\.com\/[^/]+\/_workitems\/edit\/\d+/.test(url);
+
       if (isGitHub) {
-        const result = await window.electronAPI.worktree.fetchGitHubIssue(url)
+        const result = await window.electronAPI.worktree.fetchGitHubIssue(url);
         if (result.success && result.issue && result.suggestedBranch) {
-          setBranch(result.suggestedBranch)
-          setIssueTitle(result.issue.title)
-          setIssueBody(result.issue.body)
-          setIssueComments(result.issue.comments)
+          setBranch(result.suggestedBranch);
+          setIssueTitle(result.issue.title);
+          setIssueBody(result.issue.body);
+          setIssueComments(result.issue.comments);
         } else {
-          setError(result.error || 'Failed to fetch GitHub issue')
+          setError(result.error || 'Failed to fetch GitHub issue');
         }
       } else if (isAzureDevOps) {
-        const result = await window.electronAPI.worktree.fetchAzureDevOpsWorkItem(url)
+        const result = await window.electronAPI.worktree.fetchAzureDevOpsWorkItem(url);
         if (result.success && result.workItem && result.suggestedBranch) {
-          setBranch(result.suggestedBranch)
-          setIssueTitle(result.workItem.title)
-          setIssueBody(result.workItem.body)
-          setIssueComments(result.workItem.comments)
+          setBranch(result.suggestedBranch);
+          setIssueTitle(result.workItem.title);
+          setIssueBody(result.workItem.body);
+          setIssueComments(result.workItem.comments);
         } else {
-          setError(result.error || 'Failed to fetch Azure DevOps work item')
+          setError(result.error || 'Failed to fetch Azure DevOps work item');
         }
       } else {
-        setError('Unsupported URL format. Please use a GitHub issue URL or Azure DevOps work item URL')
+        setError(
+          'Unsupported URL format. Please use a GitHub issue URL or Azure DevOps work item URL'
+        );
       }
     } catch (err) {
-      setError(String(err))
+      setError(String(err));
     } finally {
-      setIsFetchingIssue(false)
+      setIsFetchingIssue(false);
     }
-  }
+  };
 
   const handleCreate = async () => {
     if (!branch.trim()) {
-      setError('Branch name is required')
-      return
+      setError('Branch name is required');
+      return;
     }
 
-    setIsCreating(true)
-    setError(null)
+    setIsCreating(true);
+    setError(null);
 
     try {
       const result = await window.electronAPI.worktree.createSession({
         repoPath,
-        branch: branch.trim()
-      })
+        branch: branch.trim(),
+      });
 
       if (result.success && result.session) {
-        const autoStartInfo = autoStart && issueTitle ? {
-          issueInfo: {
-            url: issueUrl.trim(),
-            title: issueTitle,
-            body: issueBody,
-            comments: issueComments
-          },
-          useRalphWiggum,
-          ralphMaxIterations,
-          useLisaSimpson
-        } : undefined
-        onSessionCreated(result.session.worktreePath, result.session.branch, autoStartInfo)
-        onClose()
+        const autoStartInfo =
+          autoStart && issueTitle
+            ? {
+                issueInfo: {
+                  url: issueUrl.trim(),
+                  title: issueTitle,
+                  body: issueBody,
+                  comments: issueComments,
+                },
+                useRalphWiggum,
+                ralphMaxIterations,
+                useLisaSimpson,
+              }
+            : undefined;
+        onSessionCreated(result.session.worktreePath, result.session.branch, autoStartInfo);
+        onClose();
       } else {
-        setError(result.error || 'Failed to create worktree session')
+        setError(result.error || 'Failed to create worktree session');
       }
     } catch (err) {
-      setError(String(err))
+      setError(String(err));
     } finally {
-      setIsCreating(false)
+      setIsCreating(false);
     }
-  }
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !isCreating && branch.trim()) {
-      handleCreate()
+      handleCreate();
     }
-  }
+  };
 
   const handleIssueKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !isFetchingIssue && issueUrl.trim()) {
-      handleFetchIssue()
+      handleFetchIssue();
     }
-  }
+  };
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="New Worktree Session" width="450px">
@@ -180,9 +195,7 @@ export const CreateWorktreeSession: React.FC<CreateWorktreeSessionProps> = ({
         ) : (
           <>
             <div className="mb-4">
-              <label className="block text-xs text-copilot-text-muted mb-1">
-                Repository
-              </label>
+              <label className="block text-xs text-copilot-text-muted mb-1">Repository</label>
               <div className="text-sm text-copilot-text font-mono truncate bg-copilot-bg px-2 py-1.5 rounded border border-copilot-border">
                 {repoPath}
               </div>
@@ -230,20 +243,20 @@ export const CreateWorktreeSession: React.FC<CreateWorktreeSessionProps> = ({
                           className="w-4 h-4 accent-copilot-accent"
                           disabled={isCreating}
                         />
-                        <span className="text-sm text-copilot-text">
-                          Start working immediately
-                        </span>
+                        <span className="text-sm text-copilot-text">Start working immediately</span>
                       </label>
-                      
+
                       {autoStart && (
                         <div className="mt-3 ml-6">
-                          <div className="text-xs text-copilot-text-muted mb-2">Agent Mode <span className="opacity-60">(optional)</span></div>
+                          <div className="text-xs text-copilot-text-muted mb-2">
+                            Agent Mode <span className="opacity-60">(optional)</span>
+                          </div>
                           <div className="grid grid-cols-2 gap-2">
                             <button
                               type="button"
                               onClick={() => {
-                                setUseRalphWiggum(!useRalphWiggum)
-                                if (!useRalphWiggum) setUseLisaSimpson(false)
+                                setUseRalphWiggum(!useRalphWiggum);
+                                if (!useRalphWiggum) setUseLisaSimpson(false);
                               }}
                               disabled={isCreating}
                               className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-all ${
@@ -261,8 +274,8 @@ export const CreateWorktreeSession: React.FC<CreateWorktreeSessionProps> = ({
                             <button
                               type="button"
                               onClick={() => {
-                                setUseLisaSimpson(!useLisaSimpson)
-                                if (!useLisaSimpson) setUseRalphWiggum(false)
+                                setUseLisaSimpson(!useLisaSimpson);
+                                if (!useLisaSimpson) setUseRalphWiggum(false);
                               }}
                               disabled={isCreating}
                               className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-all ${
@@ -280,11 +293,17 @@ export const CreateWorktreeSession: React.FC<CreateWorktreeSessionProps> = ({
                           </div>
                           {useRalphWiggum && (
                             <div className="mt-2 flex items-center gap-2">
-                              <span className="text-xs text-copilot-text-muted">Max iterations:</span>
+                              <span className="text-xs text-copilot-text-muted">
+                                Max iterations:
+                              </span>
                               <input
                                 type="number"
                                 value={ralphMaxIterations}
-                                onChange={(e) => setRalphMaxIterations(Math.max(1, Math.min(100, parseInt(e.target.value) || 1)))}
+                                onChange={(e) =>
+                                  setRalphMaxIterations(
+                                    Math.max(1, Math.min(100, parseInt(e.target.value) || 1))
+                                  )
+                                }
                                 className="w-14 bg-copilot-bg border border-copilot-border rounded px-2 py-1 text-xs text-copilot-text"
                                 min={1}
                                 max={100}
@@ -301,9 +320,7 @@ export const CreateWorktreeSession: React.FC<CreateWorktreeSessionProps> = ({
             </div>
 
             <div className="mb-4">
-              <label className="block text-xs text-copilot-text-muted mb-1">
-                Branch Name
-              </label>
+              <label className="block text-xs text-copilot-text-muted mb-1">Branch Name</label>
               <input
                 type="text"
                 value={branch}
@@ -323,27 +340,44 @@ export const CreateWorktreeSession: React.FC<CreateWorktreeSessionProps> = ({
               <div className="text-copilot-error text-sm mb-4 p-3 bg-copilot-error-muted rounded">
                 {(() => {
                   // Check if error contains a code block
-                  const codeBlockMatch = error.match(/```([\s\S]*?)```/)
+                  const codeBlockMatch = error.match(/```([\s\S]*?)```/);
                   if (codeBlockMatch) {
-                    const [before, after] = error.split(/```[\s\S]*?```/)
+                    const [before, after] = error.split(/```[\s\S]*?```/);
                     return (
                       <>
-                        {before.split('\n').map((line, i) => (
-                          line.trim() ? <div key={i} className="mb-1">{line}</div> : <div key={i} className="h-2" />
-                        ))}
+                        {before.split('\n').map((line, i) =>
+                          line.trim() ? (
+                            <div key={i} className="mb-1">
+                              {line}
+                            </div>
+                          ) : (
+                            <div key={i} className="h-2" />
+                          )
+                        )}
                         <pre className="bg-copilot-surface p-3 rounded text-copilot-text font-mono text-xs mt-2 mb-2 overflow-x-auto whitespace-pre">
                           {codeBlockMatch[1].trim()}
                         </pre>
-                        {after && after.split('\n').map((line, i) => (
-                          line.trim() ? <div key={`after-${i}`} className="mb-1">{line}</div> : null
-                        ))}
+                        {after &&
+                          after.split('\n').map((line, i) =>
+                            line.trim() ? (
+                              <div key={`after-${i}`} className="mb-1">
+                                {line}
+                              </div>
+                            ) : null
+                          )}
                       </>
-                    )
+                    );
                   }
                   // Fallback to simple line rendering
-                  return error.split('\n').map((line, i) => (
-                    line.trim() ? <div key={i} className="mb-1">{line}</div> : <div key={i} className="h-2" />
-                  ))
+                  return error.split('\n').map((line, i) =>
+                    line.trim() ? (
+                      <div key={i} className="mb-1">
+                        {line}
+                      </div>
+                    ) : (
+                      <div key={i} className="h-2" />
+                    )
+                  );
                 })()}
               </div>
             )}
@@ -371,7 +405,7 @@ export const CreateWorktreeSession: React.FC<CreateWorktreeSessionProps> = ({
         </Modal.Footer>
       </Modal.Body>
     </Modal>
-  )
-}
+  );
+};
 
-export default CreateWorktreeSession
+export default CreateWorktreeSession;

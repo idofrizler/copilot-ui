@@ -1,98 +1,98 @@
-import React, { useEffect, useState, useCallback } from 'react'
-import { 
-  CloseIcon, 
-  ExternalLinkIcon, 
-  ListIcon, 
-  TreeIcon, 
-  FileIcon, 
-  FolderIcon, 
+import React, { useEffect, useState, useCallback } from 'react';
+import {
+  CloseIcon,
+  ExternalLinkIcon,
+  ListIcon,
+  TreeIcon,
+  FileIcon,
+  FolderIcon,
   FolderOpenIcon,
   ChevronRightIcon,
   ArchiveIcon,
-  UnarchiveIcon
-} from '../Icons'
-import { Spinner } from '../Spinner'
+  UnarchiveIcon,
+} from '../Icons';
+import { Spinner } from '../Spinner';
 
 export interface FilePreviewModalProps {
-  isOpen: boolean
-  onClose: () => void
-  filePath: string
-  cwd?: string
-  isGitRepo?: boolean
+  isOpen: boolean;
+  onClose: () => void;
+  filePath: string;
+  cwd?: string;
+  isGitRepo?: boolean;
   // New props for full files preview overlay
-  editedFiles?: string[]
-  untrackedFiles?: string[]
-  conflictedFiles?: string[]
-  fileViewMode?: 'flat' | 'tree'
-  onUntrackFile?: (filePath: string) => void
-  onRetrackFile?: (filePath: string) => void
-  onViewModeChange?: (mode: 'flat' | 'tree') => void
+  editedFiles?: string[];
+  untrackedFiles?: string[];
+  conflictedFiles?: string[];
+  fileViewMode?: 'flat' | 'tree';
+  onUntrackFile?: (filePath: string) => void;
+  onRetrackFile?: (filePath: string) => void;
+  onViewModeChange?: (mode: 'flat' | 'tree') => void;
 }
 
 interface FileContent {
-  success: boolean
-  content?: string
-  fileSize?: number
-  fileName?: string
-  error?: string
-  errorType?: 'not_found' | 'too_large' | 'binary' | 'read_error'
+  success: boolean;
+  content?: string;
+  fileSize?: number;
+  fileName?: string;
+  error?: string;
+  errorType?: 'not_found' | 'too_large' | 'binary' | 'read_error';
 }
 
 interface FileDiff {
-  success: boolean
-  diff?: string
-  error?: string
-  isNew?: boolean
-  isModified?: boolean
-  linesAdded?: number
-  linesRemoved?: number
+  success: boolean;
+  diff?: string;
+  error?: string;
+  isNew?: boolean;
+  isModified?: boolean;
+  linesAdded?: number;
+  linesRemoved?: number;
 }
 
 // File tree node interface for tree view
 interface FileTreeNode {
-  name: string
-  path: string
-  isDirectory: boolean
-  children: FileTreeNode[]
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  children: FileTreeNode[];
 }
 
 // Build a tree structure from flat file paths
 const buildFileTree = (files: string[]): FileTreeNode[] => {
-  const root: FileTreeNode[] = []
-  const sortedFiles = [...files].sort((a, b) => a.localeCompare(b))
-  
+  const root: FileTreeNode[] = [];
+  const sortedFiles = [...files].sort((a, b) => a.localeCompare(b));
+
   for (const filePath of sortedFiles) {
-    const normalizedPath = filePath.replace(/\\/g, '/')
-    const parts = normalizedPath.split('/')
-    let currentLevel = root
-    let currentPath = ''
-    
+    const normalizedPath = filePath.replace(/\\/g, '/');
+    const parts = normalizedPath.split('/');
+    let currentLevel = root;
+    let currentPath = '';
+
     for (let i = 0; i < parts.length; i++) {
-      const part = parts[i]
-      currentPath = currentPath ? `${currentPath}/${part}` : part
-      const isLastPart = i === parts.length - 1
-      
-      let existingNode = currentLevel.find(n => n.name === part)
-      
+      const part = parts[i];
+      currentPath = currentPath ? `${currentPath}/${part}` : part;
+      const isLastPart = i === parts.length - 1;
+
+      let existingNode = currentLevel.find((n) => n.name === part);
+
       if (!existingNode) {
         const newNode: FileTreeNode = {
           name: part,
           path: isLastPart ? filePath : currentPath,
           isDirectory: !isLastPart,
           children: [],
-        }
-        currentLevel.push(newNode)
-        existingNode = newNode
+        };
+        currentLevel.push(newNode);
+        existingNode = newNode;
       }
-      
+
       if (!isLastPart) {
-        currentLevel = existingNode.children
+        currentLevel = existingNode.children;
       }
     }
   }
-  
-  return root
-}
+
+  return root;
+};
 
 export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   isOpen,
@@ -108,63 +108,63 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   onRetrackFile,
   onViewModeChange,
 }) => {
-  const [loading, setLoading] = useState(true)
-  const [fileDiff, setFileDiff] = useState<FileDiff | null>(null)
-  const [fileContent, setFileContent] = useState<FileContent | null>(null)
-  const [selectedFile, setSelectedFile] = useState<string>(initialFilePath)
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
+  const [loading, setLoading] = useState(true);
+  const [fileDiff, setFileDiff] = useState<FileDiff | null>(null);
+  const [fileContent, setFileContent] = useState<FileContent | null>(null);
+  const [selectedFile, setSelectedFile] = useState<string>(initialFilePath);
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
 
   // Determine if this is a full overlay (multiple files) or single file preview
-  const isFullOverlay = editedFiles.length > 0
+  const isFullOverlay = editedFiles.length > 0;
 
   // Initialize expanded folders when tree view is active
   useEffect(() => {
     if (fileViewMode === 'tree' && editedFiles.length > 0) {
-      const allFolders = new Set<string>()
+      const allFolders = new Set<string>();
       const collectFolders = (nodes: FileTreeNode[]) => {
         for (const node of nodes) {
           if (node.isDirectory) {
-            allFolders.add(node.path)
-            collectFolders(node.children)
+            allFolders.add(node.path);
+            collectFolders(node.children);
           }
         }
-      }
-      collectFolders(buildFileTree(editedFiles))
-      setExpandedFolders(allFolders)
+      };
+      collectFolders(buildFileTree(editedFiles));
+      setExpandedFolders(allFolders);
     }
-  }, [fileViewMode, editedFiles])
+  }, [fileViewMode, editedFiles]);
 
   // Update selected file when initial file path changes
   useEffect(() => {
     if (initialFilePath) {
-      setSelectedFile(initialFilePath)
+      setSelectedFile(initialFilePath);
     }
-  }, [initialFilePath])
+  }, [initialFilePath]);
 
   const loadFileContent = useCallback(async () => {
-    if (!selectedFile || !cwd) return
-    
-    setLoading(true)
+    if (!selectedFile || !cwd) return;
+
+    setLoading(true);
     try {
       if (isGitRepo) {
-        const result = await window.electronAPI.git.getDiff(cwd, [selectedFile])
-        
+        const result = await window.electronAPI.git.getDiff(cwd, [selectedFile]);
+
         if (result.success && result.diff) {
-          const diffLines = result.diff.split('\n')
-          let linesAdded = 0
-          let linesRemoved = 0
-          let isNew = false
-          
+          const diffLines = result.diff.split('\n');
+          let linesAdded = 0;
+          let linesRemoved = 0;
+          let isNew = false;
+
           for (const line of diffLines) {
             if (line.startsWith('new file mode')) {
-              isNew = true
+              isNew = true;
             } else if (line.startsWith('+') && !line.startsWith('+++')) {
-              linesAdded++
+              linesAdded++;
             } else if (line.startsWith('-') && !line.startsWith('---')) {
-              linesRemoved++
+              linesRemoved++;
             }
           }
-          
+
           setFileDiff({
             success: true,
             diff: result.diff,
@@ -172,142 +172,156 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
             isModified: !isNew && (linesAdded > 0 || linesRemoved > 0),
             linesAdded,
             linesRemoved,
-          })
-          setFileContent(null)
+          });
+          setFileContent(null);
         } else {
           // No diff available (e.g., untracked new file) - fall back to file content
-          const absolutePath = !filePath.startsWith('/') && !filePath.match(/^[a-zA-Z]:/)
-            ? `${cwd}/${filePath}`
-            : filePath
-          const contentResult = await window.electronAPI.file.readContent(absolutePath)
+          const absolutePath =
+            !filePath.startsWith('/') && !filePath.match(/^[a-zA-Z]:/)
+              ? `${cwd}/${filePath}`
+              : filePath;
+          const contentResult = await window.electronAPI.file.readContent(absolutePath);
           if (contentResult.success) {
-            setFileContent(contentResult)
-            setFileDiff({ success: true, isNew: true, linesAdded: contentResult.content?.split('\n').length || 0, linesRemoved: 0 })
+            setFileContent(contentResult);
+            setFileDiff({
+              success: true,
+              isNew: true,
+              linesAdded: contentResult.content?.split('\n').length || 0,
+              linesRemoved: 0,
+            });
           } else {
             setFileDiff({
               success: false,
               error: result.error || contentResult.error || 'Failed to load file',
-            })
-            setFileContent(null)
+            });
+            setFileContent(null);
           }
         }
       } else {
-        const result = await window.electronAPI.file.readContent(selectedFile)
-        setFileContent(result)
-        setFileDiff(null)
+        const result = await window.electronAPI.file.readContent(selectedFile);
+        setFileContent(result);
+        setFileDiff(null);
       }
     } catch (error) {
       if (isGitRepo) {
         setFileDiff({
           success: false,
           error: `Failed to load file diff: ${String(error)}`,
-        })
+        });
       } else {
         setFileContent({
           success: false,
           error: `Failed to load file content: ${String(error)}`,
-        })
+        });
       }
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [selectedFile, cwd, isGitRepo])
+  }, [selectedFile, cwd, isGitRepo]);
 
   useEffect(() => {
     if (isOpen && selectedFile) {
-      loadFileContent()
+      loadFileContent();
     }
-  }, [isOpen, selectedFile, loadFileContent])
+  }, [isOpen, selectedFile, loadFileContent]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {
-        onClose()
+        onClose();
       }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, onClose])
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   const handleRevealInFolder = async () => {
     try {
-      await window.electronAPI.file.revealInFolder(selectedFile)
+      await window.electronAPI.file.revealInFolder(selectedFile);
     } catch (error) {
-      console.error('Failed to reveal in folder:', error)
+      console.error('Failed to reveal in folder:', error);
     }
-  }
+  };
 
   const handleBackdropClick = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget) {
-      onClose()
+      onClose();
     }
-  }
+  };
 
   const toggleFolder = useCallback((path: string) => {
-    setExpandedFolders(prev => {
-      const newSet = new Set(prev)
+    setExpandedFolders((prev) => {
+      const newSet = new Set(prev);
       if (newSet.has(path)) {
-        newSet.delete(path)
+        newSet.delete(path);
       } else {
-        newSet.add(path)
+        newSet.add(path);
       }
-      return newSet
-    })
-  }, [])
+      return newSet;
+    });
+  }, []);
 
-  if (!isOpen) return null
+  if (!isOpen) return null;
 
-  const fileName = selectedFile?.split(/[/\\]/).pop() || selectedFile || 'No file selected'
-  const nonUntrackedFiles = editedFiles.filter(f => !untrackedFiles.includes(f))
-  const untrackedFilesInList = editedFiles.filter(f => untrackedFiles.includes(f))
+  const fileName = selectedFile?.split(/[/\\]/).pop() || selectedFile || 'No file selected';
+  const nonUntrackedFiles = editedFiles.filter((f) => !untrackedFiles.includes(f));
+  const untrackedFilesInList = editedFiles.filter((f) => untrackedFiles.includes(f));
 
   const renderDiff = (diff: string) => {
-    const lines = diff.split('\n')
+    const lines = diff.split('\n');
     return lines.map((line, index) => {
-      let className = 'font-mono text-[11px] leading-relaxed'
-      
+      let className = 'font-mono text-[11px] leading-relaxed';
+
       if (line.startsWith('+++') || line.startsWith('---')) {
-        className += ' text-copilot-text-muted font-semibold'
+        className += ' text-copilot-text-muted font-semibold';
       } else if (line.startsWith('+')) {
-        className += ' bg-green-500/10 text-green-400'
+        className += ' bg-green-500/10 text-green-400';
       } else if (line.startsWith('-')) {
-        className += ' bg-red-500/10 text-red-400'
+        className += ' bg-red-500/10 text-red-400';
       } else if (line.startsWith('@@')) {
-        className += ' text-copilot-accent font-semibold'
-      } else if (line.startsWith('diff --git') || line.startsWith('index ') || line.startsWith('new file mode')) {
-        className += ' text-copilot-text-muted text-[10px]'
+        className += ' text-copilot-accent font-semibold';
+      } else if (
+        line.startsWith('diff --git') ||
+        line.startsWith('index ') ||
+        line.startsWith('new file mode')
+      ) {
+        className += ' text-copilot-text-muted text-[10px]';
       } else {
-        className += ' text-copilot-text'
+        className += ' text-copilot-text';
       }
-      
+
       return (
         <div key={index} className={className}>
           {line || '\u00A0'}
         </div>
-      )
-    })
-  }
+      );
+    });
+  };
 
   // Render a single file item in the sidebar
   // When inTreeView=true, show only filename; when false (flat view), show full path
-  const renderFileItem = (path: string, isUntracked: boolean, paddingLeft = 12, inTreeView = false) => {
-    const name = path.split(/[/\\]/).pop() || path
-    const displayName = inTreeView ? name : path  // Show full path in flat view
-    const isSelected = selectedFile === path
-    const isConflicted = isGitRepo && conflictedFiles.some(cf => 
-      path.endsWith(cf) || cf.endsWith(name)
-    )
+  const renderFileItem = (
+    path: string,
+    isUntracked: boolean,
+    paddingLeft = 12,
+    inTreeView = false
+  ) => {
+    const name = path.split(/[/\\]/).pop() || path;
+    const displayName = inTreeView ? name : path; // Show full path in flat view
+    const isSelected = selectedFile === path;
+    const isConflicted =
+      isGitRepo && conflictedFiles.some((cf) => path.endsWith(cf) || cf.endsWith(name));
 
     return (
       <div
         key={path}
         className={`group flex items-center gap-1.5 py-1 px-2 text-[11px] cursor-pointer transition-colors ${
-          isSelected 
-            ? 'bg-copilot-accent/20 text-copilot-text' 
-            : isUntracked 
-              ? 'text-copilot-text-muted/50 hover:bg-copilot-surface' 
-              : isConflicted 
-                ? 'text-copilot-error hover:bg-copilot-surface' 
+          isSelected
+            ? 'bg-copilot-accent/20 text-copilot-text'
+            : isUntracked
+              ? 'text-copilot-text-muted/50 hover:bg-copilot-surface'
+              : isConflicted
+                ? 'text-copilot-error hover:bg-copilot-surface'
                 : 'text-copilot-text-muted hover:bg-copilot-surface hover:text-copilot-text'
         }`}
         style={{ paddingLeft }}
@@ -316,42 +330,51 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
         <FileIcon
           size={12}
           className={`shrink-0 ${
-            isUntracked 
-              ? 'text-copilot-text-muted/50' 
-              : isConflicted 
-                ? 'text-copilot-error' 
+            isUntracked
+              ? 'text-copilot-text-muted/50'
+              : isConflicted
+                ? 'text-copilot-error'
                 : 'text-copilot-success'
           }`}
         />
-        <span className={`truncate font-mono flex-1 ${isUntracked ? 'line-through' : ''}`} title={path}>
+        <span
+          className={`truncate font-mono flex-1 ${isUntracked ? 'line-through' : ''}`}
+          title={path}
+        >
           {displayName}
         </span>
         {isConflicted && <span className="text-[9px] text-copilot-error shrink-0">!</span>}
-        {isUntracked && <span className="text-[9px] text-copilot-text-muted shrink-0">(untracked)</span>}
+        {isUntracked && (
+          <span className="text-[9px] text-copilot-text-muted shrink-0">(untracked)</span>
+        )}
         {(onUntrackFile || onRetrackFile) && (
           <button
             onClick={(e) => {
-              e.stopPropagation()
+              e.stopPropagation();
               if (isUntracked && onRetrackFile) {
-                onRetrackFile(path)
+                onRetrackFile(path);
               } else if (!isUntracked && onUntrackFile) {
-                onUntrackFile(path)
+                onUntrackFile(path);
               }
             }}
             className="shrink-0 p-0.5 opacity-0 group-hover:opacity-100 text-copilot-text-muted hover:text-copilot-text transition-all"
-            title={isUntracked ? 'Retrack file (include in commit)' : 'Untrack file (exclude from commit)'}
+            title={
+              isUntracked
+                ? 'Retrack file (include in commit)'
+                : 'Untrack file (exclude from commit)'
+            }
           >
             {isUntracked ? <UnarchiveIcon size={12} /> : <ArchiveIcon size={12} />}
           </button>
         )}
       </div>
-    )
-  }
+    );
+  };
 
   // Render tree node recursively
   const renderTreeNode = (node: FileTreeNode, level: number = 0): React.ReactNode => {
-    const isExpanded = expandedFolders.has(node.path)
-    const paddingLeft = 12 + level * 16
+    const isExpanded = expandedFolders.has(node.path);
+    const paddingLeft = 12 + level * 16;
 
     if (node.isDirectory) {
       return (
@@ -372,14 +395,14 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
             )}
             <span className="truncate font-mono">{node.name}</span>
           </button>
-          {isExpanded && node.children.map(child => renderTreeNode(child, level + 1))}
+          {isExpanded && node.children.map((child) => renderTreeNode(child, level + 1))}
         </div>
-      )
+      );
     }
 
-    const isUntracked = untrackedFiles.includes(node.path)
-    return renderFileItem(node.path, isUntracked, paddingLeft, true)  // inTreeView=true
-  }
+    const isUntracked = untrackedFiles.includes(node.path);
+    return renderFileItem(node.path, isUntracked, paddingLeft, true); // inTreeView=true
+  };
 
   return (
     <div
@@ -389,10 +412,10 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
     >
       <div
         className="bg-copilot-surface border border-copilot-border rounded-lg shadow-xl flex flex-col overflow-hidden"
-        style={{ 
-          width: isFullOverlay ? '90%' : '80%', 
-          maxWidth: isFullOverlay ? '1200px' : '900px', 
-          maxHeight: '85vh' 
+        style={{
+          width: isFullOverlay ? '90%' : '80%',
+          maxWidth: isFullOverlay ? '1200px' : '900px',
+          maxHeight: '85vh',
         }}
         role="dialog"
         aria-modal="true"
@@ -408,7 +431,11 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
               </h3>
               {isFullOverlay && (
                 <span className="text-xs text-copilot-text-muted">
-                  ({nonUntrackedFiles.length} files{untrackedFilesInList.length > 0 ? `, +${untrackedFilesInList.length} untracked` : ''})
+                  ({nonUntrackedFiles.length} files
+                  {untrackedFilesInList.length > 0
+                    ? `, +${untrackedFilesInList.length} untracked`
+                    : ''}
+                  )
                 </span>
               )}
               {!isFullOverlay && (
@@ -477,14 +504,14 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                 {/* Non-untracked files */}
                 {fileViewMode === 'tree' ? (
                   <div className="py-1">
-                    {buildFileTree(nonUntrackedFiles).map(node => renderTreeNode(node))}
+                    {buildFileTree(nonUntrackedFiles).map((node) => renderTreeNode(node))}
                   </div>
                 ) : (
                   <div className="py-1">
-                    {nonUntrackedFiles.map(path => renderFileItem(path, false, 12, false))}
+                    {nonUntrackedFiles.map((path) => renderFileItem(path, false, 12, false))}
                   </div>
                 )}
-                
+
                 {/* Untracked files section */}
                 {untrackedFilesInList.length > 0 && (
                   <div className="border-t border-copilot-border mt-2 pt-2">
@@ -493,11 +520,11 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                     </div>
                     {fileViewMode === 'tree' ? (
                       <div className="py-1">
-                        {buildFileTree(untrackedFilesInList).map(node => renderTreeNode(node))}
+                        {buildFileTree(untrackedFilesInList).map((node) => renderTreeNode(node))}
                       </div>
                     ) : (
                       <div className="py-1">
-                        {untrackedFilesInList.map(path => renderFileItem(path, true, 12, false))}
+                        {untrackedFilesInList.map((path) => renderFileItem(path, true, 12, false))}
                       </div>
                     )}
                   </div>
@@ -535,7 +562,10 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                     )}
                   </span>
                 )}
-                <span className="text-[10px] text-copilot-text-muted truncate ml-auto" title={selectedFile}>
+                <span
+                  className="text-[10px] text-copilot-text-muted truncate ml-auto"
+                  title={selectedFile}
+                >
                   {selectedFile}
                 </span>
               </div>
@@ -545,18 +575,14 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
             <div className="flex-1 overflow-auto p-4 min-h-0 min-w-0">
               {!selectedFile ? (
                 <div className="flex flex-col items-center justify-center h-full text-center">
-                  <p className="text-copilot-text-muted text-sm">
-                    Select a file to preview
-                  </p>
+                  <p className="text-copilot-text-muted text-sm">Select a file to preview</p>
                 </div>
               ) : loading ? (
                 <div className="flex items-center justify-center h-32">
                   <Spinner size={24} />
                 </div>
               ) : fileDiff?.success && fileDiff?.diff ? (
-                <div className="text-xs leading-relaxed">
-                  {renderDiff(fileDiff.diff)}
-                </div>
+                <div className="text-xs leading-relaxed">{renderDiff(fileDiff.diff)}</div>
               ) : fileContent?.success && fileContent?.content !== undefined ? (
                 <pre className="font-mono text-[11px] leading-relaxed text-copilot-text whitespace-pre-wrap break-words">
                   {fileContent.content}
@@ -576,7 +602,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
         </div>
       </div>
     </div>
-  )
-}
+  );
+};
 
-export default FilePreviewModal
+export default FilePreviewModal;

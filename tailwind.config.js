@@ -1,8 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  content: [
-    './src/renderer/**/*.{js,ts,jsx,tsx,html}'
-  ],
+  content: ['./src/renderer/**/*.{js,ts,jsx,tsx,html}'],
   theme: {
     extend: {
       colors: {
@@ -33,22 +31,30 @@ module.exports = {
         'copilot-terminal-cursor': 'var(--copilot-terminal-cursor)',
       },
       fontFamily: {
-        mono: ['JetBrains Mono', 'Fira Code', 'SF Mono', 'Menlo', 'Monaco', 'Consolas', 'monospace']
+        mono: [
+          'JetBrains Mono',
+          'Fira Code',
+          'SF Mono',
+          'Menlo',
+          'Monaco',
+          'Consolas',
+          'monospace',
+        ],
       },
       backdropBlur: {
-        'xl': '24px'
+        xl: '24px',
       },
       animation: {
         'pulse-slow': 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-        'glow': 'glow 2s ease-in-out infinite alternate'
+        glow: 'glow 2s ease-in-out infinite alternate',
       },
       keyframes: {
         glow: {
           '0%': { boxShadow: '0 0 5px var(--copilot-accent-muted)' },
-          '100%': { boxShadow: '0 0 20px var(--copilot-accent)' }
-        }
-      }
-    }
+          '100%': { boxShadow: '0 0 20px var(--copilot-accent)' },
+        },
+      },
+    },
   },
-  plugins: []
-}
+  plugins: [],
+};

@@ -6,7 +6,7 @@ export interface MCPServerConfigBase {
 }
 
 export interface MCPLocalServerConfig extends MCPServerConfigBase {
-  type?: "local" | "stdio";
+  type?: 'local' | 'stdio';
   command: string;
   args: string[];
   env?: Record<string, string>;
@@ -14,7 +14,7 @@ export interface MCPLocalServerConfig extends MCPServerConfigBase {
 }
 
 export interface MCPRemoteServerConfig extends MCPServerConfigBase {
-  type: "http" | "sse";
+  type: 'http' | 'sse';
   url: string;
   headers?: Record<string, string>;
 }

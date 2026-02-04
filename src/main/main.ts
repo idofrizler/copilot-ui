@@ -1,178 +1,192 @@
-import { app, BrowserWindow, ipcMain, shell, dialog, nativeTheme, Menu } from 'electron'
-import { join, dirname } from 'path'
-import { existsSync, mkdirSync, readdirSync, readFileSync, copyFileSync, statSync, unlinkSync } from 'fs'
-import { exec } from 'child_process'
-import { promisify } from 'util'
-import { readFile, writeFile, mkdir } from 'fs/promises'
+import { app, BrowserWindow, ipcMain, shell, dialog, nativeTheme, Menu } from 'electron';
+import { join, dirname } from 'path';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  copyFileSync,
+  statSync,
+  unlinkSync,
+} from 'fs';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import { readFile, writeFile, mkdir } from 'fs/promises';
 
-const execAsync = promisify(exec)
+const execAsync = promisify(exec);
 
 // Get augmented PATH that includes common CLI tool locations
 // This is needed because packaged Electron apps don't inherit the user's shell PATH
 const getAugmentedEnv = () => {
-  const env = { ...process.env }
+  const env = { ...process.env };
   if (process.platform === 'win32') {
-    const username = process.env.USERNAME || process.env.USER || ''
+    const username = process.env.USERNAME || process.env.USER || '';
     const additionalPaths = [
       'C:\\Program Files\\GitHub CLI',
       'C:\\Program Files (x86)\\GitHub CLI',
       `C:\\Users\\${username}\\AppData\\Local\\GitHub CLI`,
       `C:\\Users\\${username}\\scoop\\shims`,
       'C:\\ProgramData\\chocolatey\\bin',
-    ].filter(p => username || !p.includes('Users'))
-    const currentPath = env.PATH || env.Path || ''
-    env.PATH = [...additionalPaths, currentPath].filter(Boolean).join(';')
+    ].filter((p) => username || !p.includes('Users'));
+    const currentPath = env.PATH || env.Path || '';
+    env.PATH = [...additionalPaths, currentPath].filter(Boolean).join(';');
   } else {
-    const additionalPaths = [
-      '/opt/homebrew/bin',
-      '/usr/local/bin',
-      '/usr/bin',
-      '/bin'
-    ]
-    env.PATH = [...additionalPaths, env.PATH].filter(Boolean).join(':')
+    const additionalPaths = ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'];
+    env.PATH = [...additionalPaths, env.PATH].filter(Boolean).join(':');
   }
-  return env
-}
+  return env;
+};
 
 // Helper for git commands that may trigger hooks - passes full environment including PATH
 // This ensures npm, node, etc. are available to pre-commit hooks like husky
 const execGitWithEnv = (command: string, options: { cwd: string }) => {
-  return execAsync(command, { 
-    cwd: options.cwd, 
-    env: getAugmentedEnv()
-  })
-}
+  return execAsync(command, {
+    cwd: options.cwd,
+    env: getAugmentedEnv(),
+  });
+};
 
-import { CopilotClient, CopilotSession, PermissionRequest, PermissionRequestResult, Tool } from '@github/copilot-sdk'
-import Store from 'electron-store'
-import log from 'electron-log/main'
-import { extractExecutables, containsDestructiveCommand, getDestructiveExecutables, extractFilesToDelete } from './utils/extractExecutables'
-import * as worktree from './worktree'
-import * as ptyManager from './pty'
-import * as browserManager from './browser'
-import { createBrowserTools } from './browserTools'
+import {
+  CopilotClient,
+  CopilotSession,
+  PermissionRequest,
+  PermissionRequestResult,
+  Tool,
+} from '@github/copilot-sdk';
+import Store from 'electron-store';
+import log from 'electron-log/main';
+import {
+  extractExecutables,
+  containsDestructiveCommand,
+  getDestructiveExecutables,
+  extractFilesToDelete,
+} from './utils/extractExecutables';
+import * as worktree from './worktree';
+import * as ptyManager from './pty';
+import * as browserManager from './browser';
+import { createBrowserTools } from './browserTools';
 
 // MCP Server Configuration types (matching SDK)
 interface MCPServerConfigBase {
-  tools: string[]
-  type?: string
-  timeout?: number
+  tools: string[];
+  type?: string;
+  timeout?: number;
 }
 
 interface MCPLocalServerConfig extends MCPServerConfigBase {
-  type?: 'local' | 'stdio'
-  command: string
-  args: string[]
-  env?: Record<string, string>
-  cwd?: string
+  type?: 'local' | 'stdio';
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+  cwd?: string;
 }
 
 interface MCPRemoteServerConfig extends MCPServerConfigBase {
-  type: 'http' | 'sse'
-  url: string
-  headers?: Record<string, string>
+  type: 'http' | 'sse';
+  url: string;
+  headers?: Record<string, string>;
 }
 
-type MCPServerConfig = MCPLocalServerConfig | MCPRemoteServerConfig
+type MCPServerConfig = MCPLocalServerConfig | MCPRemoteServerConfig;
 
 interface MCPConfigFile {
-  mcpServers: Record<string, MCPServerConfig>
+  mcpServers: Record<string, MCPServerConfig>;
 }
 
 // Path to MCP config file
-const getMcpConfigPath = (): string => join(app.getPath('home'), '.copilot', 'mcp-config.json')
+const getMcpConfigPath = (): string => join(app.getPath('home'), '.copilot', 'mcp-config.json');
 
 // Copilot folders that are safe to read from without permission (Issue #87)
 // These contain session state data (plans, configs) and are low-risk for read-only access
 const getSafeCopilotReadPaths = (): string[] => {
-  const home = app.getPath('home')
+  const home = app.getPath('home');
   return [
-    join(home, '.copilot-sessions'),      // Worktree sessions directory
+    join(home, '.copilot-sessions'), // Worktree sessions directory
     join(home, '.copilot', 'session-state'), // Session state (plan.md files)
-    join(home, '.copilot', 'skills'),     // Personal skills directory
-  ]
-}
+    join(home, '.copilot', 'skills'), // Personal skills directory
+  ];
+};
 
 // Read MCP config from file
 async function readMcpConfig(): Promise<MCPConfigFile> {
-  const configPath = getMcpConfigPath()
+  const configPath = getMcpConfigPath();
   try {
     if (!existsSync(configPath)) {
-      return { mcpServers: {} }
+      return { mcpServers: {} };
     }
-    const content = await readFile(configPath, 'utf-8')
-    return JSON.parse(content) as MCPConfigFile
+    const content = await readFile(configPath, 'utf-8');
+    return JSON.parse(content) as MCPConfigFile;
   } catch (error) {
-    console.error('Failed to read MCP config:', error)
-    return { mcpServers: {} }
+    console.error('Failed to read MCP config:', error);
+    return { mcpServers: {} };
   }
 }
 
 // Write MCP config to file
 async function writeMcpConfig(config: MCPConfigFile): Promise<void> {
-  const configPath = getMcpConfigPath()
-  const configDir = join(app.getPath('home'), '.copilot')
-  
+  const configPath = getMcpConfigPath();
+  const configDir = join(app.getPath('home'), '.copilot');
+
   // Ensure directory exists
   if (!existsSync(configDir)) {
-    await mkdir(configDir, { recursive: true })
+    await mkdir(configDir, { recursive: true });
   }
-  
-  await writeFile(configPath, JSON.stringify(config, null, 2), 'utf-8')
-  console.log('Saved MCP config:', Object.keys(config.mcpServers))
+
+  await writeFile(configPath, JSON.stringify(config, null, 2), 'utf-8');
+  console.log('Saved MCP config:', Object.keys(config.mcpServers));
 }
 
 // Agent Skills - imported from skills module
-import { getAllSkills } from './skills'
+import { getAllSkills } from './skills';
 
 // Set up file logging only - no IPC to renderer (causes errors)
-log.transports.file.level = 'info'
-log.transports.console.level = 'info'
+log.transports.file.level = 'info';
+log.transports.console.level = 'info';
 
 // Handle EIO errors from terminal disconnection - expected for GUI apps
 process.on('uncaughtException', (err) => {
   if (err.message === 'write EIO') {
-    log.transports.console.level = false
-    return
+    log.transports.console.level = false;
+    return;
   }
-  log.error('Uncaught exception:', err)
-  throw err
-})
+  log.error('Uncaught exception:', err);
+  throw err;
+});
 
 // Replace console with electron-log
-Object.assign(console, log.functions)
+Object.assign(console, log.functions);
 
 // Bounce dock icon to get user attention (macOS only)
 function bounceDock(): void {
   if (process.platform === 'darwin' && !mainWindow?.isFocused()) {
-    app.dock?.bounce('informational')
+    app.dock?.bounce('informational');
   }
 }
 
 interface StoredSession {
-  sessionId: string
-  model: string
-  cwd: string
-  name?: string
-  editedFiles?: string[]
-  alwaysAllowed?: string[]
-  markedForReview?: boolean
-  reviewNote?: string
-  untrackedFiles?: string[]
-  fileViewMode?: 'flat' | 'tree'
+  sessionId: string;
+  model: string;
+  cwd: string;
+  name?: string;
+  editedFiles?: string[];
+  alwaysAllowed?: string[];
+  markedForReview?: boolean;
+  reviewNote?: string;
+  untrackedFiles?: string[];
+  fileViewMode?: 'flat' | 'tree';
 }
 
 const store = new Store({
   defaults: {
     model: 'gpt-5.2',
-    openSessions: [] as StoredSession[],  // Sessions that were open in our app with their models and cwd
-    trustedDirectories: [] as string[],  // Directories that are always trusted
-    theme: 'system' as string,  // Theme preference: 'system', 'light', 'dark', or custom theme id
-    sessionCwds: {} as Record<string, string>,  // Persistent map of sessionId -> cwd (survives session close)
-    sessionMarks: {} as Record<string, { markedForReview?: boolean; reviewNote?: string }>,  // Persistent mark/note state
-    globalSafeCommands: [] as string[],  // Globally safe commands that are auto-approved for all sessions
-    hasSeenWelcomeWizard: false as boolean,  // Whether user has completed the welcome wizard
-    wizardVersion: 0 as number,  // Version of wizard shown (bump to re-show wizard after updates)
+    openSessions: [] as StoredSession[], // Sessions that were open in our app with their models and cwd
+    trustedDirectories: [] as string[], // Directories that are always trusted
+    theme: 'system' as string, // Theme preference: 'system', 'light', 'dark', or custom theme id
+    sessionCwds: {} as Record<string, string>, // Persistent map of sessionId -> cwd (survives session close)
+    sessionMarks: {} as Record<string, { markedForReview?: boolean; reviewNote?: string }>, // Persistent mark/note state
+    globalSafeCommands: [] as string[], // Globally safe commands that are auto-approved for all sessions
+    hasSeenWelcomeWizard: false as boolean, // Whether user has completed the welcome wizard
+    wizardVersion: 0 as number, // Version of wizard shown (bump to re-show wizard after updates)
     // URL allowlist - domains that are auto-approved for web_fetch (similar to --allow-url in Copilot CLI)
     allowedUrls: [
       'github.com',
@@ -187,51 +201,70 @@ const store = new Store({
       'stackoverflow.com',
     ] as string[],
     // URL denylist - domains that are always blocked (similar to --deny-url in Copilot CLI)
-    deniedUrls: [] as string[]
-  }
-})
+    deniedUrls: [] as string[],
+  },
+});
 
 // Theme directory for external JSON themes
-const themesDir = join(app.getPath('userData'), 'themes')
+const themesDir = join(app.getPath('userData'), 'themes');
 
 // Ensure themes directory exists
 if (!existsSync(themesDir)) {
-  mkdirSync(themesDir, { recursive: true })
+  mkdirSync(themesDir, { recursive: true });
 }
 
 // Theme validation - matches renderer/themes/types.ts structure
 const REQUIRED_COLOR_KEYS = [
-  'bg', 'surface', 'surfaceHover', 'border', 'borderHover',
-  'accent', 'accentHover', 'accentMuted',
-  'text', 'textMuted', 'textInverse',
-  'success', 'successMuted', 'warning', 'warningMuted', 'error', 'errorMuted',
-  'scrollbarThumb', 'scrollbarThumbHover', 'selection',
-  'shadow', 'shadowStrong', 'terminalBg', 'terminalText', 'terminalCursor'
-]
+  'bg',
+  'surface',
+  'surfaceHover',
+  'border',
+  'borderHover',
+  'accent',
+  'accentHover',
+  'accentMuted',
+  'text',
+  'textMuted',
+  'textInverse',
+  'success',
+  'successMuted',
+  'warning',
+  'warningMuted',
+  'error',
+  'errorMuted',
+  'scrollbarThumb',
+  'scrollbarThumbHover',
+  'selection',
+  'shadow',
+  'shadowStrong',
+  'terminalBg',
+  'terminalText',
+  'terminalCursor',
+];
 
 interface ExternalTheme {
-  id: string
-  name: string
-  type: 'light' | 'dark'
-  colors: Record<string, string>
-  author?: string
-  version?: string
+  id: string;
+  name: string;
+  type: 'light' | 'dark';
+  colors: Record<string, string>;
+  author?: string;
+  version?: string;
 }
 
 function validateTheme(data: unknown): { valid: boolean; theme?: ExternalTheme } {
-  if (!data || typeof data !== 'object') return { valid: false }
-  const obj = data as Record<string, unknown>
-  
-  if (typeof obj.id !== 'string' || !obj.id.trim()) return { valid: false }
-  if (typeof obj.name !== 'string' || !obj.name.trim()) return { valid: false }
-  if (obj.type !== 'light' && obj.type !== 'dark') return { valid: false }
-  if (!obj.colors || typeof obj.colors !== 'object') return { valid: false }
-  
-  const colors = obj.colors as Record<string, unknown>
+  if (!data || typeof data !== 'object') return { valid: false };
+  const obj = data as Record<string, unknown>;
+
+  if (typeof obj.id !== 'string' || !obj.id.trim()) return { valid: false };
+  if (typeof obj.name !== 'string' || !obj.name.trim()) return { valid: false };
+  if (obj.type !== 'light' && obj.type !== 'dark') return { valid: false };
+  if (!obj.colors || typeof obj.colors !== 'object') return { valid: false };
+
+  const colors = obj.colors as Record<string, unknown>;
   for (const key of REQUIRED_COLOR_KEYS) {
-    if (typeof colors[key] !== 'string') return { valid: false }
+    if (typeof colors[key] !== 'string') return { valid: false };
   }
-  
+
   return {
     valid: true,
     theme: {
@@ -240,58 +273,58 @@ function validateTheme(data: unknown): { valid: boolean; theme?: ExternalTheme }
       type: obj.type as 'light' | 'dark',
       colors: colors as Record<string, string>,
       author: typeof obj.author === 'string' ? obj.author : undefined,
-      version: typeof obj.version === 'string' ? obj.version : undefined
-    }
-  }
+      version: typeof obj.version === 'string' ? obj.version : undefined,
+    },
+  };
 }
 
 function loadExternalThemes(): { themes: ExternalTheme[]; invalidFiles: string[] } {
-  const themes: ExternalTheme[] = []
-  const invalidFiles: string[] = []
-  
+  const themes: ExternalTheme[] = [];
+  const invalidFiles: string[] = [];
+
   try {
-    const files = readdirSync(themesDir).filter(f => f.endsWith('.json'))
-    
+    const files = readdirSync(themesDir).filter((f) => f.endsWith('.json'));
+
     for (const file of files) {
       try {
-        const content = readFileSync(join(themesDir, file), 'utf-8')
-        const data = JSON.parse(content)
-        const result = validateTheme(data)
-        
+        const content = readFileSync(join(themesDir, file), 'utf-8');
+        const data = JSON.parse(content);
+        const result = validateTheme(data);
+
         if (result.valid && result.theme) {
-          themes.push(result.theme)
+          themes.push(result.theme);
         } else {
-          invalidFiles.push(file)
+          invalidFiles.push(file);
         }
       } catch {
-        invalidFiles.push(file)
+        invalidFiles.push(file);
       }
     }
   } catch (err) {
-    console.error('Failed to load external themes:', err)
+    console.error('Failed to load external themes:', err);
   }
-  
-  return { themes, invalidFiles }
+
+  return { themes, invalidFiles };
 }
 
-let mainWindow: BrowserWindow | null = null
+let mainWindow: BrowserWindow | null = null;
 
 // Map of cwd -> CopilotClient (one client per unique working directory)
-const copilotClients = new Map<string, CopilotClient>()
-const inFlightCopilotClients = new Map<string, Promise<CopilotClient>>()
+const copilotClients = new Map<string, CopilotClient>();
+const inFlightCopilotClients = new Map<string, Promise<CopilotClient>>();
 
 // Resolve CLI path for packaged apps
 function getCliPath(): string | undefined {
   if (!app.isPackaged) {
-    return undefined  // Use default "copilot" from PATH in dev
+    return undefined; // Use default "copilot" from PATH in dev
   }
-  
+
   // When packaged, the copilot binary is in the unpacked asar
-  const platform = process.platform
-  const arch = process.arch
-  const platformArch = `${platform}-${arch}`  // e.g., "darwin-arm64"
-  
-  const cliName = platform === 'win32' ? 'copilot.exe' : 'copilot'
+  const platform = process.platform;
+  const arch = process.arch;
+  const platformArch = `${platform}-${arch}`; // e.g., "darwin-arm64"
+
+  const cliName = platform === 'win32' ? 'copilot.exe' : 'copilot';
   const cliPath = join(
     process.resourcesPath,
     'app.asar.unpacked',
@@ -299,45 +332,45 @@ function getCliPath(): string | undefined {
     '@github',
     `copilot-${platformArch}`,
     cliName
-  )
-  
-  console.log(`Using packaged CLI path: ${cliPath}`)
-  return cliPath
+  );
+
+  console.log(`Using packaged CLI path: ${cliPath}`);
+  return cliPath;
 }
 
 // Get or create a CopilotClient for the given cwd
 async function getClientForCwd(cwd: string): Promise<CopilotClient> {
-  const existingClient = copilotClients.get(cwd)
+  const existingClient = copilotClients.get(cwd);
   if (existingClient) {
-    return existingClient
+    return existingClient;
   }
-  
-  const inFlightClient = inFlightCopilotClients.get(cwd)
+
+  const inFlightClient = inFlightCopilotClients.get(cwd);
   if (inFlightClient) {
-    return inFlightClient
+    return inFlightClient;
   }
-  
+
   const clientPromise = (async () => {
-    console.log(`Creating new CopilotClient for cwd: ${cwd}`)
-    const cliPath = getCliPath()
-    
+    console.log(`Creating new CopilotClient for cwd: ${cwd}`);
+    const cliPath = getCliPath();
+
     // Use augmented PATH so CLI can find gh for authentication
-    const env = getAugmentedEnv()
+    const env = getAugmentedEnv();
     if (app.isPackaged) {
-      log.info('Using augmented PATH for packaged app')
+      log.info('Using augmented PATH for packaged app');
     }
-    
-    const client = new CopilotClient({ cwd, cliPath, env })
-    await client.start()
-    copilotClients.set(cwd, client)
-    return client
-  })()
-  
-  inFlightCopilotClients.set(cwd, clientPromise)
+
+    const client = new CopilotClient({ cwd, cliPath, env });
+    await client.start();
+    copilotClients.set(cwd, client);
+    return client;
+  })();
+
+  inFlightCopilotClients.set(cwd, clientPromise);
   try {
-    return await clientPromise
+    return await clientPromise;
   } finally {
-    inFlightCopilotClients.delete(cwd)
+    inFlightCopilotClients.delete(cwd);
   }
 }
 
@@ -345,395 +378,441 @@ async function getClientForCwd(cwd: string): Promise<CopilotClient> {
 // This can happen when a session is resumed while a tool is executing
 // The bug inserts a session.resume event between tool.execution_start and tool.execution_complete
 async function repairDuplicateToolResults(sessionId: string): Promise<boolean> {
-  const homedir = process.env.HOME || process.env.USERPROFILE || ''
-  const eventsPath = join(homedir, '.copilot', 'session-state', sessionId, 'events.jsonl')
-  
+  const homedir = process.env.HOME || process.env.USERPROFILE || '';
+  const eventsPath = join(homedir, '.copilot', 'session-state', sessionId, 'events.jsonl');
+
   try {
     if (!existsSync(eventsPath)) {
-      log.warn(`[${sessionId}] Cannot repair: events.jsonl not found`)
-      return false
+      log.warn(`[${sessionId}] Cannot repair: events.jsonl not found`);
+      return false;
     }
-    
-    const content = await readFile(eventsPath, 'utf-8')
-    const lines = content.split('\n').filter(line => line.trim())
-    const linesToRemove = new Set<number>()
-    
+
+    const content = await readFile(eventsPath, 'utf-8');
+    const lines = content.split('\n').filter((line) => line.trim());
+    const linesToRemove = new Set<number>();
+
     // Parse all events
-    const events: Array<{ type: string; data?: { toolCallId?: string }; timestamp?: string }> = []
+    const events: Array<{ type: string; data?: { toolCallId?: string }; timestamp?: string }> = [];
     for (const line of lines) {
       try {
-        events.push(JSON.parse(line))
+        events.push(JSON.parse(line));
       } catch {
-        events.push({ type: 'parse_error' })
+        events.push({ type: 'parse_error' });
       }
     }
-    
+
     // Find session.resume events that are out of order (inserted between tool.execution_start and tool.execution_complete)
     for (let i = 1; i < events.length - 1; i++) {
-      const event = events[i]
+      const event = events[i];
       if (event.type === 'session.resume') {
-        const prevEvent = events[i - 1]
-        const nextEvent = events[i + 1]
-        
+        const prevEvent = events[i - 1];
+        const nextEvent = events[i + 1];
+
         // Check if this session.resume is between tool.execution_start and tool.execution_complete
-        if (prevEvent.type === 'tool.execution_start' && 
-            nextEvent.type === 'tool.execution_complete' &&
-            prevEvent.data?.toolCallId === nextEvent.data?.toolCallId) {
-          log.info(`[${sessionId}] Found out-of-order session.resume between tool events at line ${i + 1}`)
-          linesToRemove.add(i)
+        if (
+          prevEvent.type === 'tool.execution_start' &&
+          nextEvent.type === 'tool.execution_complete' &&
+          prevEvent.data?.toolCallId === nextEvent.data?.toolCallId
+        ) {
+          log.info(
+            `[${sessionId}] Found out-of-order session.resume between tool events at line ${i + 1}`
+          );
+          linesToRemove.add(i);
         }
       }
     }
-    
+
     // Track all tool.execution_start events
-    const startedToolCalls = new Set<string>()
+    const startedToolCalls = new Set<string>();
     for (let i = 0; i < events.length; i++) {
-      const event = events[i]
+      const event = events[i];
       if (event.type === 'tool.execution_start' && event.data?.toolCallId) {
-        startedToolCalls.add(event.data.toolCallId)
+        startedToolCalls.add(event.data.toolCallId);
       }
     }
-    
+
     // Check for orphaned tool.execution_complete events (no corresponding start - can happen after compaction)
-    const completedToolCalls = new Map<string, number>() // toolCallId -> line index
+    const completedToolCalls = new Map<string, number>(); // toolCallId -> line index
     for (let i = 0; i < events.length; i++) {
-      const event = events[i]
+      const event = events[i];
       if (event.type === 'tool.execution_complete' && event.data?.toolCallId) {
-        const toolCallId = event.data.toolCallId
-        
+        const toolCallId = event.data.toolCallId;
+
         // Check if this tool_result has no corresponding tool_use (orphaned after compaction)
         if (!startedToolCalls.has(toolCallId)) {
-          log.info(`[${sessionId}] Found orphaned tool_result for ${toolCallId} (no matching tool_use, likely compaction corruption)`)
-          linesToRemove.add(i)
-          continue // Don't also check for duplicates
+          log.info(
+            `[${sessionId}] Found orphaned tool_result for ${toolCallId} (no matching tool_use, likely compaction corruption)`
+          );
+          linesToRemove.add(i);
+          continue; // Don't also check for duplicates
         }
-        
+
         // Check for duplicate tool_result events
         if (completedToolCalls.has(toolCallId)) {
           // Duplicate! Keep the later one (more likely to have actual result)
-          linesToRemove.add(completedToolCalls.get(toolCallId)!)
-          log.info(`[${sessionId}] Found duplicate tool_result for ${toolCallId}, marking earlier one for removal`)
+          linesToRemove.add(completedToolCalls.get(toolCallId)!);
+          log.info(
+            `[${sessionId}] Found duplicate tool_result for ${toolCallId}, marking earlier one for removal`
+          );
         }
-        completedToolCalls.set(toolCallId, i)
+        completedToolCalls.set(toolCallId, i);
       }
     }
-    
+
     if (linesToRemove.size === 0) {
-      log.info(`[${sessionId}] No corrupted events found`)
-      return false
+      log.info(`[${sessionId}] No corrupted events found`);
+      return false;
     }
-    
+
     // Remove corrupted lines
-    const repairedLines = lines.filter((_, i) => !linesToRemove.has(i))
-    await writeFile(eventsPath, repairedLines.join('\n') + '\n', 'utf-8')
-    log.info(`[${sessionId}] Repaired session: removed ${linesToRemove.size} corrupted events`)
-    return true
+    const repairedLines = lines.filter((_, i) => !linesToRemove.has(i));
+    await writeFile(eventsPath, repairedLines.join('\n') + '\n', 'utf-8');
+    log.info(`[${sessionId}] Repaired session: removed ${linesToRemove.size} corrupted events`);
+    return true;
   } catch (err) {
-    log.error(`[${sessionId}] Failed to repair session:`, err)
-    return false
+    log.error(`[${sessionId}] Failed to repair session:`, err);
+    return false;
   }
 }
 
 // Multi-session support
 interface SessionState {
-  session: CopilotSession
-  client: CopilotClient  // Reference to the client for this session
-  model: string
-  cwd: string  // Current working directory for the session
-  alwaysAllowed: Set<string>  // Per-session always-allowed executables
-  allowedPaths: Set<string>  // Per-session allowed out-of-scope paths (parent directories)
-  isProcessing: boolean  // Whether the session is currently waiting for a response
+  session: CopilotSession;
+  client: CopilotClient; // Reference to the client for this session
+  model: string;
+  cwd: string; // Current working directory for the session
+  alwaysAllowed: Set<string>; // Per-session always-allowed executables
+  allowedPaths: Set<string>; // Per-session allowed out-of-scope paths (parent directories)
+  isProcessing: boolean; // Whether the session is currently waiting for a response
 }
-const sessions = new Map<string, SessionState>()
-let activeSessionId: string | null = null
-let sessionCounter = 0
+const sessions = new Map<string, SessionState>();
+let activeSessionId: string | null = null;
+let sessionCounter = 0;
 
 // Keep-alive interval (5 minutes) to prevent session timeout
-const SESSION_KEEPALIVE_INTERVAL = 5 * 60 * 1000
-let keepAliveTimer: NodeJS.Timeout | null = null
+const SESSION_KEEPALIVE_INTERVAL = 5 * 60 * 1000;
+let keepAliveTimer: NodeJS.Timeout | null = null;
 
 // Start keep-alive timer for active sessions
 function startKeepAlive(): void {
-  if (keepAliveTimer) return
-  
+  if (keepAliveTimer) return;
+
   keepAliveTimer = setInterval(async () => {
     for (const [sessionId, sessionState] of sessions.entries()) {
       // Only ping sessions that are actively processing to avoid noise
-      if (!sessionState.isProcessing) continue
-      
+      if (!sessionState.isProcessing) continue;
+
       try {
         // Ping the session by getting messages (lightweight operation)
-        await sessionState.session.getMessages()
-        log.info(`[${sessionId}] Keep-alive ping successful`)
+        await sessionState.session.getMessages();
+        log.info(`[${sessionId}] Keep-alive ping successful`);
       } catch (error) {
-        log.warn(`[${sessionId}] Keep-alive ping failed:`, error)
+        log.warn(`[${sessionId}] Keep-alive ping failed:`, error);
         // Session may have timed out on the backend - send idle event to frontend
         // to ensure the UI doesn't stay stuck in "processing" state
         if (mainWindow && !mainWindow.isDestroyed()) {
-          log.info(`[${sessionId}] Sending fallback idle event due to session timeout`)
-          mainWindow.webContents.send('copilot:idle', { sessionId })
-          sessionState.isProcessing = false
+          log.info(`[${sessionId}] Sending fallback idle event due to session timeout`);
+          mainWindow.webContents.send('copilot:idle', { sessionId });
+          sessionState.isProcessing = false;
         }
       }
     }
-  }, SESSION_KEEPALIVE_INTERVAL)
-  
-  log.info('Started session keep-alive timer')
+  }, SESSION_KEEPALIVE_INTERVAL);
+
+  log.info('Started session keep-alive timer');
 }
 
 // Stop keep-alive timer
 function stopKeepAlive(): void {
   if (keepAliveTimer) {
-    clearInterval(keepAliveTimer)
-    keepAliveTimer = null
-    log.info('Stopped session keep-alive timer')
+    clearInterval(keepAliveTimer);
+    keepAliveTimer = null;
+    log.info('Stopped session keep-alive timer');
   }
 }
 
 // Resume a session that has been disconnected
-async function resumeDisconnectedSession(sessionId: string, sessionState: SessionState): Promise<CopilotSession> {
-  log.info(`[${sessionId}] Attempting to resume disconnected session...`)
-  
-  const client = await getClientForCwd(sessionState.cwd)
-  const mcpConfig = await readMcpConfig()
-  
+async function resumeDisconnectedSession(
+  sessionId: string,
+  sessionState: SessionState
+): Promise<CopilotSession> {
+  log.info(`[${sessionId}] Attempting to resume disconnected session...`);
+
+  const client = await getClientForCwd(sessionState.cwd);
+  const mcpConfig = await readMcpConfig();
+
   // Create browser tools for resumed session
-  const browserTools = createBrowserTools(sessionId)
-  log.info(`[${sessionId}] Resuming with ${browserTools.length} tools:`, browserTools.map(t => t.name).join(', '))
-  
+  const browserTools = createBrowserTools(sessionId);
+  log.info(
+    `[${sessionId}] Resuming with ${browserTools.length} tools:`,
+    browserTools.map((t) => t.name).join(', ')
+  );
+
   const resumedSession = await client.resumeSession(sessionId, {
     mcpServers: mcpConfig.mcpServers,
     tools: browserTools,
-    onPermissionRequest: (request, invocation) => handlePermissionRequest(request, invocation, sessionId)
-  })
-  
+    onPermissionRequest: (request, invocation) =>
+      handlePermissionRequest(request, invocation, sessionId),
+  });
+
   // Set up event handler for resumed session
   resumedSession.on((event) => {
-    if (!mainWindow || mainWindow.isDestroyed()) return
-    
-    log.info(`[${sessionId}] Event:`, event.type)
-    
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+
+    log.info(`[${sessionId}] Event:`, event.type);
+
     if (event.type === 'assistant.message_delta') {
-      mainWindow.webContents.send('copilot:delta', { sessionId, content: event.data.deltaContent })
+      mainWindow.webContents.send('copilot:delta', { sessionId, content: event.data.deltaContent });
     } else if (event.type === 'assistant.message') {
-      mainWindow.webContents.send('copilot:message', { sessionId, content: event.data.content })
+      mainWindow.webContents.send('copilot:message', { sessionId, content: event.data.content });
     } else if (event.type === 'session.idle') {
-      const currentSessionState = sessions.get(sessionId)
-      if (currentSessionState) currentSessionState.isProcessing = false
-      mainWindow.webContents.send('copilot:idle', { sessionId })
-      bounceDock()
+      const currentSessionState = sessions.get(sessionId);
+      if (currentSessionState) currentSessionState.isProcessing = false;
+      mainWindow.webContents.send('copilot:idle', { sessionId });
+      bounceDock();
     } else if (event.type === 'tool.execution_start') {
-      log.info(`[${sessionId}] Tool start FULL:`, JSON.stringify(event.data, null, 2))
-      mainWindow.webContents.send('copilot:tool-start', { 
-        sessionId, 
-        toolCallId: event.data.toolCallId, 
-        toolName: event.data.toolName,
-        input: event.data.arguments || event.data.input || (event.data as Record<string, unknown>)
-      })
-    } else if (event.type === 'tool.execution_complete') {
-      log.info(`[${sessionId}] Tool end FULL:`, JSON.stringify(event.data, null, 2))
-      mainWindow.webContents.send('copilot:tool-end', { 
-        sessionId, 
-        toolCallId: event.data.toolCallId, 
+      log.info(`[${sessionId}] Tool start FULL:`, JSON.stringify(event.data, null, 2));
+      mainWindow.webContents.send('copilot:tool-start', {
+        sessionId,
+        toolCallId: event.data.toolCallId,
         toolName: event.data.toolName,
         input: event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
-        output: event.data.output
-      })
+      });
+    } else if (event.type === 'tool.execution_complete') {
+      log.info(`[${sessionId}] Tool end FULL:`, JSON.stringify(event.data, null, 2));
+      mainWindow.webContents.send('copilot:tool-end', {
+        sessionId,
+        toolCallId: event.data.toolCallId,
+        toolName: event.data.toolName,
+        input: event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
+        output: event.data.output,
+      });
     } else if (event.type === 'tool.confirmation_requested') {
-      log.info(`[${sessionId}] Confirmation requested:`, event.data)
-      mainWindow.webContents.send('copilot:confirm', { sessionId, ...event.data })
+      log.info(`[${sessionId}] Confirmation requested:`, event.data);
+      mainWindow.webContents.send('copilot:confirm', { sessionId, ...event.data });
     } else if (event.type === 'session.error') {
-      log.info(`[${sessionId}] Session error:`, event.data)
-      const errorMessage = event.data?.message || JSON.stringify(event.data)
-      
+      log.info(`[${sessionId}] Session error:`, event.data);
+      const errorMessage = event.data?.message || JSON.stringify(event.data);
+
       // Auto-repair tool_result errors (duplicate or orphaned after compaction)
-      if (errorMessage.includes('multiple `tool_result` blocks') || 
-          errorMessage.includes('each tool_use must have a single result') ||
-          errorMessage.includes('unexpected `tool_use_id`') ||
-          errorMessage.includes('Each `tool_result` block must have a corresponding `tool_use`')) {
-        log.info(`[${sessionId}] Detected tool_result corruption error, attempting auto-repair...`)
-        repairDuplicateToolResults(sessionId).then(repaired => {
+      if (
+        errorMessage.includes('multiple `tool_result` blocks') ||
+        errorMessage.includes('each tool_use must have a single result') ||
+        errorMessage.includes('unexpected `tool_use_id`') ||
+        errorMessage.includes('Each `tool_result` block must have a corresponding `tool_use`')
+      ) {
+        log.info(`[${sessionId}] Detected tool_result corruption error, attempting auto-repair...`);
+        repairDuplicateToolResults(sessionId).then((repaired) => {
           if (repaired) {
-            mainWindow?.webContents.send('copilot:error', { 
-              sessionId, 
+            mainWindow?.webContents.send('copilot:error', {
+              sessionId,
               message: 'Session repaired. Please resend your last message.',
-              isRepaired: true
-            })
+              isRepaired: true,
+            });
           } else {
-            mainWindow?.webContents.send('copilot:error', { sessionId, message: errorMessage })
+            mainWindow?.webContents.send('copilot:error', { sessionId, message: errorMessage });
           }
-        })
-        return
+        });
+        return;
       }
-      
-      mainWindow.webContents.send('copilot:error', { sessionId, message: errorMessage })
+
+      mainWindow.webContents.send('copilot:error', { sessionId, message: errorMessage });
     } else if (event.type === 'session.usage_info') {
-      mainWindow.webContents.send('copilot:usageInfo', { 
+      mainWindow.webContents.send('copilot:usageInfo', {
         sessionId,
         tokenLimit: event.data.tokenLimit,
         currentTokens: event.data.currentTokens,
-        messagesLength: event.data.messagesLength
-      })
+        messagesLength: event.data.messagesLength,
+      });
     } else if (event.type === 'session.compaction_start') {
-      log.info(`[${sessionId}] Compaction started`)
-      mainWindow.webContents.send('copilot:compactionStart', { sessionId })
+      log.info(`[${sessionId}] Compaction started`);
+      mainWindow.webContents.send('copilot:compactionStart', { sessionId });
     } else if (event.type === 'session.compaction_complete') {
-      log.info(`[${sessionId}] Compaction complete:`, event.data)
-      mainWindow.webContents.send('copilot:compactionComplete', { 
+      log.info(`[${sessionId}] Compaction complete:`, event.data);
+      mainWindow.webContents.send('copilot:compactionComplete', {
         sessionId,
         success: event.data.success,
         preCompactionTokens: event.data.preCompactionTokens,
         postCompactionTokens: event.data.postCompactionTokens,
         tokensRemoved: event.data.tokensRemoved,
         summaryContent: event.data.summaryContent,
-        error: event.data.error
-      })
+        error: event.data.error,
+      });
     }
-  })
-  
+  });
+
   // Update session state with new session object
-  sessionState.session = resumedSession
-  sessionState.client = client
-  
-  log.info(`[${sessionId}] Session resumed successfully`)
-  return resumedSession
+  sessionState.session = resumedSession;
+  sessionState.client = client;
+
+  log.info(`[${sessionId}] Session resumed successfully`);
+  return resumedSession;
 }
 
 // Pending permission requests waiting for user response
-const pendingPermissions = new Map<string, {
-  resolve: (result: PermissionRequestResult) => void
-  request: PermissionRequest
-  executable: string
-  sessionId: string
-  outOfScopePath?: string  // Store path for out-of-scope reads to remember parent dir
-}>()
+const pendingPermissions = new Map<
+  string,
+  {
+    resolve: (result: PermissionRequestResult) => void;
+    request: PermissionRequest;
+    executable: string;
+    sessionId: string;
+    outOfScopePath?: string; // Store path for out-of-scope reads to remember parent dir
+  }
+>();
 
 // Track in-flight permission requests by session+executable to deduplicate parallel requests
-const inFlightPermissions = new Map<string, Promise<PermissionRequestResult>>()
+const inFlightPermissions = new Map<string, Promise<PermissionRequestResult>>();
 
-let defaultClient: CopilotClient | null = null
+let defaultClient: CopilotClient | null = null;
 
 // Early client initialization promise - starts before window load completes
 // This saves ~500ms by running client.start() in parallel with window rendering
-let earlyClientPromise: Promise<CopilotClient> | null = null
+let earlyClientPromise: Promise<CopilotClient> | null = null;
 
 // Early session resumption - starts resuming stored sessions in parallel with window loading
 // This can save several seconds since session resumption involves network calls
 interface EarlyResumedSession {
-  sessionId: string
-  model: string
-  cwd: string
-  name?: string
-  editedFiles?: string[]
-  alwaysAllowed?: string[]
-  untrackedFiles?: string[]
-  fileViewMode?: 'flat' | 'tree'
-  messages?: { role: 'user' | 'assistant'; content: string }[]  // Pre-loaded messages
+  sessionId: string;
+  model: string;
+  cwd: string;
+  name?: string;
+  editedFiles?: string[];
+  alwaysAllowed?: string[];
+  untrackedFiles?: string[];
+  fileViewMode?: 'flat' | 'tree';
+  messages?: { role: 'user' | 'assistant'; content: string }[]; // Pre-loaded messages
 }
-let earlyResumedSessions: EarlyResumedSession[] = []
-let earlyResumptionComplete = false
-let earlyResumptionPromise: Promise<void> | null = null
+let earlyResumedSessions: EarlyResumedSession[] = [];
+let earlyResumptionComplete = false;
+let earlyResumptionPromise: Promise<void> | null = null;
 
 function startEarlyClientInit(): void {
-  const defaultCwd = app.isPackaged ? app.getPath('home') : process.cwd()
-  earlyClientPromise = getClientForCwd(defaultCwd)
-  earlyClientPromise.catch(err => {
-    console.error('Early client init failed:', err)
-  })
+  const defaultCwd = app.isPackaged ? app.getPath('home') : process.cwd();
+  earlyClientPromise = getClientForCwd(defaultCwd);
+  earlyClientPromise.catch((err) => {
+    console.error('Early client init failed:', err);
+  });
 }
 
 // Start resuming stored sessions early - runs in parallel with window loading
 async function startEarlySessionResumption(): Promise<void> {
-  const openSessions = store.get('openSessions') as StoredSession[] || []
+  const openSessions = (store.get('openSessions') as StoredSession[]) || [];
   if (openSessions.length === 0) {
-    earlyResumptionComplete = true
-    return
+    earlyResumptionComplete = true;
+    return;
   }
-  
+
   try {
     // Wait for client to be ready
     if (!earlyClientPromise) {
-      return
+      return;
     }
-    const client = await earlyClientPromise
-    
+    const client = await earlyClientPromise;
+
     // Load MCP config
-    const mcpConfig = await readMcpConfig()
-    
+    const mcpConfig = await readMcpConfig();
+
     // Resume sessions in parallel
     const resumePromises = openSessions.map(async (storedSession) => {
-      const { sessionId, model, cwd, name, editedFiles, alwaysAllowed, untrackedFiles, fileViewMode } = storedSession
-      const sessionCwd = cwd || (app.isPackaged ? app.getPath('home') : process.cwd())
-      const sessionModel = model || store.get('model') as string || 'gpt-5.2'
-      const storedAlwaysAllowed = alwaysAllowed || []
-      
+      const {
+        sessionId,
+        model,
+        cwd,
+        name,
+        editedFiles,
+        alwaysAllowed,
+        untrackedFiles,
+        fileViewMode,
+      } = storedSession;
+      const sessionCwd = cwd || (app.isPackaged ? app.getPath('home') : process.cwd());
+      const sessionModel = model || (store.get('model') as string) || 'gpt-5.2';
+      const storedAlwaysAllowed = alwaysAllowed || [];
+
       try {
         // Get or create client for this session's cwd
-        const sessionClient = await getClientForCwd(sessionCwd)
-        
+        const sessionClient = await getClientForCwd(sessionCwd);
+
         const session = await sessionClient.resumeSession(sessionId, {
           mcpServers: mcpConfig.mcpServers,
           tools: createBrowserTools(sessionId),
-          onPermissionRequest: (request, invocation) => handlePermissionRequest(request, invocation, sessionId)
-        })
-        
+          onPermissionRequest: (request, invocation) =>
+            handlePermissionRequest(request, invocation, sessionId),
+        });
+
         // Set up event handler
         session.on((event) => {
-          if (!mainWindow || mainWindow.isDestroyed()) return
-          
-          console.log(`[${sessionId}] Event:`, event.type)
-          
+          if (!mainWindow || mainWindow.isDestroyed()) return;
+
+          console.log(`[${sessionId}] Event:`, event.type);
+
           if (event.type === 'assistant.message_delta') {
-            mainWindow.webContents.send('copilot:delta', { sessionId, content: event.data.deltaContent })
+            mainWindow.webContents.send('copilot:delta', {
+              sessionId,
+              content: event.data.deltaContent,
+            });
           } else if (event.type === 'assistant.message') {
-            mainWindow.webContents.send('copilot:message', { sessionId, content: event.data.content })
+            mainWindow.webContents.send('copilot:message', {
+              sessionId,
+              content: event.data.content,
+            });
           } else if (event.type === 'session.idle') {
-            const currentSessionState = sessions.get(sessionId)
-            if (currentSessionState) currentSessionState.isProcessing = false
-            mainWindow.webContents.send('copilot:idle', { sessionId })
-            bounceDock()
+            const currentSessionState = sessions.get(sessionId);
+            if (currentSessionState) currentSessionState.isProcessing = false;
+            mainWindow.webContents.send('copilot:idle', { sessionId });
+            bounceDock();
           } else if (event.type === 'tool.execution_start') {
-            console.log(`[${sessionId}] Tool start FULL:`, JSON.stringify(event.data, null, 2))
-            mainWindow.webContents.send('copilot:tool-start', { 
-              sessionId, 
-              toolCallId: event.data.toolCallId, 
+            console.log(`[${sessionId}] Tool start FULL:`, JSON.stringify(event.data, null, 2));
+            mainWindow.webContents.send('copilot:tool-start', {
+              sessionId,
+              toolCallId: event.data.toolCallId,
               toolName: event.data.toolName,
-              input: event.data.arguments || event.data.input || (event.data as Record<string, unknown>)
-            })
+              input:
+                event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
+            });
           } else if (event.type === 'tool.execution_complete') {
-            console.log(`[${sessionId}] Tool end FULL:`, JSON.stringify(event.data, null, 2))
-            mainWindow.webContents.send('copilot:tool-end', { 
-              sessionId, 
-              toolCallId: event.data.toolCallId, 
+            console.log(`[${sessionId}] Tool end FULL:`, JSON.stringify(event.data, null, 2));
+            mainWindow.webContents.send('copilot:tool-end', {
+              sessionId,
+              toolCallId: event.data.toolCallId,
               toolName: event.data.toolName,
-              input: event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
-              output: event.data.output
-            })
+              input:
+                event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
+              output: event.data.output,
+            });
           }
-        })
-        
+        });
+
         // Store in sessions map
-        const alwaysAllowedSet = new Set(storedAlwaysAllowed.map(normalizeAlwaysAllowed))
-        sessions.set(sessionId, { session, client: sessionClient, model: sessionModel, cwd: sessionCwd, alwaysAllowed: alwaysAllowedSet, allowedPaths: new Set(), isProcessing: false })
-        
-        console.log(`Early resumed session ${sessionId}`)
-        
+        const alwaysAllowedSet = new Set(storedAlwaysAllowed.map(normalizeAlwaysAllowed));
+        sessions.set(sessionId, {
+          session,
+          client: sessionClient,
+          model: sessionModel,
+          cwd: sessionCwd,
+          alwaysAllowed: alwaysAllowedSet,
+          allowedPaths: new Set(),
+          isProcessing: false,
+        });
+
+        console.log(`Early resumed session ${sessionId}`);
+
         // Pre-load messages while we're at it (saves another network round-trip later)
-        let messages: { role: 'user' | 'assistant'; content: string }[] = []
+        let messages: { role: 'user' | 'assistant'; content: string }[] = [];
         try {
-          const events = await session.getMessages()
+          const events = await session.getMessages();
           for (const event of events) {
             if (event.type === 'user.message') {
-              messages.push({ role: 'user', content: event.data.content })
+              messages.push({ role: 'user', content: event.data.content });
             } else if (event.type === 'assistant.message') {
-              messages.push({ role: 'assistant', content: event.data.content })
+              messages.push({ role: 'assistant', content: event.data.content });
             }
           }
-          console.log(`Pre-loaded ${messages.length} messages for session ${sessionId}`)
+          console.log(`Pre-loaded ${messages.length} messages for session ${sessionId}`);
         } catch (msgError) {
-          console.error(`Failed to pre-load messages for ${sessionId}:`, msgError)
+          console.error(`Failed to pre-load messages for ${sessionId}:`, msgError);
         }
-        
+
         const resumed: EarlyResumedSession = {
           sessionId,
           model: sessionModel,
@@ -743,41 +822,41 @@ async function startEarlySessionResumption(): Promise<void> {
           alwaysAllowed: storedAlwaysAllowed,
           untrackedFiles: untrackedFiles || [],
           fileViewMode: fileViewMode || 'flat',
-          messages
-        }
-        earlyResumedSessions.push(resumed)
-        
+          messages,
+        };
+        earlyResumedSessions.push(resumed);
+
         // If window is ready, notify it immediately
         if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('copilot:sessionResumed', { session: resumed })
+          mainWindow.webContents.send('copilot:sessionResumed', { session: resumed });
         }
-        
-        return resumed
+
+        return resumed;
       } catch (error) {
         // Session doesn't exist anymore - remove it from stored openSessions
-        const currentOpenSessions = store.get('openSessions') as StoredSession[] || []
-        const filteredSessions = currentOpenSessions.filter(s => s.sessionId !== sessionId)
+        const currentOpenSessions = (store.get('openSessions') as StoredSession[]) || [];
+        const filteredSessions = currentOpenSessions.filter((s) => s.sessionId !== sessionId);
         if (filteredSessions.length !== currentOpenSessions.length) {
-          store.set('openSessions', filteredSessions)
-          console.log(`Removed stale session ${sessionId} from openSessions`)
+          store.set('openSessions', filteredSessions);
+          console.log(`Removed stale session ${sessionId} from openSessions`);
         }
-        return null
+        return null;
       }
-    })
-    
-    await Promise.all(resumePromises)
+    });
+
+    await Promise.all(resumePromises);
   } catch (error) {
-    console.error('Early session resumption failed:', error)
+    console.error('Early session resumption failed:', error);
   } finally {
-    earlyResumptionComplete = true
+    earlyResumptionComplete = true;
   }
 }
 
 // Model info with multipliers
 interface ModelInfo {
-  id: string
-  name: string
-  multiplier: number
+  id: string;
+  name: string;
+  multiplier: number;
 }
 
 // Static list of available models with pricing multipliers (sorted by cost low to high)
@@ -797,62 +876,64 @@ const AVAILABLE_MODELS: ModelInfo[] = [
   { id: 'gpt-5', name: 'GPT-5', multiplier: 1 },
   { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro (Preview)', multiplier: 1 },
   { id: 'claude-opus-4.5', name: 'Claude Opus 4.5', multiplier: 3 },
-]
+];
 
 // Cache for verified models (models confirmed available for current user)
 interface VerifiedModelsCache {
-  models: ModelInfo[]
-  timestamp: number
+  models: ModelInfo[];
+  timestamp: number;
 }
-let verifiedModelsCache: VerifiedModelsCache | null = null
-const MODEL_CACHE_TTL = 24 * 60 * 60 * 1000 // 24 hours
+let verifiedModelsCache: VerifiedModelsCache | null = null;
+const MODEL_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
 // Returns verified models, using cache if valid
 function getVerifiedModels(): ModelInfo[] {
   if (verifiedModelsCache && Date.now() - verifiedModelsCache.timestamp < MODEL_CACHE_TTL) {
-    return verifiedModelsCache.models
+    return verifiedModelsCache.models;
   }
   // If no cache, return baseline models (verification happens async)
-  return AVAILABLE_MODELS
+  return AVAILABLE_MODELS;
 }
 
 // Verify which models are available for the current user by fetching from the server
 async function verifyAvailableModels(client: CopilotClient): Promise<ModelInfo[]> {
-  console.log('Starting model verification...')
-  const available = await client.listModels()
-  const availableIds = new Set(available.map(m => m.id))
-  const verified = AVAILABLE_MODELS.filter(model => availableIds.has(model.id))
-  verifiedModelsCache = { models: verified, timestamp: Date.now() }
-  console.log(`Model verification complete: ${verified.length}/${AVAILABLE_MODELS.length} models available`)
-  return verified
+  console.log('Starting model verification...');
+  const available = await client.listModels();
+  const availableIds = new Set(available.map((m) => m.id));
+  const verified = AVAILABLE_MODELS.filter((model) => availableIds.has(model.id));
+  verifiedModelsCache = { models: verified, timestamp: Date.now() };
+  console.log(
+    `Model verification complete: ${verified.length}/${AVAILABLE_MODELS.length} models available`
+  );
+  return verified;
 }
 
 // Preferred models for quick, simple AI tasks (in order of preference)
 // These are typically free/cheap models optimized for simple text generation
-const QUICK_TASKS_MODEL_PREFERENCES = ['gpt-4.1', 'gpt-5-mini', 'claude-haiku-4.5']
+const QUICK_TASKS_MODEL_PREFERENCES = ['gpt-4.1', 'gpt-5-mini', 'claude-haiku-4.5'];
 
 // Get the best available model for quick tasks from the server's available models
 // Falls back to the session's configured model if none of the preferred models are available
 async function getQuickTasksModel(client: CopilotClient): Promise<string> {
-  const sessionModel = store.get('model') as string
-  
+  const sessionModel = store.get('model') as string;
+
   try {
-    const availableModels = await client.listModels()
-    const availableIds = new Set(availableModels.map(m => m.id))
-    
+    const availableModels = await client.listModels();
+    const availableIds = new Set(availableModels.map((m) => m.id));
+
     // Find the first preferred model that's available
     for (const preferred of QUICK_TASKS_MODEL_PREFERENCES) {
       if (availableIds.has(preferred)) {
-        return preferred
+        return preferred;
       }
     }
-    
+
     // Fallback: use the session's configured model
-    console.warn(`No preferred quick tasks model available, using session model: ${sessionModel}`)
-    return sessionModel
+    console.warn(`No preferred quick tasks model available, using session model: ${sessionModel}`);
+    return sessionModel;
   } catch (error) {
-    console.warn('Failed to list models for quick tasks, using session model:', error)
-    return sessionModel
+    console.warn('Failed to list models for quick tasks, using session model:', error);
+    return sessionModel;
   }
 }
 
@@ -897,57 +978,57 @@ const GLOBAL_AUTO_APPROVED_SHELL_EXECUTABLES = new Set([
   // Hashing (read-only)
   'shasum',
   'md5',
-])
+]);
 
 // Normalize stored identifiers so UI/behavior stays stable across versions
 function normalizeAlwaysAllowed(id: string): string {
   // Older versions stored `write:<path>`; treat all writes as a single global permission.
-  if (id.startsWith('write:')) return 'write'
-  return id
+  if (id.startsWith('write:')) return 'write';
+  return id;
 }
 
 // Extract executable identifier from permission request (for "always allow" tracking)
 function getExecutableIdentifier(request: PermissionRequest): string {
-  const req = request as Record<string, unknown>
-  
+  const req = request as Record<string, unknown>;
+
   // For shell commands, extract executables
   if (request.kind === 'shell' && req.fullCommandText) {
-    const executables = extractExecutables(req.fullCommandText as string)
-    return executables.join(', ') || 'shell'
+    const executables = extractExecutables(req.fullCommandText as string);
+    return executables.join(', ') || 'shell';
   }
-  
+
   // For read, use kind + filename
   if (request.kind === 'read' && req.path) {
-    const path = req.path as string
-    const filename = path.split(/[/\\]/).pop() || path
-    return `${request.kind}:${filename}`
+    const path = req.path as string;
+    const filename = path.split(/[/\\]/).pop() || path;
+    return `${request.kind}:${filename}`;
   }
 
   // For write, treat as global (all file changes)
   if (request.kind === 'write') {
-    return 'write'
+    return 'write';
   }
 
   // For URL, use kind + hostname
   if (request.kind === 'url' && (request as any).url) {
     try {
-      const u = new URL(String((request as any).url))
-      return `url:${u.host}`
+      const u = new URL(String((request as any).url));
+      return `url:${u.host}`;
     } catch {
-      return `url:${String((request as any).url)}`
+      return `url:${String((request as any).url)}`;
     }
   }
 
   // For MCP, use kind + server/tool
   if (request.kind === 'mcp') {
-    const r: any = request as any
-    const tool = r.toolName || r.toolTitle || 'tool'
-    const server = r.serverName || 'server'
-    return `mcp:${server}/${tool}`
+    const r: any = request as any;
+    const tool = r.toolName || r.toolTitle || 'tool';
+    const server = r.serverName || 'server';
+    return `mcp:${server}/${tool}`;
   }
 
   // Fallback to kind
-  return request.kind
+  return request.kind;
 }
 
 // Permission handler that prompts the user
@@ -956,33 +1037,43 @@ async function handlePermissionRequest(
   _invocation: { sessionId: string },
   ourSessionId: string
 ): Promise<PermissionRequestResult> {
-  const requestId = request.toolCallId || `perm-${Date.now()}`
-  const req = request as Record<string, unknown>
-  const sessionState = sessions.get(ourSessionId)
-  const globalSafeCommands = new Set(store.get('globalSafeCommands') as string[] || [])
-  
-  console.log(`[${ourSessionId}] Permission request:`, request.kind)
-  
+  const requestId = request.toolCallId || `perm-${Date.now()}`;
+  const req = request as Record<string, unknown>;
+  const sessionState = sessions.get(ourSessionId);
+  const globalSafeCommands = new Set((store.get('globalSafeCommands') as string[]) || []);
+
+  console.log(`[${ourSessionId}] Permission request:`, request.kind);
+
   // For shell commands, check each executable individually
   if (request.kind === 'shell' && req.fullCommandText) {
-    const commandText = req.fullCommandText as string
-    const executables = extractExecutables(commandText)
-    
+    const commandText = req.fullCommandText as string;
+    const executables = extractExecutables(commandText);
+
     // Check for destructive commands - these NEVER get auto-approved (Issue #65)
-    const isDestructive = containsDestructiveCommand(commandText)
-    const destructiveExecutables = isDestructive ? getDestructiveExecutables(commandText) : []
-    const filesToDelete = isDestructive ? extractFilesToDelete(commandText) : []
-    
+    const isDestructive = containsDestructiveCommand(commandText);
+    const destructiveExecutables = isDestructive ? getDestructiveExecutables(commandText) : [];
+    const filesToDelete = isDestructive ? extractFilesToDelete(commandText) : [];
+
     if (isDestructive) {
-      console.log(`[${ourSessionId}] DESTRUCTIVE command detected:`, destructiveExecutables, 'Files:', filesToDelete)
-      
+      console.log(
+        `[${ourSessionId}] DESTRUCTIVE command detected:`,
+        destructiveExecutables,
+        'Files:',
+        filesToDelete
+      );
+
       if (!mainWindow || mainWindow.isDestroyed()) {
-        return { kind: 'denied-no-approval-rule-and-could-not-request-from-user' }
+        return { kind: 'denied-no-approval-rule-and-could-not-request-from-user' };
       }
-      
+
       // Always require explicit permission for destructive commands
       return new Promise((resolve) => {
-        pendingPermissions.set(requestId, { resolve, request, executable: destructiveExecutables.join(', '), sessionId: ourSessionId })
+        pendingPermissions.set(requestId, {
+          resolve,
+          request,
+          executable: destructiveExecutables.join(', '),
+          sessionId: ourSessionId,
+        });
         mainWindow!.webContents.send('copilot:permission', {
           requestId,
           sessionId: ourSessionId,
@@ -990,227 +1081,263 @@ async function handlePermissionRequest(
           executables: destructiveExecutables,
           allExecutables: executables,
           isOutOfScope: false,
-          isDestructive: true,  // Flag for UI to show warning
-          filesToDelete,  // Issue #101: Show which files will be deleted
-          ...request
-        })
-        bounceDock()
-      })
+          isDestructive: true, // Flag for UI to show warning
+          filesToDelete, // Issue #101: Show which files will be deleted
+          ...request,
+        });
+        bounceDock();
+      });
     }
-    
+
     // Filter to only unapproved executables (exclude globally-auto-approved commands and global safe commands)
-    const unapproved = executables.filter(exec =>
-      !GLOBAL_AUTO_APPROVED_SHELL_EXECUTABLES.has(exec) &&
-      !globalSafeCommands.has(exec) &&
-      !sessionState?.alwaysAllowed.has(exec)
-    )
-    
+    const unapproved = executables.filter(
+      (exec) =>
+        !GLOBAL_AUTO_APPROVED_SHELL_EXECUTABLES.has(exec) &&
+        !globalSafeCommands.has(exec) &&
+        !sessionState?.alwaysAllowed.has(exec)
+    );
+
     if (unapproved.length === 0) {
-      console.log(`[${ourSessionId}] All executables already approved:`, executables)
-      return { kind: 'approved' }
+      console.log(`[${ourSessionId}] All executables already approved:`, executables);
+      return { kind: 'approved' };
     }
-    
-    console.log(`[${ourSessionId}] Need approval for:`, unapproved)
-    
+
+    console.log(`[${ourSessionId}] Need approval for:`, unapproved);
+
     if (!mainWindow || mainWindow.isDestroyed()) {
-      return { kind: 'denied-no-approval-rule-and-could-not-request-from-user' }
+      return { kind: 'denied-no-approval-rule-and-could-not-request-from-user' };
     }
-    
+
     // Log all request fields for debugging
-    console.log(`[${ourSessionId}] Full permission request:`, JSON.stringify(request, null, 2))
-    
+    console.log(`[${ourSessionId}] Full permission request:`, JSON.stringify(request, null, 2));
+
     // Send to renderer and wait for response - include unapproved list
     return new Promise((resolve) => {
-      pendingPermissions.set(requestId, { resolve, request, executable: unapproved.join(', '), sessionId: ourSessionId })
+      pendingPermissions.set(requestId, {
+        resolve,
+        request,
+        executable: unapproved.join(', '),
+        sessionId: ourSessionId,
+      });
       mainWindow!.webContents.send('copilot:permission', {
         requestId,
         sessionId: ourSessionId,
         executable: unapproved.join(', '),
-        executables: unapproved,  // Array of executables needing approval
-        allExecutables: executables,  // All executables in command
+        executables: unapproved, // Array of executables needing approval
+        allExecutables: executables, // All executables in command
         isOutOfScope: false,
         isDestructive: false,
-        ...request
-      })
-      bounceDock()
-    })
+        ...request,
+      });
+      bounceDock();
+    });
   }
-  
+
   // Non-shell permissions
-  const executable = getExecutableIdentifier(request)
-  
+  const executable = getExecutableIdentifier(request);
+
   // Auto-approve global low-risk commands (do not persist/show in UI)
   if (request.kind === 'shell' && GLOBAL_AUTO_APPROVED_SHELL_EXECUTABLES.has(executable)) {
-    console.log(`[${ourSessionId}] Auto-approved (global allowlist):`, executable)
-    return { kind: 'approved' }
+    console.log(`[${ourSessionId}] Auto-approved (global allowlist):`, executable);
+    return { kind: 'approved' };
   }
 
   // Check if in global safe commands
   if (globalSafeCommands.has(executable)) {
-    console.log(`[${ourSessionId}] Auto-approved (global safe commands):`, executable)
-    return { kind: 'approved' }
+    console.log(`[${ourSessionId}] Auto-approved (global safe commands):`, executable);
+    return { kind: 'approved' };
   }
 
   // Check if already allowed (per-session "always")
   if (sessionState?.alwaysAllowed.has(executable)) {
-    console.log(`[${ourSessionId}] Auto-approved (always allow):`, executable)
-    return { kind: 'approved' }
+    console.log(`[${ourSessionId}] Auto-approved (always allow):`, executable);
+    return { kind: 'approved' };
   }
-  
+
   // For read requests, check if in-scope (auto-approve) or out-of-scope (need permission)
-  let isOutOfScope = false
-  let outOfScopePath: string | undefined
+  let isOutOfScope = false;
+  let outOfScopePath: string | undefined;
   if (request.kind === 'read' && sessionState) {
-    const requestPath = req.path as string | undefined
-    const sessionCwd = sessionState.cwd
-    
+    const requestPath = req.path as string | undefined;
+    const sessionCwd = sessionState.cwd;
+
     if (requestPath) {
       // Check if path is outside the session's working directory
-      if (!requestPath.startsWith(sessionCwd + '/') && !requestPath.startsWith(sessionCwd + '\\') && requestPath !== sessionCwd) {
+      if (
+        !requestPath.startsWith(sessionCwd + '/') &&
+        !requestPath.startsWith(sessionCwd + '\\') &&
+        requestPath !== sessionCwd
+      ) {
         // Check if path is under a previously allowed path
-        let isAllowedPath = false
+        let isAllowedPath = false;
         for (const allowedPath of sessionState.allowedPaths) {
-          if (requestPath.startsWith(allowedPath + '/') || requestPath.startsWith(allowedPath + '\\') || requestPath === allowedPath) {
-            isAllowedPath = true
-            break
+          if (
+            requestPath.startsWith(allowedPath + '/') ||
+            requestPath.startsWith(allowedPath + '\\') ||
+            requestPath === allowedPath
+          ) {
+            isAllowedPath = true;
+            break;
           }
         }
-        
+
         if (isAllowedPath) {
-          console.log(`[${ourSessionId}] Auto-approved out-of-scope read (allowed path):`, requestPath)
-          return { kind: 'approved' }
+          console.log(
+            `[${ourSessionId}] Auto-approved out-of-scope read (allowed path):`,
+            requestPath
+          );
+          return { kind: 'approved' };
         }
-        
+
         // Check if path is in safe Copilot directories (Issue #87)
         // These are low-risk paths containing session state and plans
-        const safeCopilotPaths = getSafeCopilotReadPaths()
+        const safeCopilotPaths = getSafeCopilotReadPaths();
         for (const safePath of safeCopilotPaths) {
-          if (requestPath.startsWith(safePath + '/') || requestPath.startsWith(safePath + '\\') || requestPath === safePath) {
-            console.log(`[${ourSessionId}] Auto-approved read (safe Copilot path):`, requestPath)
-            return { kind: 'approved' }
+          if (
+            requestPath.startsWith(safePath + '/') ||
+            requestPath.startsWith(safePath + '\\') ||
+            requestPath === safePath
+          ) {
+            console.log(`[${ourSessionId}] Auto-approved read (safe Copilot path):`, requestPath);
+            return { kind: 'approved' };
           }
         }
-        
-        isOutOfScope = true
-        outOfScopePath = requestPath
-        console.log(`[${ourSessionId}] Out-of-scope read detected:`, requestPath, 'not in', sessionCwd)
+
+        isOutOfScope = true;
+        outOfScopePath = requestPath;
+        console.log(
+          `[${ourSessionId}] Out-of-scope read detected:`,
+          requestPath,
+          'not in',
+          sessionCwd
+        );
       } else {
         // In-scope reads are auto-approved (like CLI behavior)
-        console.log(`[${ourSessionId}] Auto-approved in-scope read:`, requestPath)
-        return { kind: 'approved' }
+        console.log(`[${ourSessionId}] Auto-approved in-scope read:`, requestPath);
+        return { kind: 'approved' };
       }
     } else {
       // No path specified - auto-approve reads within trusted workspace
-      console.log(`[${ourSessionId}] Auto-approved read (no path, trusted workspace)`)
-      return { kind: 'approved' }
+      console.log(`[${ourSessionId}] Auto-approved read (no path, trusted workspace)`);
+      return { kind: 'approved' };
     }
   }
-  
+
   // For URL requests (web_fetch), check allowlist/denylist
   if (request.kind === 'url') {
-    const requestUrl = req.url as string | undefined
+    const requestUrl = req.url as string | undefined;
     if (requestUrl) {
       try {
-        const urlObj = new URL(requestUrl)
-        const hostname = urlObj.hostname
-        
+        const urlObj = new URL(requestUrl);
+        const hostname = urlObj.hostname;
+
         // Get URL allowlist and denylist from store
-        const allowedUrls = new Set(store.get('allowedUrls') as string[] || [])
-        const deniedUrls = new Set(store.get('deniedUrls') as string[] || [])
-        
+        const allowedUrls = new Set((store.get('allowedUrls') as string[]) || []);
+        const deniedUrls = new Set((store.get('deniedUrls') as string[]) || []);
+
         // Check denylist first (takes precedence)
         if (deniedUrls.has(hostname)) {
-          console.log(`[${ourSessionId}] URL denied (denylist):`, hostname)
-          return { kind: 'denied-by-rules' }
+          console.log(`[${ourSessionId}] URL denied (denylist):`, hostname);
+          return { kind: 'denied-by-rules' };
         }
-        
+
         // Check if hostname or parent domain is in allowlist
-        const hostParts = hostname.split('.')
-        let isAllowed = allowedUrls.has(hostname)
+        const hostParts = hostname.split('.');
+        let isAllowed = allowedUrls.has(hostname);
         // Check parent domains (e.g., docs.github.com matches github.com)
         for (let i = 1; i < hostParts.length - 1 && !isAllowed; i++) {
-          const parentDomain = hostParts.slice(i).join('.')
+          const parentDomain = hostParts.slice(i).join('.');
           if (allowedUrls.has(parentDomain)) {
-            isAllowed = true
+            isAllowed = true;
           }
         }
-        
+
         if (isAllowed) {
-          console.log(`[${ourSessionId}] URL auto-approved (allowlist):`, hostname)
-          return { kind: 'approved' }
+          console.log(`[${ourSessionId}] URL auto-approved (allowlist):`, hostname);
+          return { kind: 'approved' };
         }
-        
-        console.log(`[${ourSessionId}] URL needs approval:`, hostname)
+
+        console.log(`[${ourSessionId}] URL needs approval:`, hostname);
       } catch (e) {
-        console.log(`[${ourSessionId}] Invalid URL, needs approval:`, requestUrl)
+        console.log(`[${ourSessionId}] Invalid URL, needs approval:`, requestUrl);
       }
     }
   }
-  
+
   if (!mainWindow || mainWindow.isDestroyed()) {
-    return { kind: 'denied-no-approval-rule-and-could-not-request-from-user' }
+    return { kind: 'denied-no-approval-rule-and-could-not-request-from-user' };
   }
-  
+
   // Log all request fields for debugging
-  console.log(`[${ourSessionId}] Full permission request:`, JSON.stringify(request, null, 2))
-  
+  console.log(`[${ourSessionId}] Full permission request:`, JSON.stringify(request, null, 2));
+
   // Deduplicate parallel permission requests for the same executable+session
-  const inFlightKey = `${ourSessionId}:${executable}`
-  const existingRequest = inFlightPermissions.get(inFlightKey)
+  const inFlightKey = `${ourSessionId}:${executable}`;
+  const existingRequest = inFlightPermissions.get(inFlightKey);
   if (existingRequest) {
-    console.log(`[${ourSessionId}] Reusing in-flight permission request for:`, executable)
-    return existingRequest
+    console.log(`[${ourSessionId}] Reusing in-flight permission request for:`, executable);
+    return existingRequest;
   }
-  
+
   // Create new permission request and track it
   const permissionPromise = new Promise<PermissionRequestResult>((resolve) => {
-    pendingPermissions.set(requestId, { resolve, request, executable, sessionId: ourSessionId, outOfScopePath })
+    pendingPermissions.set(requestId, {
+      resolve,
+      request,
+      executable,
+      sessionId: ourSessionId,
+      outOfScopePath,
+    });
     mainWindow!.webContents.send('copilot:permission', {
       requestId,
       sessionId: ourSessionId,
       executable,
       isOutOfScope,
-      ...request
-    })
-    bounceDock()
-  })
-  
+      ...request,
+    });
+    bounceDock();
+  });
+
   // Track the in-flight request
-  inFlightPermissions.set(inFlightKey, permissionPromise)
-  
+  inFlightPermissions.set(inFlightKey, permissionPromise);
+
   // Clean up after resolution
   permissionPromise.finally(() => {
-    inFlightPermissions.delete(inFlightKey)
-  })
-  
-  return permissionPromise
+    inFlightPermissions.delete(inFlightKey);
+  });
+
+  return permissionPromise;
 }
 
 // Create a new session and return its ID
 async function createNewSession(model?: string, cwd?: string): Promise<string> {
-  const sessionModel = model || store.get('model') as string
+  const sessionModel = model || (store.get('model') as string);
   // In packaged app, process.cwd() can be '/', so default to home directory
-  const sessionCwd = cwd || (app.isPackaged ? app.getPath('home') : process.cwd())
-  
+  const sessionCwd = cwd || (app.isPackaged ? app.getPath('home') : process.cwd());
+
   // Get or create a client for this cwd
-  const client = await getClientForCwd(sessionCwd)
-  
+  const client = await getClientForCwd(sessionCwd);
+
   // Load MCP servers config
-  const mcpConfig = await readMcpConfig()
-  
+  const mcpConfig = await readMcpConfig();
+
   // Generate session ID upfront so we can pass it to browser tools
-  const generatedSessionId = `session-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
-  
+  const generatedSessionId = `session-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+
   // Create browser tools for this session
-  const browserTools = createBrowserTools(generatedSessionId)
-  console.log(`[${generatedSessionId}] Registering ${browserTools.length} tools:`, browserTools.map(t => t.name))
-  
+  const browserTools = createBrowserTools(generatedSessionId);
+  console.log(
+    `[${generatedSessionId}] Registering ${browserTools.length} tools:`,
+    browserTools.map((t) => t.name)
+  );
+
   const newSession = await client.createSession({
     sessionId: generatedSessionId,
     model: sessionModel,
     mcpServers: mcpConfig.mcpServers,
     tools: browserTools,
-    onPermissionRequest: (request, invocation) => handlePermissionRequest(request, invocation, newSession.sessionId),
+    onPermissionRequest: (request, invocation) =>
+      handlePermissionRequest(request, invocation, newSession.sessionId),
     systemMessage: {
       mode: 'append',
       content: `
@@ -1244,166 +1371,220 @@ Browser tools available: browser_navigate, browser_click, browser_fill, browser_
 - Do NOT say "I cannot take screenshots of desktop apps" - you CAN via Playwright
 - Use browser_navigate to connect to the running Electron app, then browser_screenshot to capture it
 - This is the CORRECT way to capture visual evidence of Electron app features you've built or tested
-`
+`,
     },
-  })
-  
-  const sessionId = newSession.sessionId  // Use SDK's session ID
-  
+  });
+
+  const sessionId = newSession.sessionId; // Use SDK's session ID
+
   // Set up event handler for this session
   newSession.on((event) => {
-    if (!mainWindow || mainWindow.isDestroyed()) return
-    
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+
     // Always forward events - frontend routes by sessionId
-    console.log(`[${sessionId}] Event:`, event.type)
-    
+    console.log(`[${sessionId}] Event:`, event.type);
+
     if (event.type === 'assistant.message_delta') {
-      mainWindow.webContents.send('copilot:delta', { sessionId, content: event.data.deltaContent })
+      mainWindow.webContents.send('copilot:delta', { sessionId, content: event.data.deltaContent });
     } else if (event.type === 'assistant.message') {
-      mainWindow.webContents.send('copilot:message', { sessionId, content: event.data.content })
+      mainWindow.webContents.send('copilot:message', { sessionId, content: event.data.content });
     } else if (event.type === 'session.idle') {
-      const currentSessionState = sessions.get(sessionId)
-      if (currentSessionState) currentSessionState.isProcessing = false
-      mainWindow.webContents.send('copilot:idle', { sessionId })
-      bounceDock()
+      const currentSessionState = sessions.get(sessionId);
+      if (currentSessionState) currentSessionState.isProcessing = false;
+      mainWindow.webContents.send('copilot:idle', { sessionId });
+      bounceDock();
     } else if (event.type === 'tool.execution_start') {
-      console.log(`[${sessionId}] Tool start FULL:`, JSON.stringify(event.data, null, 2))
-      mainWindow.webContents.send('copilot:tool-start', { 
-        sessionId, 
-        toolCallId: event.data.toolCallId,
-        toolName: event.data.toolName,
-        input: event.data.arguments || event.data.input || (event.data as Record<string, unknown>)
-      })
-    } else if (event.type === 'tool.execution_complete') {
-      console.log(`[${sessionId}] Tool end FULL:`, JSON.stringify(event.data, null, 2))
-      mainWindow.webContents.send('copilot:tool-end', { 
-        sessionId, 
+      console.log(`[${sessionId}] Tool start FULL:`, JSON.stringify(event.data, null, 2));
+      mainWindow.webContents.send('copilot:tool-start', {
+        sessionId,
         toolCallId: event.data.toolCallId,
         toolName: event.data.toolName,
         input: event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
-        output: event.data.output
-      })
+      });
+    } else if (event.type === 'tool.execution_complete') {
+      console.log(`[${sessionId}] Tool end FULL:`, JSON.stringify(event.data, null, 2));
+      mainWindow.webContents.send('copilot:tool-end', {
+        sessionId,
+        toolCallId: event.data.toolCallId,
+        toolName: event.data.toolName,
+        input: event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
+        output: event.data.output,
+      });
     } else if (event.type === 'tool.confirmation_requested') {
-      console.log(`[${sessionId}] Confirmation requested:`, event.data)
-      mainWindow.webContents.send('copilot:confirm', { sessionId, ...event.data })
+      console.log(`[${sessionId}] Confirmation requested:`, event.data);
+      mainWindow.webContents.send('copilot:confirm', { sessionId, ...event.data });
     } else if (event.type === 'session.error') {
-      console.log(`[${sessionId}] Session error:`, event.data)
-      const errorMessage = event.data?.message || JSON.stringify(event.data)
-      
+      console.log(`[${sessionId}] Session error:`, event.data);
+      const errorMessage = event.data?.message || JSON.stringify(event.data);
+
       // Auto-repair tool_result errors (duplicate or orphaned after compaction)
-      if (errorMessage.includes('multiple `tool_result` blocks') || 
-          errorMessage.includes('each tool_use must have a single result') ||
-          errorMessage.includes('unexpected `tool_use_id`') ||
-          errorMessage.includes('Each `tool_result` block must have a corresponding `tool_use`')) {
-        log.info(`[${sessionId}] Detected tool_result corruption error, attempting auto-repair...`)
-        repairDuplicateToolResults(sessionId).then(repaired => {
+      if (
+        errorMessage.includes('multiple `tool_result` blocks') ||
+        errorMessage.includes('each tool_use must have a single result') ||
+        errorMessage.includes('unexpected `tool_use_id`') ||
+        errorMessage.includes('Each `tool_result` block must have a corresponding `tool_use`')
+      ) {
+        log.info(`[${sessionId}] Detected tool_result corruption error, attempting auto-repair...`);
+        repairDuplicateToolResults(sessionId).then((repaired) => {
           if (repaired) {
-            mainWindow?.webContents.send('copilot:error', { 
-              sessionId, 
+            mainWindow?.webContents.send('copilot:error', {
+              sessionId,
               message: 'Session repaired. Please resend your last message.',
-              isRepaired: true
-            })
+              isRepaired: true,
+            });
           } else {
-            mainWindow?.webContents.send('copilot:error', { sessionId, message: errorMessage })
+            mainWindow?.webContents.send('copilot:error', { sessionId, message: errorMessage });
           }
-        })
-        return
+        });
+        return;
       }
-      
-      mainWindow.webContents.send('copilot:error', { sessionId, message: errorMessage })
+
+      mainWindow.webContents.send('copilot:error', { sessionId, message: errorMessage });
     } else if (event.type === 'session.usage_info') {
-      mainWindow.webContents.send('copilot:usageInfo', { 
+      mainWindow.webContents.send('copilot:usageInfo', {
         sessionId,
         tokenLimit: event.data.tokenLimit,
         currentTokens: event.data.currentTokens,
-        messagesLength: event.data.messagesLength
-      })
+        messagesLength: event.data.messagesLength,
+      });
     } else if (event.type === 'session.compaction_start') {
-      console.log(`[${sessionId}] Compaction started`)
-      mainWindow.webContents.send('copilot:compactionStart', { sessionId })
+      console.log(`[${sessionId}] Compaction started`);
+      mainWindow.webContents.send('copilot:compactionStart', { sessionId });
     } else if (event.type === 'session.compaction_complete') {
-      console.log(`[${sessionId}] Compaction complete:`, event.data)
-      mainWindow.webContents.send('copilot:compactionComplete', { 
+      console.log(`[${sessionId}] Compaction complete:`, event.data);
+      mainWindow.webContents.send('copilot:compactionComplete', {
         sessionId,
         success: event.data.success,
         preCompactionTokens: event.data.preCompactionTokens,
         postCompactionTokens: event.data.postCompactionTokens,
         tokensRemoved: event.data.tokensRemoved,
         summaryContent: event.data.summaryContent,
-        error: event.data.error
-      })
+        error: event.data.error,
+      });
     }
-  })
-  
-  sessions.set(sessionId, { session: newSession, client, model: sessionModel, cwd: sessionCwd, alwaysAllowed: new Set(), allowedPaths: new Set(), isProcessing: false })
-  activeSessionId = sessionId
-  
+  });
+
+  sessions.set(sessionId, {
+    session: newSession,
+    client,
+    model: sessionModel,
+    cwd: sessionCwd,
+    alwaysAllowed: new Set(),
+    allowedPaths: new Set(),
+    isProcessing: false,
+  });
+  activeSessionId = sessionId;
+
   // Persist session cwd so it can be restored when resuming from history
-  const sessionCwds = store.get('sessionCwds') as Record<string, string> || {}
-  sessionCwds[sessionId] = sessionCwd
-  store.set('sessionCwds', sessionCwds)
-  
+  const sessionCwds = (store.get('sessionCwds') as Record<string, string>) || {};
+  sessionCwds[sessionId] = sessionCwd;
+  store.set('sessionCwds', sessionCwds);
+
   // If this session is in a worktree, track the copilot session ID for cleanup
-  const worktreeSession = worktree.findWorktreeSessionByPath(sessionCwd)
+  const worktreeSession = worktree.findWorktreeSessionByPath(sessionCwd);
   if (worktreeSession) {
-    worktree.trackCopilotSession(worktreeSession.id, sessionId)
+    worktree.trackCopilotSession(worktreeSession.id, sessionId);
   }
-  
-  console.log(`Created session ${sessionId} with model ${sessionModel} in ${sessionCwd}`)
-  return sessionId
+
+  console.log(`Created session ${sessionId} with model ${sessionModel} in ${sessionCwd}`);
+  return sessionId;
 }
 
 async function initCopilot(): Promise<void> {
   try {
     // Use early-initialized client if available (saves ~500ms by running parallel with window load)
     if (earlyClientPromise) {
-      defaultClient = await earlyClientPromise
+      defaultClient = await earlyClientPromise;
     } else {
       // Fallback to creating client now
-      const defaultCwd = app.isPackaged ? app.getPath('home') : process.cwd()
-      defaultClient = await getClientForCwd(defaultCwd)
+      const defaultCwd = app.isPackaged ? app.getPath('home') : process.cwd();
+      defaultClient = await getClientForCwd(defaultCwd);
     }
-    
+
     // Check if we should use mock sessions for testing
-    const useMockSessions = process.env.USE_MOCK_SESSIONS === 'true'
-    
+    const useMockSessions = process.env.USE_MOCK_SESSIONS === 'true';
+
     // Get all available sessions and our stored open sessions with models
-    let allSessions = await defaultClient.listSessions()
-    const openSessions = store.get('openSessions') as StoredSession[] || []
-    const openSessionIds = openSessions.map(s => s.sessionId)
-    const openSessionMap = new Map(openSessions.map(s => [s.sessionId, s]))
-    
+    let allSessions = await defaultClient.listSessions();
+    const openSessions = (store.get('openSessions') as StoredSession[]) || [];
+    const openSessionIds = openSessions.map((s) => s.sessionId);
+    const openSessionMap = new Map(openSessions.map((s) => [s.sessionId, s]));
+
     // Mock sessions for E2E testing - deterministic data
-    let mockSessionCwds: Record<string, string> = {}
+    let mockSessionCwds: Record<string, string> = {};
     if (useMockSessions) {
-      const now = new Date()
+      const now = new Date();
       const createMockDate = (daysAgo: number, hoursAgo = 0) => {
-        const d = new Date(now)
-        d.setDate(d.getDate() - daysAgo)
-        d.setHours(d.getHours() - hoursAgo)
-        return d
-      }
-      
+        const d = new Date(now);
+        d.setDate(d.getDate() - daysAgo);
+        d.setHours(d.getHours() - hoursAgo);
+        return d;
+      };
+
       allSessions = [
         // Today
-        { sessionId: 'mock-today-1', summary: 'Fix authentication bug', modifiedTime: createMockDate(0, 2) },
-        { sessionId: 'mock-today-2', summary: 'Add user dashboard', modifiedTime: createMockDate(0, 5) },
+        {
+          sessionId: 'mock-today-1',
+          summary: 'Fix authentication bug',
+          modifiedTime: createMockDate(0, 2),
+        },
+        {
+          sessionId: 'mock-today-2',
+          summary: 'Add user dashboard',
+          modifiedTime: createMockDate(0, 5),
+        },
         // Yesterday
-        { sessionId: 'mock-yesterday-1', summary: 'Refactor API endpoints', modifiedTime: createMockDate(1, 3) },
-        { sessionId: 'mock-yesterday-2', summary: 'Update unit tests', modifiedTime: createMockDate(1, 8) },
+        {
+          sessionId: 'mock-yesterday-1',
+          summary: 'Refactor API endpoints',
+          modifiedTime: createMockDate(1, 3),
+        },
+        {
+          sessionId: 'mock-yesterday-2',
+          summary: 'Update unit tests',
+          modifiedTime: createMockDate(1, 8),
+        },
         // Last 7 days
-        { sessionId: 'mock-week-1', summary: 'Feature: Dark mode support', modifiedTime: createMockDate(3) },
-        { sessionId: 'mock-week-2', summary: 'Performance optimization', modifiedTime: createMockDate(5) },
-        { sessionId: 'mock-week-3', summary: 'Database migration script', modifiedTime: createMockDate(6) },
-        // Last 30 days  
-        { sessionId: 'mock-month-1', summary: 'Initial project setup', modifiedTime: createMockDate(12) },
-        { sessionId: 'mock-month-2', summary: 'Documentation updates', modifiedTime: createMockDate(20) },
-        { sessionId: 'mock-month-3', summary: 'CI/CD pipeline config', modifiedTime: createMockDate(25) },
+        {
+          sessionId: 'mock-week-1',
+          summary: 'Feature: Dark mode support',
+          modifiedTime: createMockDate(3),
+        },
+        {
+          sessionId: 'mock-week-2',
+          summary: 'Performance optimization',
+          modifiedTime: createMockDate(5),
+        },
+        {
+          sessionId: 'mock-week-3',
+          summary: 'Database migration script',
+          modifiedTime: createMockDate(6),
+        },
+        // Last 30 days
+        {
+          sessionId: 'mock-month-1',
+          summary: 'Initial project setup',
+          modifiedTime: createMockDate(12),
+        },
+        {
+          sessionId: 'mock-month-2',
+          summary: 'Documentation updates',
+          modifiedTime: createMockDate(20),
+        },
+        {
+          sessionId: 'mock-month-3',
+          summary: 'CI/CD pipeline config',
+          modifiedTime: createMockDate(25),
+        },
         // Older
-        { sessionId: 'mock-old-1', summary: 'Legacy code cleanup', modifiedTime: createMockDate(45) },
+        {
+          sessionId: 'mock-old-1',
+          summary: 'Legacy code cleanup',
+          modifiedTime: createMockDate(45),
+        },
         { sessionId: 'mock-old-2', summary: 'Archive migration', modifiedTime: createMockDate(60) },
-      ] as typeof allSessions
-      
+      ] as typeof allSessions;
+
       mockSessionCwds = {
         'mock-today-1': '/Users/dev/projects/webapp',
         'mock-today-2': '/Users/dev/projects/webapp',
@@ -1417,107 +1598,146 @@ async function initCopilot(): Promise<void> {
         'mock-month-3': '/Users/dev/projects/webapp',
         'mock-old-1': '/Users/dev/legacy',
         'mock-old-2': '/Users/dev/archive',
-      }
-      console.log('Using mock sessions for testing')
+      };
+      console.log('Using mock sessions for testing');
     }
-    
-    console.log(`Found ${allSessions.length} total sessions, ${openSessions.length} were open in our app`)
-    console.log('Open session IDs:', openSessionIds)
-    console.log('Available session IDs:', allSessions.map(s => s.sessionId))
-    
+
+    console.log(
+      `Found ${allSessions.length} total sessions, ${openSessions.length} were open in our app`
+    );
+    console.log('Open session IDs:', openSessionIds);
+    console.log(
+      'Available session IDs:',
+      allSessions.map((s) => s.sessionId)
+    );
+
     // Build map for quick lookup
-    const sessionMetaMap = new Map(allSessions.map(s => [s.sessionId, s]))
-    
+    const sessionMetaMap = new Map(allSessions.map((s) => [s.sessionId, s]));
+
     // Filter to only sessions that exist and were open in our app
-    const sessionsToResume = useMockSessions ? [] : openSessionIds.filter(id => sessionMetaMap.has(id))
-    console.log('Sessions to resume:', sessionsToResume)
-    
+    const sessionsToResume = useMockSessions
+      ? []
+      : openSessionIds.filter((id) => sessionMetaMap.has(id));
+    console.log('Sessions to resume:', sessionsToResume);
+
     // Get stored session cwds for previous sessions (use mock cwds if in test mode)
-    const sessionCwds = useMockSessions ? mockSessionCwds : (store.get('sessionCwds') as Record<string, string> || {})
-    const sessionMarks = store.get('sessionMarks') as Record<string, { markedForReview?: boolean; reviewNote?: string }> || {}
-    const sessionNames = store.get('sessionNames') as Record<string, string> || {}
-    
+    const sessionCwds = useMockSessions
+      ? mockSessionCwds
+      : (store.get('sessionCwds') as Record<string, string>) || {};
+    const sessionMarks =
+      (store.get('sessionMarks') as Record<
+        string,
+        { markedForReview?: boolean; reviewNote?: string }
+      >) || {};
+    const sessionNames = (store.get('sessionNames') as Record<string, string>) || {};
+
     // Build list of previous sessions (all sessions not in our open list)
     // Use stored session name first (preserves user renames), then SDK summary as fallback
     const previousSessions = allSessions
-      .filter(s => !openSessionIds.includes(s.sessionId))
-      .map(s => ({ 
-        sessionId: s.sessionId, 
-        name: sessionNames[s.sessionId] || s.summary || undefined, 
-        modifiedTime: s.modifiedTime.toISOString(), 
+      .filter((s) => !openSessionIds.includes(s.sessionId))
+      .map((s) => ({
+        sessionId: s.sessionId,
+        name: sessionNames[s.sessionId] || s.summary || undefined,
+        modifiedTime: s.modifiedTime.toISOString(),
         cwd: sessionCwds[s.sessionId],
         markedForReview: sessionMarks[s.sessionId]?.markedForReview,
         reviewNote: sessionMarks[s.sessionId]?.reviewNote,
-      }))
-    
-    let resumedSessions: { sessionId: string; model: string; cwd: string; name?: string; editedFiles?: string[]; alwaysAllowed?: string[]; untrackedFiles?: string[] }[] = []
-    
+      }));
+
+    let resumedSessions: {
+      sessionId: string;
+      model: string;
+      cwd: string;
+      name?: string;
+      editedFiles?: string[];
+      alwaysAllowed?: string[];
+      untrackedFiles?: string[];
+    }[] = [];
+
     // Check which sessions were already resumed early
-    const alreadyResumedIds = new Set(earlyResumedSessions.map(s => s.sessionId))
-    const sessionsNeedingResumption = sessionsToResume.filter(id => !alreadyResumedIds.has(id))
-    console.log('Already resumed early:', [...alreadyResumedIds])
-    console.log('Sessions still needing resumption:', sessionsNeedingResumption)
-    
+    const alreadyResumedIds = new Set(earlyResumedSessions.map((s) => s.sessionId));
+    const sessionsNeedingResumption = sessionsToResume.filter((id) => !alreadyResumedIds.has(id));
+    console.log('Already resumed early:', [...alreadyResumedIds]);
+    console.log('Sessions still needing resumption:', sessionsNeedingResumption);
+
     // Load MCP servers config once for resumption (only if we need to resume more sessions)
-    const mcpConfig = sessionsNeedingResumption.length > 0 ? await readMcpConfig() : { mcpServers: {} }
-    
+    const mcpConfig =
+      sessionsNeedingResumption.length > 0 ? await readMcpConfig() : { mcpServers: {} };
+
     // Resume only sessions that weren't resumed early
     const resumeSession = async (sessionId: string): Promise<void> => {
-      const meta = sessionMetaMap.get(sessionId)
-      const storedSession = openSessionMap.get(sessionId)
-      const sessionModel = storedSession?.model || store.get('model') as string || 'gpt-5.2'
-      const sessionCwd = storedSession?.cwd || defaultCwd
-      const storedAlwaysAllowed = storedSession?.alwaysAllowed || []
-      
+      const meta = sessionMetaMap.get(sessionId);
+      const storedSession = openSessionMap.get(sessionId);
+      const sessionModel = storedSession?.model || (store.get('model') as string) || 'gpt-5.2';
+      const sessionCwd = storedSession?.cwd || defaultCwd;
+      const storedAlwaysAllowed = storedSession?.alwaysAllowed || [];
+
       try {
         // Get or create client for this session's cwd
-        const client = await getClientForCwd(sessionCwd)
-        
+        const client = await getClientForCwd(sessionCwd);
+
         const session = await client.resumeSession(sessionId, {
           mcpServers: mcpConfig.mcpServers,
           tools: createBrowserTools(sessionId),
-          onPermissionRequest: (request, invocation) => handlePermissionRequest(request, invocation, sessionId)
-        })
-        
+          onPermissionRequest: (request, invocation) =>
+            handlePermissionRequest(request, invocation, sessionId),
+        });
+
         // Set up event handler for resumed session
         session.on((event) => {
-          if (!mainWindow || mainWindow.isDestroyed()) return
-          
-          console.log(`[${sessionId}] Event:`, event.type)
-          
+          if (!mainWindow || mainWindow.isDestroyed()) return;
+
+          console.log(`[${sessionId}] Event:`, event.type);
+
           if (event.type === 'assistant.message_delta') {
-            mainWindow.webContents.send('copilot:delta', { sessionId, content: event.data.deltaContent })
+            mainWindow.webContents.send('copilot:delta', {
+              sessionId,
+              content: event.data.deltaContent,
+            });
           } else if (event.type === 'assistant.message') {
-            mainWindow.webContents.send('copilot:message', { sessionId, content: event.data.content })
+            mainWindow.webContents.send('copilot:message', {
+              sessionId,
+              content: event.data.content,
+            });
           } else if (event.type === 'session.idle') {
-            const currentSessionState = sessions.get(sessionId)
-            if (currentSessionState) currentSessionState.isProcessing = false
-            mainWindow.webContents.send('copilot:idle', { sessionId })
-            bounceDock()
+            const currentSessionState = sessions.get(sessionId);
+            if (currentSessionState) currentSessionState.isProcessing = false;
+            mainWindow.webContents.send('copilot:idle', { sessionId });
+            bounceDock();
           } else if (event.type === 'tool.execution_start') {
-            console.log(`[${sessionId}] Tool start FULL:`, JSON.stringify(event.data, null, 2))
-            mainWindow.webContents.send('copilot:tool-start', { 
-              sessionId, 
-              toolCallId: event.data.toolCallId, 
+            console.log(`[${sessionId}] Tool start FULL:`, JSON.stringify(event.data, null, 2));
+            mainWindow.webContents.send('copilot:tool-start', {
+              sessionId,
+              toolCallId: event.data.toolCallId,
               toolName: event.data.toolName,
-              input: event.data.arguments || event.data.input || (event.data as Record<string, unknown>)
-            })
+              input:
+                event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
+            });
           } else if (event.type === 'tool.execution_complete') {
-            console.log(`[${sessionId}] Tool end FULL:`, JSON.stringify(event.data, null, 2))
-            mainWindow.webContents.send('copilot:tool-end', { 
-              sessionId, 
-              toolCallId: event.data.toolCallId, 
+            console.log(`[${sessionId}] Tool end FULL:`, JSON.stringify(event.data, null, 2));
+            mainWindow.webContents.send('copilot:tool-end', {
+              sessionId,
+              toolCallId: event.data.toolCallId,
               toolName: event.data.toolName,
-              input: event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
-              output: event.data.output
-            })
+              input:
+                event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
+              output: event.data.output,
+            });
           }
-        })
-        
+        });
+
         // Restore alwaysAllowed set from stored data (normalize legacy ids)
-        const alwaysAllowedSet = new Set(storedAlwaysAllowed.map(normalizeAlwaysAllowed))
-        sessions.set(sessionId, { session, client, model: sessionModel, cwd: sessionCwd, alwaysAllowed: alwaysAllowedSet, allowedPaths: new Set(), isProcessing: false })
-        
+        const alwaysAllowedSet = new Set(storedAlwaysAllowed.map(normalizeAlwaysAllowed));
+        sessions.set(sessionId, {
+          session,
+          client,
+          model: sessionModel,
+          cwd: sessionCwd,
+          alwaysAllowed: alwaysAllowedSet,
+          allowedPaths: new Set(),
+          isProcessing: false,
+        });
+
         const resumed = {
           sessionId,
           model: sessionModel,
@@ -1526,38 +1746,40 @@ async function initCopilot(): Promise<void> {
           editedFiles: storedSession?.editedFiles || [],
           alwaysAllowed: storedAlwaysAllowed,
           untrackedFiles: storedSession?.untrackedFiles || [],
-          fileViewMode: storedSession?.fileViewMode || 'flat'
-        }
-        resumedSessions.push(resumed)
-        console.log(`Resumed session ${resumed.sessionId} with model ${resumed.model} in ${resumed.cwd}${meta?.summary ? ` (${meta.summary})` : ''}`)
-        
+          fileViewMode: storedSession?.fileViewMode || 'flat',
+        };
+        resumedSessions.push(resumed);
+        console.log(
+          `Resumed session ${resumed.sessionId} with model ${resumed.model} in ${resumed.cwd}${meta?.summary ? ` (${meta.summary})` : ''}`
+        );
+
         if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('copilot:sessionResumed', { session: resumed })
+          mainWindow.webContents.send('copilot:sessionResumed', { session: resumed });
         }
       } catch (error) {
-        console.error(`Failed to resume session ${sessionId}:`, error)
+        console.error(`Failed to resume session ${sessionId}:`, error);
       }
-    }
-    
+    };
+
     // Only resume sessions that weren't already resumed early
     for (const sessionId of sessionsNeedingResumption) {
-      void resumeSession(sessionId)
+      void resumeSession(sessionId);
     }
-    
+
     // If no sessions were resumed, don't create one automatically
     // The frontend will trigger creation which includes trust check
     if (sessionsToResume.length === 0) {
       // Signal to frontend that it needs to create an initial session
-      activeSessionId = null
+      activeSessionId = null;
     } else {
-      activeSessionId = sessionsToResume[0] || null
+      activeSessionId = sessionsToResume[0] || null;
     }
 
     const pendingSessions = sessionsToResume.map((sessionId) => {
-      const meta = sessionMetaMap.get(sessionId)
-      const storedSession = openSessionMap.get(sessionId)
-      const sessionModel = storedSession?.model || store.get('model') as string || 'gpt-5.2'
-      const sessionCwd = storedSession?.cwd || defaultCwd
+      const meta = sessionMetaMap.get(sessionId);
+      const storedSession = openSessionMap.get(sessionId);
+      const sessionModel = storedSession?.model || (store.get('model') as string) || 'gpt-5.2';
+      const sessionCwd = storedSession?.cwd || defaultCwd;
       return {
         sessionId,
         model: sessionModel,
@@ -1566,39 +1788,41 @@ async function initCopilot(): Promise<void> {
         editedFiles: storedSession?.editedFiles || [],
         alwaysAllowed: storedSession?.alwaysAllowed || [],
         untrackedFiles: storedSession?.untrackedFiles || [],
-        fileViewMode: storedSession?.fileViewMode || 'flat'
-      }
-    })
+        fileViewMode: storedSession?.fileViewMode || 'flat',
+      };
+    });
 
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('copilot:ready', { 
+      mainWindow.webContents.send('copilot:ready', {
         sessions: pendingSessions,
         previousSessions,
-        models: getVerifiedModels()
-      })
-      
+        models: getVerifiedModels(),
+      });
+
       // Notify about sessions that were already resumed early (window wasn't ready when they completed)
       for (const session of earlyResumedSessions) {
-        mainWindow.webContents.send('copilot:sessionResumed', { session })
+        mainWindow.webContents.send('copilot:sessionResumed', { session });
       }
     }
 
     // Verify available models in background (non-blocking)
     if (defaultClient) {
-      verifyAvailableModels(defaultClient).then(verifiedModels => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('copilot:modelsVerified', { models: verifiedModels })
-        }
-      }).catch(err => {
-        console.error('Model verification failed:', err)
-      })
+      verifyAvailableModels(defaultClient)
+        .then((verifiedModels) => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('copilot:modelsVerified', { models: verifiedModels });
+          }
+        })
+        .catch((err) => {
+          console.error('Model verification failed:', err);
+        });
     }
-    
+
     // Start keep-alive timer to prevent session timeouts
-    startKeepAlive()
+    startKeepAlive();
   } catch (err) {
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('copilot:error', String(err))
+      mainWindow.webContents.send('copilot:error', String(err));
     }
   }
 }
@@ -1619,266 +1843,308 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
-      webSecurity: true
-    }
-  })
+      webSecurity: true,
+    },
+  });
 
   // Check for TEST_MESSAGE env var
-  const testMessage = process.env.TEST_MESSAGE
-  
+  const testMessage = process.env.TEST_MESSAGE;
+
   if (process.env.ELECTRON_RENDERER_URL) {
-    const url = testMessage 
+    const url = testMessage
       ? `${process.env.ELECTRON_RENDERER_URL}?test=${encodeURIComponent(testMessage)}`
-      : process.env.ELECTRON_RENDERER_URL
-    mainWindow.loadURL(url)
+      : process.env.ELECTRON_RENDERER_URL;
+    mainWindow.loadURL(url);
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
   }
 
   if (process.env.NODE_ENV === 'development') {
-    mainWindow.webContents.openDevTools({ mode: 'detach' })
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
   }
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
-    return { action: 'deny' }
-  })
+    shell.openExternal(url);
+    return { action: 'deny' };
+  });
 
   mainWindow.webContents.once('did-finish-load', () => {
-    initCopilot()
-  })
+    initCopilot();
+  });
 
   mainWindow.on('closed', () => {
-    mainWindow = null
-  })
+    mainWindow = null;
+  });
 }
 
 // IPC Handlers
-ipcMain.handle('copilot:send', async (_event, data: { sessionId: string, prompt: string, attachments?: { type: 'file'; path: string; displayName?: string }[], mode?: 'enqueue' | 'immediate' }) => {
-  const sessionState = sessions.get(data.sessionId)
-  if (!sessionState) {
-    throw new Error(`Session not found: ${data.sessionId}`)
-  }
-  
-  sessionState.isProcessing = true
-  
-  const messageOptions: { prompt: string; attachments?: typeof data.attachments; mode?: 'enqueue' | 'immediate' } = {
-    prompt: data.prompt,
-    attachments: data.attachments
-  }
-  
-  // Add mode if specified (for injected messages during processing)
-  if (data.mode) {
-    messageOptions.mode = data.mode
-  }
-  
-  try {
-    const messageId = await sessionState.session.send(messageOptions)
-    return messageId
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error)
-    
-    // Check if session was disconnected/timed out
-    if (errorMessage.includes('Session not found') || errorMessage.includes('session.send failed')) {
-      log.warn(`[${data.sessionId}] Session appears disconnected, attempting to resume...`)
-      
-      try {
-        // Try to resume the session
-        await resumeDisconnectedSession(data.sessionId, sessionState)
-        
-        // Retry the send
-        const messageId = await sessionState.session.send(messageOptions)
-        log.info(`[${data.sessionId}] Successfully sent message after session resume`)
-        return messageId
-      } catch (resumeError) {
-        log.error(`[${data.sessionId}] Failed to resume session:`, resumeError)
-        sessionState.isProcessing = false
-        throw new Error(`Session disconnected and could not be resumed. Please try again.`)
-      }
+ipcMain.handle(
+  'copilot:send',
+  async (
+    _event,
+    data: {
+      sessionId: string;
+      prompt: string;
+      attachments?: { type: 'file'; path: string; displayName?: string }[];
+      mode?: 'enqueue' | 'immediate';
     }
-    
-    sessionState.isProcessing = false
-    throw error
-  }
-})
+  ) => {
+    const sessionState = sessions.get(data.sessionId);
+    if (!sessionState) {
+      throw new Error(`Session not found: ${data.sessionId}`);
+    }
 
-ipcMain.handle('copilot:sendAndWait', async (_event, data: { sessionId: string, prompt: string, attachments?: { type: 'file'; path: string; displayName?: string }[] }) => {
-  const sessionState = sessions.get(data.sessionId)
-  if (!sessionState) {
-    throw new Error(`Session not found: ${data.sessionId}`)
-  }
-  
-  sessionState.isProcessing = true
-  
-  const messageOptions = {
-    prompt: data.prompt,
-    attachments: data.attachments
-  }
-  
-  try {
-    const response = await sessionState.session.sendAndWait(messageOptions)
-    sessionState.isProcessing = false
-    return response?.data?.content || ''
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error)
-    
-    // Check if session was disconnected/timed out
-    if (errorMessage.includes('Session not found') || errorMessage.includes('session.send failed')) {
-      log.warn(`[${data.sessionId}] Session appears disconnected, attempting to resume...`)
-      
-      try {
-        await resumeDisconnectedSession(data.sessionId, sessionState)
-        const response = await sessionState.session.sendAndWait(messageOptions)
-        sessionState.isProcessing = false
-        return response?.data?.content || ''
-      } catch (resumeError) {
-        log.error(`[${data.sessionId}] Failed to resume session:`, resumeError)
-        sessionState.isProcessing = false
-        throw new Error(`Session disconnected and could not be resumed. Please try again.`)
-      }
+    sessionState.isProcessing = true;
+
+    const messageOptions: {
+      prompt: string;
+      attachments?: typeof data.attachments;
+      mode?: 'enqueue' | 'immediate';
+    } = {
+      prompt: data.prompt,
+      attachments: data.attachments,
+    };
+
+    // Add mode if specified (for injected messages during processing)
+    if (data.mode) {
+      messageOptions.mode = data.mode;
     }
-    
-    sessionState.isProcessing = false
-    throw error
+
+    try {
+      const messageId = await sessionState.session.send(messageOptions);
+      return messageId;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      // Check if session was disconnected/timed out
+      if (
+        errorMessage.includes('Session not found') ||
+        errorMessage.includes('session.send failed')
+      ) {
+        log.warn(`[${data.sessionId}] Session appears disconnected, attempting to resume...`);
+
+        try {
+          // Try to resume the session
+          await resumeDisconnectedSession(data.sessionId, sessionState);
+
+          // Retry the send
+          const messageId = await sessionState.session.send(messageOptions);
+          log.info(`[${data.sessionId}] Successfully sent message after session resume`);
+          return messageId;
+        } catch (resumeError) {
+          log.error(`[${data.sessionId}] Failed to resume session:`, resumeError);
+          sessionState.isProcessing = false;
+          throw new Error(`Session disconnected and could not be resumed. Please try again.`);
+        }
+      }
+
+      sessionState.isProcessing = false;
+      throw error;
+    }
   }
-})
+);
+
+ipcMain.handle(
+  'copilot:sendAndWait',
+  async (
+    _event,
+    data: {
+      sessionId: string;
+      prompt: string;
+      attachments?: { type: 'file'; path: string; displayName?: string }[];
+    }
+  ) => {
+    const sessionState = sessions.get(data.sessionId);
+    if (!sessionState) {
+      throw new Error(`Session not found: ${data.sessionId}`);
+    }
+
+    sessionState.isProcessing = true;
+
+    const messageOptions = {
+      prompt: data.prompt,
+      attachments: data.attachments,
+    };
+
+    try {
+      const response = await sessionState.session.sendAndWait(messageOptions);
+      sessionState.isProcessing = false;
+      return response?.data?.content || '';
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      // Check if session was disconnected/timed out
+      if (
+        errorMessage.includes('Session not found') ||
+        errorMessage.includes('session.send failed')
+      ) {
+        log.warn(`[${data.sessionId}] Session appears disconnected, attempting to resume...`);
+
+        try {
+          await resumeDisconnectedSession(data.sessionId, sessionState);
+          const response = await sessionState.session.sendAndWait(messageOptions);
+          sessionState.isProcessing = false;
+          return response?.data?.content || '';
+        } catch (resumeError) {
+          log.error(`[${data.sessionId}] Failed to resume session:`, resumeError);
+          sessionState.isProcessing = false;
+          throw new Error(`Session disconnected and could not be resumed. Please try again.`);
+        }
+      }
+
+      sessionState.isProcessing = false;
+      throw error;
+    }
+  }
+);
 
 ipcMain.on('copilot:abort', async (_event, sessionId: string) => {
-  const sessionState = sessions.get(sessionId)
+  const sessionState = sessions.get(sessionId);
   if (sessionState) {
-    await sessionState.session.abort()
+    await sessionState.session.abort();
   }
-})
+});
 
 // Get message history for a session
 ipcMain.handle('copilot:getMessages', async (_event, sessionId: string) => {
-  const sessionState = sessions.get(sessionId)
+  const sessionState = sessions.get(sessionId);
   if (!sessionState) {
-    throw new Error(`Session not found: ${sessionId}`)
+    throw new Error(`Session not found: ${sessionId}`);
   }
-  
+
   try {
-    const events = await sessionState.session.getMessages()
-    
+    const events = await sessionState.session.getMessages();
+
     // Convert events to simplified message format
-    const messages: { role: 'user' | 'assistant'; content: string }[] = []
-    
+    const messages: { role: 'user' | 'assistant'; content: string }[] = [];
+
     for (const event of events) {
       if (event.type === 'user.message') {
-        messages.push({ role: 'user', content: event.data.content })
+        messages.push({ role: 'user', content: event.data.content });
       } else if (event.type === 'assistant.message') {
-        messages.push({ role: 'assistant', content: event.data.content })
+        messages.push({ role: 'assistant', content: event.data.content });
       }
     }
-    
-    return messages
+
+    return messages;
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error)
-    
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
     // Check if session was disconnected/timed out
     if (errorMessage.includes('Session not found') || errorMessage.includes('failed')) {
-      log.warn(`[${sessionId}] Session appears disconnected, attempting to resume for getMessages...`)
-      
+      log.warn(
+        `[${sessionId}] Session appears disconnected, attempting to resume for getMessages...`
+      );
+
       try {
-        await resumeDisconnectedSession(sessionId, sessionState)
-        const events = await sessionState.session.getMessages()
-        
-        const messages: { role: 'user' | 'assistant'; content: string }[] = []
+        await resumeDisconnectedSession(sessionId, sessionState);
+        const events = await sessionState.session.getMessages();
+
+        const messages: { role: 'user' | 'assistant'; content: string }[] = [];
         for (const event of events) {
           if (event.type === 'user.message') {
-            messages.push({ role: 'user', content: event.data.content })
+            messages.push({ role: 'user', content: event.data.content });
           } else if (event.type === 'assistant.message') {
-            messages.push({ role: 'assistant', content: event.data.content })
+            messages.push({ role: 'assistant', content: event.data.content });
           }
         }
-        return messages
+        return messages;
       } catch (resumeError) {
-        log.error(`[${sessionId}] Failed to resume session for getMessages:`, resumeError)
+        log.error(`[${sessionId}] Failed to resume session for getMessages:`, resumeError);
         // Return empty array instead of throwing - messages may not be recoverable
-        return []
+        return [];
       }
     }
-    
-    throw error
+
+    throw error;
   }
-})
+});
 
 // Generate a short title for a conversation using AI
 ipcMain.handle('copilot:generateTitle', async (_event, data: { conversation: string }) => {
   // Use the default cwd client for title generation
-  const defaultClient = await getClientForCwd(process.cwd())
-  
+  const defaultClient = await getClientForCwd(process.cwd());
+
   try {
     // Get the best available model for quick tasks
-    const quickModel = await getQuickTasksModel(defaultClient)
-    
+    const quickModel = await getQuickTasksModel(defaultClient);
+
     // Create a temporary session with the cheapest model for title generation
     const tempSession = await defaultClient.createSession({
       model: quickModel,
       systemMessage: {
         mode: 'append',
-        content: 'You are a title generator. Respond with ONLY a short title (3-6 words, no quotes, no punctuation at end).'
-      }
-    })
-    
-    const sessionId = tempSession.sessionId
-    const prompt = `Generate a short descriptive title for this conversation, that makes it easy to identify what this is about:\n\n${data.conversation}\n\nRespond with ONLY the title, nothing else.`
-    const response = await tempSession.sendAndWait({ prompt })
-    
+        content:
+          'You are a title generator. Respond with ONLY a short title (3-6 words, no quotes, no punctuation at end).',
+      },
+    });
+
+    const sessionId = tempSession.sessionId;
+    const prompt = `Generate a short descriptive title for this conversation, that makes it easy to identify what this is about:\n\n${data.conversation}\n\nRespond with ONLY the title, nothing else.`;
+    const response = await tempSession.sendAndWait({ prompt });
+
     // Clean up temp session - destroy and delete to avoid polluting session list
-    await tempSession.destroy()
-    await defaultClient.deleteSession(sessionId)
-    
+    await tempSession.destroy();
+    await defaultClient.deleteSession(sessionId);
+
     // Extract and clean the title
-    const title = (response?.data?.content || 'Untitled').trim().replace(/^["']|["']$/g, '').slice(0, 50)
-    return title
+    const title = (response?.data?.content || 'Untitled')
+      .trim()
+      .replace(/^["']|["']$/g, '')
+      .slice(0, 50);
+    return title;
   } catch (error) {
-    console.error('Failed to generate title:', error)
-    return 'Untitled'
+    console.error('Failed to generate title:', error);
+    return 'Untitled';
   }
-})
+});
 
 // Generate commit message from diff using AI
 ipcMain.handle('git:generateCommitMessage', async (_event, data: { diff: string }) => {
-  const defaultClient = await getClientForCwd(process.cwd())
-  
+  const defaultClient = await getClientForCwd(process.cwd());
+
   try {
     // Get the best available model for quick tasks
-    const quickModel = await getQuickTasksModel(defaultClient)
-    
+    const quickModel = await getQuickTasksModel(defaultClient);
+
     const tempSession = await defaultClient.createSession({
       model: quickModel,
       systemMessage: {
         mode: 'append',
-        content: 'You are a git commit message generator. Write concise, conventional commit messages. Use format: type(scope): description. Types: feat, fix, refactor, style, docs, test, chore. Keep under 72 chars. No quotes around the message.'
-      }
-    })
-    
-    const sessionId = tempSession.sessionId
+        content:
+          'You are a git commit message generator. Write concise, conventional commit messages. Use format: type(scope): description. Types: feat, fix, refactor, style, docs, test, chore. Keep under 72 chars. No quotes around the message.',
+      },
+    });
+
+    const sessionId = tempSession.sessionId;
     // Truncate diff if too long
-    const truncatedDiff = data.diff.length > 4000 ? data.diff.slice(0, 4000) + '\n... (truncated)' : data.diff
-    const prompt = `Generate a commit message for these changes:\n\n${truncatedDiff}\n\nRespond with ONLY the commit message, nothing else.`
-    const response = await tempSession.sendAndWait({ prompt })
-    
-    await tempSession.destroy()
-    await defaultClient.deleteSession(sessionId)
-    
-    const message = (response?.data?.content || 'Update files').trim().replace(/^["']|["']$/g, '').slice(0, 100)
-    return message
+    const truncatedDiff =
+      data.diff.length > 4000 ? data.diff.slice(0, 4000) + '\n... (truncated)' : data.diff;
+    const prompt = `Generate a commit message for these changes:\n\n${truncatedDiff}\n\nRespond with ONLY the commit message, nothing else.`;
+    const response = await tempSession.sendAndWait({ prompt });
+
+    await tempSession.destroy();
+    await defaultClient.deleteSession(sessionId);
+
+    const message = (response?.data?.content || 'Update files')
+      .trim()
+      .replace(/^["']|["']$/g, '')
+      .slice(0, 100);
+    return message;
   } catch (error) {
-    console.error('Failed to generate commit message:', error)
-    return 'Update files'
+    console.error('Failed to generate commit message:', error);
+    return 'Update files';
   }
-})
+});
 
 // Detect if a message contains a multi-choice question for the user
 // Returns structured options if detected, null otherwise
 ipcMain.handle('copilot:detectChoices', async (_event, data: { message: string }) => {
-  const defaultClient = await getClientForCwd(process.cwd())
-  
+  const defaultClient = await getClientForCwd(process.cwd());
+
   try {
-    const quickModel = await getQuickTasksModel(defaultClient)
-    
+    const quickModel = await getQuickTasksModel(defaultClient);
+
     const tempSession = await defaultClient.createSession({
       model: quickModel,
       systemMessage: {
@@ -1897,1674 +2163,1897 @@ Rules:
 - Use short, lowercase snake_case ids (e.g., "rebase", "merge", "cancel")
 - Labels should be concise (1-3 words)
 - Descriptions are optional, keep under 10 words
-- Respond with ONLY valid JSON, no markdown, no explanation`
-      }
-    })
-    
-    const sessionId = tempSession.sessionId
+- Respond with ONLY valid JSON, no markdown, no explanation`,
+      },
+    });
+
+    const sessionId = tempSession.sessionId;
     // Truncate message if too long
-    const truncatedMessage = data.message.length > 2000 ? data.message.slice(-2000) : data.message
-    const prompt = `Analyze this message:\n\n${truncatedMessage}`
-    const response = await tempSession.sendAndWait({ prompt })
-    
-    await tempSession.destroy()
-    await defaultClient.deleteSession(sessionId)
-    
+    const truncatedMessage = data.message.length > 2000 ? data.message.slice(-2000) : data.message;
+    const prompt = `Analyze this message:\n\n${truncatedMessage}`;
+    const response = await tempSession.sendAndWait({ prompt });
+
+    await tempSession.destroy();
+    await defaultClient.deleteSession(sessionId);
+
     // Parse the JSON response
-    const content = response?.data?.content || ''
+    const content = response?.data?.content || '';
     try {
       // Extract JSON from response (handle potential markdown wrapping)
-      const jsonMatch = content.match(/\{[\s\S]*\}/)
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0])
+        const parsed = JSON.parse(jsonMatch[0]);
         if (parsed.isChoice && Array.isArray(parsed.options) && parsed.options.length >= 2) {
           return {
             isChoice: true,
-            options: parsed.options.slice(0, 5).map((opt: { id?: string; label?: string; description?: string }) => ({
-              id: String(opt.id || '').slice(0, 30),
-              label: String(opt.label || opt.id || '').slice(0, 50),
-              description: opt.description ? String(opt.description).slice(0, 100) : undefined
-            }))
-          }
+            options: parsed.options
+              .slice(0, 5)
+              .map((opt: { id?: string; label?: string; description?: string }) => ({
+                id: String(opt.id || '').slice(0, 30),
+                label: String(opt.label || opt.id || '').slice(0, 50),
+                description: opt.description ? String(opt.description).slice(0, 100) : undefined,
+              })),
+          };
         }
       }
-      return { isChoice: false }
+      return { isChoice: false };
     } catch {
-      console.warn('Failed to parse choice detection response:', content)
-      return { isChoice: false }
+      console.warn('Failed to parse choice detection response:', content);
+      return { isChoice: false };
     }
   } catch (error) {
-    console.error('Failed to detect choices:', error)
-    return { isChoice: false }
+    console.error('Failed to detect choices:', error);
+    return { isChoice: false };
   }
-})
+});
 
 // Handle permission response from renderer
-ipcMain.handle('copilot:permissionResponse', async (_event, data: { 
-  requestId: string
-  decision: 'approved' | 'always' | 'global' | 'denied' 
-}) => {
-  const pending = pendingPermissions.get(data.requestId)
-  if (!pending) {
-    console.log('No pending permission for:', data.requestId)
-    return { success: false }
-  }
-  
-  pendingPermissions.delete(data.requestId)
-  
-  // Track "global" for adding to persistent global safe commands
-  if (data.decision === 'global') {
-    // For URL requests, add to global allowed URLs
-    if (pending.request.kind === 'url' && pending.executable.startsWith('url:')) {
-      const hostname = pending.executable.replace('url:', '')
-      const allowedUrls = store.get('allowedUrls') as string[] || []
-      if (!allowedUrls.includes(hostname)) {
-        allowedUrls.push(hostname)
-        store.set('allowedUrls', allowedUrls)
-        console.log(`[${pending.sessionId}] Added to allowed URLs:`, hostname)
-      }
-    } else {
-      // For other commands, add to global safe commands
-      const executables = pending.executable.split(', ').filter(e => e.trim())
-      const globalSafeCommands = store.get('globalSafeCommands') as string[] || []
-      const newCommands = executables.map(exec => normalizeAlwaysAllowed(exec.trim()))
-      const updatedCommands = [...new Set([...globalSafeCommands, ...newCommands])]
-      store.set('globalSafeCommands', updatedCommands)
-      console.log(`[${pending.sessionId}] Added to global safe commands:`, newCommands)
+ipcMain.handle(
+  'copilot:permissionResponse',
+  async (
+    _event,
+    data: {
+      requestId: string;
+      decision: 'approved' | 'always' | 'global' | 'denied';
     }
-  }
-  
-  // Track "always allow" for this specific executable in the session
-  if (data.decision === 'always') {
-    // For URL requests, also add to global allowed URLs (URLs should persist across sessions)
-    if (pending.request.kind === 'url' && pending.executable.startsWith('url:')) {
-      const hostname = pending.executable.replace('url:', '')
-      const allowedUrls = store.get('allowedUrls') as string[] || []
-      if (!allowedUrls.includes(hostname)) {
-        allowedUrls.push(hostname)
-        store.set('allowedUrls', allowedUrls)
-        console.log(`[${pending.sessionId}] Added to allowed URLs:`, hostname)
-      }
-    } else {
-      // For other commands, add to session's always allowed
-      const sessionState = sessions.get(pending.sessionId)
-      if (sessionState) {
-        // Add each executable individually (handle comma-separated list)
-        const executables = pending.executable.split(', ').filter(e => e.trim())
-        for (const exec of executables) {
-          sessionState.alwaysAllowed.add(normalizeAlwaysAllowed(exec.trim()))
-        }
-        console.log(`[${pending.sessionId}] Added to always allow:`, executables.map(normalizeAlwaysAllowed))
-      }
+  ) => {
+    const pending = pendingPermissions.get(data.requestId);
+    if (!pending) {
+      console.log('No pending permission for:', data.requestId);
+      return { success: false };
     }
-  }
-  
-  // For out-of-scope reads that are approved, remember the parent directory
-  if ((data.decision === 'approved' || data.decision === 'always' || data.decision === 'global') && pending.outOfScopePath) {
-    const sessionState = sessions.get(pending.sessionId)
-    if (sessionState) {
-      const parentDir = dirname(pending.outOfScopePath)
-      sessionState.allowedPaths.add(parentDir)
-      console.log(`[${pending.sessionId}] Added to allowed paths:`, parentDir)
-    }
-  }
-  
-  const result: PermissionRequestResult = {
-    kind: data.decision === 'denied' ? 'denied-interactively-by-user' : 'approved'
-  }
-  
-  console.log('Permission resolved:', data.requestId, result.kind)
-  pending.resolve(result)
-  return { success: true }
-})
 
-ipcMain.handle('copilot:setModel', async (_event, data: { sessionId: string, model: string }) => {
-  const validModels = getVerifiedModels().map(m => m.id)
-  if (!validModels.includes(data.model)) {
-    throw new Error(`Invalid model: ${data.model}`)
+    pendingPermissions.delete(data.requestId);
+
+    // Track "global" for adding to persistent global safe commands
+    if (data.decision === 'global') {
+      // For URL requests, add to global allowed URLs
+      if (pending.request.kind === 'url' && pending.executable.startsWith('url:')) {
+        const hostname = pending.executable.replace('url:', '');
+        const allowedUrls = (store.get('allowedUrls') as string[]) || [];
+        if (!allowedUrls.includes(hostname)) {
+          allowedUrls.push(hostname);
+          store.set('allowedUrls', allowedUrls);
+          console.log(`[${pending.sessionId}] Added to allowed URLs:`, hostname);
+        }
+      } else {
+        // For other commands, add to global safe commands
+        const executables = pending.executable.split(', ').filter((e) => e.trim());
+        const globalSafeCommands = (store.get('globalSafeCommands') as string[]) || [];
+        const newCommands = executables.map((exec) => normalizeAlwaysAllowed(exec.trim()));
+        const updatedCommands = [...new Set([...globalSafeCommands, ...newCommands])];
+        store.set('globalSafeCommands', updatedCommands);
+        console.log(`[${pending.sessionId}] Added to global safe commands:`, newCommands);
+      }
+    }
+
+    // Track "always allow" for this specific executable in the session
+    if (data.decision === 'always') {
+      // For URL requests, also add to global allowed URLs (URLs should persist across sessions)
+      if (pending.request.kind === 'url' && pending.executable.startsWith('url:')) {
+        const hostname = pending.executable.replace('url:', '');
+        const allowedUrls = (store.get('allowedUrls') as string[]) || [];
+        if (!allowedUrls.includes(hostname)) {
+          allowedUrls.push(hostname);
+          store.set('allowedUrls', allowedUrls);
+          console.log(`[${pending.sessionId}] Added to allowed URLs:`, hostname);
+        }
+      } else {
+        // For other commands, add to session's always allowed
+        const sessionState = sessions.get(pending.sessionId);
+        if (sessionState) {
+          // Add each executable individually (handle comma-separated list)
+          const executables = pending.executable.split(', ').filter((e) => e.trim());
+          for (const exec of executables) {
+            sessionState.alwaysAllowed.add(normalizeAlwaysAllowed(exec.trim()));
+          }
+          console.log(
+            `[${pending.sessionId}] Added to always allow:`,
+            executables.map(normalizeAlwaysAllowed)
+          );
+        }
+      }
+    }
+
+    // For out-of-scope reads that are approved, remember the parent directory
+    if (
+      (data.decision === 'approved' || data.decision === 'always' || data.decision === 'global') &&
+      pending.outOfScopePath
+    ) {
+      const sessionState = sessions.get(pending.sessionId);
+      if (sessionState) {
+        const parentDir = dirname(pending.outOfScopePath);
+        sessionState.allowedPaths.add(parentDir);
+        console.log(`[${pending.sessionId}] Added to allowed paths:`, parentDir);
+      }
+    }
+
+    const result: PermissionRequestResult = {
+      kind: data.decision === 'denied' ? 'denied-interactively-by-user' : 'approved',
+    };
+
+    console.log('Permission resolved:', data.requestId, result.kind);
+    pending.resolve(result);
+    return { success: true };
   }
-  
-  store.set('model', data.model) // Persist as default for new sessions
-  
-  const sessionState = sessions.get(data.sessionId)
+);
+
+ipcMain.handle('copilot:setModel', async (_event, data: { sessionId: string; model: string }) => {
+  const validModels = getVerifiedModels().map((m) => m.id);
+  if (!validModels.includes(data.model)) {
+    throw new Error(`Invalid model: ${data.model}`);
+  }
+
+  store.set('model', data.model); // Persist as default for new sessions
+
+  const sessionState = sessions.get(data.sessionId);
   if (sessionState) {
     // Destroy old session before creating new one
-    console.log(`Destroying session ${data.sessionId} before model change to ${data.model}`)
-    await sessionState.session.destroy()
-    sessions.delete(data.sessionId)
-    
+    console.log(`Destroying session ${data.sessionId} before model change to ${data.model}`);
+    await sessionState.session.destroy();
+    sessions.delete(data.sessionId);
+
     // Create replacement session with new model (keep same cwd)
-    const newSessionId = await createNewSession(data.model, sessionState.cwd)
-    const newSessionState = sessions.get(newSessionId)!
-    console.log(`Sessions after model change: ${sessions.size} active`)
-    return { sessionId: newSessionId, model: data.model, cwd: newSessionState.cwd }
+    const newSessionId = await createNewSession(data.model, sessionState.cwd);
+    const newSessionState = sessions.get(newSessionId)!;
+    console.log(`Sessions after model change: ${sessions.size} active`);
+    return { sessionId: newSessionId, model: data.model, cwd: newSessionState.cwd };
   }
-  
-  return { model: data.model }
-})
+
+  return { model: data.model };
+});
 
 ipcMain.handle('copilot:getModels', async () => {
-  const currentModel = store.get('model') as string
-  return { models: getVerifiedModels(), current: currentModel }
-})
+  const currentModel = store.get('model') as string;
+  return { models: getVerifiedModels(), current: currentModel };
+});
 
 // Get model capabilities including vision support
 ipcMain.handle('copilot:getModelCapabilities', async (_event, modelId: string) => {
   try {
     if (!defaultClient) {
-      return { supportsVision: false }
+      return { supportsVision: false };
     }
-    const models = await defaultClient.listModels()
-    const model = models.find(m => m.id === modelId)
+    const models = await defaultClient.listModels();
+    const model = models.find((m) => m.id === modelId);
     if (model) {
       return {
         supportsVision: model.capabilities?.supports?.vision ?? false,
-        visionLimits: model.capabilities?.limits?.vision ? {
-          supportedMediaTypes: model.capabilities.limits.vision.supported_media_types,
-          maxPromptImages: model.capabilities.limits.vision.max_prompt_images,
-          maxPromptImageSize: model.capabilities.limits.vision.max_prompt_image_size
-        } : undefined
-      }
+        visionLimits: model.capabilities?.limits?.vision
+          ? {
+              supportedMediaTypes: model.capabilities.limits.vision.supported_media_types,
+              maxPromptImages: model.capabilities.limits.vision.max_prompt_images,
+              maxPromptImageSize: model.capabilities.limits.vision.max_prompt_image_size,
+            }
+          : undefined,
+      };
     }
-    return { supportsVision: false }
+    return { supportsVision: false };
   } catch (error) {
-    log.error('Failed to get model capabilities:', error)
-    return { supportsVision: false }
+    log.error('Failed to get model capabilities:', error);
+    return { supportsVision: false };
   }
-})
+});
 
 // Save image data URL to temp file for SDK attachment
-ipcMain.handle('copilot:saveImageToTemp', async (_event, data: { dataUrl: string, filename: string }) => {
-  try {
-    const imageDir = join(app.getPath('home'), '.copilot', 'images')
-    if (!existsSync(imageDir)) {
-      mkdirSync(imageDir, { recursive: true })
+ipcMain.handle(
+  'copilot:saveImageToTemp',
+  async (_event, data: { dataUrl: string; filename: string }) => {
+    try {
+      const imageDir = join(app.getPath('home'), '.copilot', 'images');
+      if (!existsSync(imageDir)) {
+        mkdirSync(imageDir, { recursive: true });
+      }
+
+      // Parse data URL
+      const matches = data.dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+      if (!matches) {
+        return { success: false, error: 'Invalid data URL format' };
+      }
+
+      const buffer = Buffer.from(matches[2], 'base64');
+      const filePath = join(imageDir, data.filename);
+
+      await writeFile(filePath, buffer);
+      return { success: true, path: filePath };
+    } catch (error) {
+      log.error('Failed to save image to temp:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
-    
-    // Parse data URL
-    const matches = data.dataUrl.match(/^data:([^;]+);base64,(.+)$/)
-    if (!matches) {
-      return { success: false, error: 'Invalid data URL format' }
-    }
-    
-    const buffer = Buffer.from(matches[2], 'base64')
-    const filePath = join(imageDir, data.filename)
-    
-    await writeFile(filePath, buffer)
-    return { success: true, path: filePath }
-  } catch (error) {
-    log.error('Failed to save image to temp:', error)
-    return { success: false, error: error instanceof Error ? error.message : String(error) }
   }
-})
+);
 
 // Fetch image from URL and save to temp
 ipcMain.handle('copilot:fetchImageFromUrl', async (_event, url: string) => {
   try {
-    const response = await fetch(url)
+    const response = await fetch(url);
     if (!response.ok) {
-      return { success: false, error: `HTTP ${response.status}` }
+      return { success: false, error: `HTTP ${response.status}` };
     }
-    
-    const contentType = response.headers.get('content-type') || ''
+
+    const contentType = response.headers.get('content-type') || '';
     if (!contentType.startsWith('image/')) {
-      return { success: false, error: 'URL does not point to an image' }
+      return { success: false, error: 'URL does not point to an image' };
     }
-    
-    const buffer = Buffer.from(await response.arrayBuffer())
-    const extension = contentType.split('/')[1]?.split(';')[0] || 'png'
-    const filename = `image-${Date.now()}.${extension}`
-    
-    const imageDir = join(app.getPath('home'), '.copilot', 'images')
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+    const extension = contentType.split('/')[1]?.split(';')[0] || 'png';
+    const filename = `image-${Date.now()}.${extension}`;
+
+    const imageDir = join(app.getPath('home'), '.copilot', 'images');
     if (!existsSync(imageDir)) {
-      mkdirSync(imageDir, { recursive: true })
+      mkdirSync(imageDir, { recursive: true });
     }
-    
-    const filePath = join(imageDir, filename)
-    await writeFile(filePath, buffer)
-    
+
+    const filePath = join(imageDir, filename);
+    await writeFile(filePath, buffer);
+
     // Convert to data URL for preview
-    const base64 = buffer.toString('base64')
-    const dataUrl = `data:${contentType};base64,${base64}`
-    
-    return { 
-      success: true, 
-      path: filePath, 
+    const base64 = buffer.toString('base64');
+    const dataUrl = `data:${contentType};base64,${base64}`;
+
+    return {
+      success: true,
+      path: filePath,
       dataUrl,
       mimeType: contentType,
       size: buffer.length,
-      filename
-    }
+      filename,
+    };
   } catch (error) {
-    log.error('Failed to fetch image from URL:', error)
-    return { success: false, error: error instanceof Error ? error.message : String(error) }
+    log.error('Failed to fetch image from URL:', error);
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
   }
-})
+});
 
 // Save file data URL to temp file for SDK attachment
-ipcMain.handle('copilot:saveFileToTemp', async (_event, data: { dataUrl: string, filename: string, mimeType: string }) => {
-  try {
-    const filesDir = join(app.getPath('home'), '.copilot', 'files')
-    if (!existsSync(filesDir)) {
-      mkdirSync(filesDir, { recursive: true })
+ipcMain.handle(
+  'copilot:saveFileToTemp',
+  async (_event, data: { dataUrl: string; filename: string; mimeType: string }) => {
+    try {
+      const filesDir = join(app.getPath('home'), '.copilot', 'files');
+      if (!existsSync(filesDir)) {
+        mkdirSync(filesDir, { recursive: true });
+      }
+
+      // Parse data URL
+      const matches = data.dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+      if (!matches) {
+        return { success: false, error: 'Invalid data URL format' };
+      }
+
+      const buffer = Buffer.from(matches[2], 'base64');
+      const filePath = join(filesDir, data.filename);
+
+      await writeFile(filePath, buffer);
+      return { success: true, path: filePath, size: buffer.length };
+    } catch (error) {
+      log.error('Failed to save file to temp:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
-    
-    // Parse data URL
-    const matches = data.dataUrl.match(/^data:([^;]+);base64,(.+)$/)
-    if (!matches) {
-      return { success: false, error: 'Invalid data URL format' }
-    }
-    
-    const buffer = Buffer.from(matches[2], 'base64')
-    const filePath = join(filesDir, data.filename)
-    
-    await writeFile(filePath, buffer)
-    return { success: true, path: filePath, size: buffer.length }
-  } catch (error) {
-    log.error('Failed to save file to temp:', error)
-    return { success: false, error: error instanceof Error ? error.message : String(error) }
   }
-})
+);
 
 // Get current working directory
 ipcMain.handle('copilot:getCwd', async () => {
   // Use home dir for packaged app since process.cwd() can be '/'
-  return app.isPackaged ? app.getPath('home') : process.cwd()
-})
+  return app.isPackaged ? app.getPath('home') : process.cwd();
+});
 
 // Create a new session (for new tabs)
 ipcMain.handle('copilot:createSession', async (_event, options?: { cwd?: string }) => {
-  const sessionId = await createNewSession(undefined, options?.cwd)
-  const sessionState = sessions.get(sessionId)!
-  return { sessionId, model: sessionState.model, cwd: sessionState.cwd }
-})
+  const sessionId = await createNewSession(undefined, options?.cwd);
+  const sessionState = sessions.get(sessionId)!;
+  return { sessionId, model: sessionState.model, cwd: sessionState.cwd };
+});
 
 // Pick a folder dialog
 ipcMain.handle('copilot:pickFolder', async () => {
   const result = await dialog.showOpenDialog(mainWindow!, {
     properties: ['openDirectory'],
-    title: 'Select Working Directory'
-  })
-  
+    title: 'Select Working Directory',
+  });
+
   if (result.canceled || result.filePaths.length === 0) {
-    return { canceled: true, path: null }
+    return { canceled: true, path: null };
   }
-  
-  return { canceled: false, path: result.filePaths[0] }
-})
+
+  return { canceled: false, path: result.filePaths[0] };
+});
 
 // Check if a directory is trusted and optionally request trust
 ipcMain.handle('copilot:checkDirectoryTrust', async (_event, dir: string) => {
   // Check if already always-trusted (persisted)
-  const alwaysTrusted = store.get('trustedDirectories') as string[] || []
+  const alwaysTrusted = (store.get('trustedDirectories') as string[]) || [];
   if (alwaysTrusted.includes(dir)) {
-    return { trusted: true, decision: 'already-trusted' }
+    return { trusted: true, decision: 'already-trusted' };
   }
-  
+
   // Check if subdirectory of always-trusted
   for (const trusted of alwaysTrusted) {
     if (dir.startsWith(trusted + '/') || dir.startsWith(trusted + '\\')) {
-      return { trusted: true, decision: 'already-trusted' }
+      return { trusted: true, decision: 'already-trusted' };
     }
   }
-  
+
   // Show trust dialog
   const result = await dialog.showMessageBox(mainWindow!, {
     type: 'question',
     title: 'Trust Folder',
     message: `Do you trust the files in this folder?`,
     detail: `${dir}\n\nCopilot will be able to read, write, and execute files in this directory.`,
-    buttons: ['Trust Once', 'Always Trust', 'Don\'t Trust'],
+    buttons: ['Trust Once', 'Always Trust', "Don't Trust"],
     defaultId: 0,
-    cancelId: 2
-  })
-  
+    cancelId: 2,
+  });
+
   switch (result.response) {
     case 0: // Trust Once - just return trusted, don't cache (next session will ask again)
-      return { trusted: true, decision: 'once' }
+      return { trusted: true, decision: 'once' };
     case 1: // Always Trust - persist
       if (!alwaysTrusted.includes(dir)) {
-        store.set('trustedDirectories', [...alwaysTrusted, dir])
+        store.set('trustedDirectories', [...alwaysTrusted, dir]);
       }
-      return { trusted: true, decision: 'always' }
+      return { trusted: true, decision: 'always' };
     default: // Don't Trust
-      return { trusted: false, decision: 'denied' }
+      return { trusted: false, decision: 'denied' };
   }
-})
+});
 
 // Close a session (when closing a tab)
 ipcMain.handle('copilot:closeSession', async (_event, sessionId: string) => {
-  const sessionState = sessions.get(sessionId)
+  const sessionState = sessions.get(sessionId);
   if (sessionState) {
-    await sessionState.session.destroy()
-    sessions.delete(sessionId)
-    console.log(`Closed session ${sessionId}`)
+    await sessionState.session.destroy();
+    sessions.delete(sessionId);
+    console.log(`Closed session ${sessionId}`);
   }
-  
+
   // Update active session if needed
   if (activeSessionId === sessionId) {
-    activeSessionId = sessions.keys().next().value || null
+    activeSessionId = sessions.keys().next().value || null;
   }
-  
-  return { success: true, remainingSessions: sessions.size }
-})
+
+  return { success: true, remainingSessions: sessions.size };
+});
 
 // Delete a session from history (permanently removes session files)
 ipcMain.handle('copilot:deleteSessionFromHistory', async (_event, sessionId: string) => {
   try {
-    const client = await getClientForCwd(process.cwd())
-    await client.deleteSession(sessionId)
-    
+    const client = await getClientForCwd(process.cwd());
+    await client.deleteSession(sessionId);
+
     // Also clean up the session-state folder if it exists
-    const sessionStateDir = join(app.getPath('home'), '.copilot', 'session-state', sessionId)
+    const sessionStateDir = join(app.getPath('home'), '.copilot', 'session-state', sessionId);
     if (existsSync(sessionStateDir)) {
-      const { rm } = await import('fs/promises')
-      await rm(sessionStateDir, { recursive: true, force: true })
-      console.log(`Deleted session-state folder for ${sessionId}`)
+      const { rm } = await import('fs/promises');
+      await rm(sessionStateDir, { recursive: true, force: true });
+      console.log(`Deleted session-state folder for ${sessionId}`);
     }
-    
+
     // Clean up stored session metadata
-    const sessionNames = store.get('sessionNames') as Record<string, string> || {}
-    delete sessionNames[sessionId]
-    store.set('sessionNames', sessionNames)
-    
-    const sessionMarks = store.get('sessionMarks') as Record<string, { markedForReview?: boolean; reviewNote?: string }> || {}
-    delete sessionMarks[sessionId]
-    store.set('sessionMarks', sessionMarks)
-    
-    const sessionCwds = store.get('sessionCwds') as Record<string, string> || {}
-    delete sessionCwds[sessionId]
-    store.set('sessionCwds', sessionCwds)
-    
-    console.log(`Deleted session ${sessionId} from history`)
-    return { success: true }
+    const sessionNames = (store.get('sessionNames') as Record<string, string>) || {};
+    delete sessionNames[sessionId];
+    store.set('sessionNames', sessionNames);
+
+    const sessionMarks =
+      (store.get('sessionMarks') as Record<
+        string,
+        { markedForReview?: boolean; reviewNote?: string }
+      >) || {};
+    delete sessionMarks[sessionId];
+    store.set('sessionMarks', sessionMarks);
+
+    const sessionCwds = (store.get('sessionCwds') as Record<string, string>) || {};
+    delete sessionCwds[sessionId];
+    store.set('sessionCwds', sessionCwds);
+
+    console.log(`Deleted session ${sessionId} from history`);
+    return { success: true };
   } catch (error) {
-    console.error(`Failed to delete session ${sessionId}:`, error)
-    return { success: false, error: String(error) }
+    console.error(`Failed to delete session ${sessionId}:`, error);
+    return { success: false, error: String(error) };
   }
-})
+});
 
 // Switch active session
 ipcMain.handle('copilot:switchSession', async (_event, sessionId: string) => {
   if (!sessions.has(sessionId)) {
-    throw new Error(`Session not found: ${sessionId}`)
+    throw new Error(`Session not found: ${sessionId}`);
   }
-  activeSessionId = sessionId
-  const sessionState = sessions.get(sessionId)!
-  return { sessionId, model: sessionState.model }
-})
+  activeSessionId = sessionId;
+  const sessionState = sessions.get(sessionId)!;
+  return { sessionId, model: sessionState.model };
+});
 
 // Get always-allowed executables for a session
 ipcMain.handle('copilot:getAlwaysAllowed', async (_event, sessionId: string) => {
-  const sessionState = sessions.get(sessionId)
+  const sessionState = sessions.get(sessionId);
   if (!sessionState) {
-    return []
+    return [];
   }
-  return Array.from(sessionState.alwaysAllowed)
-})
+  return Array.from(sessionState.alwaysAllowed);
+});
 
 // Remove an executable from always-allowed for a session
-ipcMain.handle('copilot:removeAlwaysAllowed', async (_event, data: { sessionId: string; executable: string }) => {
-  const sessionState = sessions.get(data.sessionId)
-  if (sessionState) {
-    sessionState.alwaysAllowed.delete(data.executable)
-    console.log(`[${data.sessionId}] Removed from always allow:`, data.executable)
+ipcMain.handle(
+  'copilot:removeAlwaysAllowed',
+  async (_event, data: { sessionId: string; executable: string }) => {
+    const sessionState = sessions.get(data.sessionId);
+    if (sessionState) {
+      sessionState.alwaysAllowed.delete(data.executable);
+      console.log(`[${data.sessionId}] Removed from always allow:`, data.executable);
+    }
+    return { success: true };
   }
-  return { success: true }
-})
+);
 
 // Add a command to always-allowed for a session (manual entry)
-ipcMain.handle('copilot:addAlwaysAllowed', async (_event, data: { sessionId: string; command: string }) => {
-  const sessionState = sessions.get(data.sessionId)
-  if (sessionState) {
-    const normalized = normalizeAlwaysAllowed(data.command.trim())
-    sessionState.alwaysAllowed.add(normalized)
-    console.log(`[${data.sessionId}] Manually added to always allow:`, normalized)
+ipcMain.handle(
+  'copilot:addAlwaysAllowed',
+  async (_event, data: { sessionId: string; command: string }) => {
+    const sessionState = sessions.get(data.sessionId);
+    if (sessionState) {
+      const normalized = normalizeAlwaysAllowed(data.command.trim());
+      sessionState.alwaysAllowed.add(normalized);
+      console.log(`[${data.sessionId}] Manually added to always allow:`, normalized);
+    }
+    return { success: true };
   }
-  return { success: true }
-})
+);
 
 // Get global safe commands
 ipcMain.handle('copilot:getGlobalSafeCommands', async () => {
-  return store.get('globalSafeCommands') as string[] || []
-})
+  return (store.get('globalSafeCommands') as string[]) || [];
+});
 
 // Add a command to global safe commands
 ipcMain.handle('copilot:addGlobalSafeCommand', async (_event, command: string) => {
-  const globalSafeCommands = store.get('globalSafeCommands') as string[] || []
-  const normalized = normalizeAlwaysAllowed(command.trim())
+  const globalSafeCommands = (store.get('globalSafeCommands') as string[]) || [];
+  const normalized = normalizeAlwaysAllowed(command.trim());
   if (!globalSafeCommands.includes(normalized)) {
-    globalSafeCommands.push(normalized)
-    store.set('globalSafeCommands', globalSafeCommands)
-    console.log('Added to global safe commands:', normalized)
+    globalSafeCommands.push(normalized);
+    store.set('globalSafeCommands', globalSafeCommands);
+    console.log('Added to global safe commands:', normalized);
   }
-  return { success: true }
-})
+  return { success: true };
+});
 
 // Remove a command from global safe commands
 ipcMain.handle('copilot:removeGlobalSafeCommand', async (_event, command: string) => {
-  const globalSafeCommands = store.get('globalSafeCommands') as string[] || []
-  const updated = globalSafeCommands.filter(c => c !== command)
-  store.set('globalSafeCommands', updated)
-  console.log('Removed from global safe commands:', command)
-  return { success: true }
-})
+  const globalSafeCommands = (store.get('globalSafeCommands') as string[]) || [];
+  const updated = globalSafeCommands.filter((c) => c !== command);
+  store.set('globalSafeCommands', updated);
+  console.log('Removed from global safe commands:', command);
+  return { success: true };
+});
 
 // URL Allowlist/Denylist Management
 ipcMain.handle('copilot:getAllowedUrls', async () => {
-  return store.get('allowedUrls') as string[] || []
-})
+  return (store.get('allowedUrls') as string[]) || [];
+});
 
 ipcMain.handle('copilot:addAllowedUrl', async (_event, url: string) => {
-  const allowedUrls = store.get('allowedUrls') as string[] || []
+  const allowedUrls = (store.get('allowedUrls') as string[]) || [];
   // Extract hostname if full URL provided
-  let hostname = url.trim()
+  let hostname = url.trim();
   try {
     if (hostname.includes('://')) {
-      hostname = new URL(hostname).hostname
+      hostname = new URL(hostname).hostname;
     }
   } catch {
     // Use as-is if not a valid URL
   }
   if (!allowedUrls.includes(hostname)) {
-    allowedUrls.push(hostname)
-    store.set('allowedUrls', allowedUrls)
-    console.log('Added to allowed URLs:', hostname)
+    allowedUrls.push(hostname);
+    store.set('allowedUrls', allowedUrls);
+    console.log('Added to allowed URLs:', hostname);
   }
-  return { success: true, hostname }
-})
+  return { success: true, hostname };
+});
 
 ipcMain.handle('copilot:removeAllowedUrl', async (_event, url: string) => {
-  const allowedUrls = store.get('allowedUrls') as string[] || []
-  const updated = allowedUrls.filter(u => u !== url)
-  store.set('allowedUrls', updated)
-  console.log('Removed from allowed URLs:', url)
-  return { success: true }
-})
+  const allowedUrls = (store.get('allowedUrls') as string[]) || [];
+  const updated = allowedUrls.filter((u) => u !== url);
+  store.set('allowedUrls', updated);
+  console.log('Removed from allowed URLs:', url);
+  return { success: true };
+});
 
 ipcMain.handle('copilot:getDeniedUrls', async () => {
-  return store.get('deniedUrls') as string[] || []
-})
+  return (store.get('deniedUrls') as string[]) || [];
+});
 
 ipcMain.handle('copilot:addDeniedUrl', async (_event, url: string) => {
-  const deniedUrls = store.get('deniedUrls') as string[] || []
+  const deniedUrls = (store.get('deniedUrls') as string[]) || [];
   // Extract hostname if full URL provided
-  let hostname = url.trim()
+  let hostname = url.trim();
   try {
     if (hostname.includes('://')) {
-      hostname = new URL(hostname).hostname
+      hostname = new URL(hostname).hostname;
     }
   } catch {
     // Use as-is if not a valid URL
   }
   if (!deniedUrls.includes(hostname)) {
-    deniedUrls.push(hostname)
-    store.set('deniedUrls', deniedUrls)
-    console.log('Added to denied URLs:', hostname)
+    deniedUrls.push(hostname);
+    store.set('deniedUrls', deniedUrls);
+    console.log('Added to denied URLs:', hostname);
   }
-  return { success: true, hostname }
-})
+  return { success: true, hostname };
+});
 
 ipcMain.handle('copilot:removeDeniedUrl', async (_event, url: string) => {
-  const deniedUrls = store.get('deniedUrls') as string[] || []
-  const updated = deniedUrls.filter(u => u !== url)
-  store.set('deniedUrls', updated)
-  console.log('Removed from denied URLs:', url)
-  return { success: true }
-})
+  const deniedUrls = (store.get('deniedUrls') as string[]) || [];
+  const updated = deniedUrls.filter((u) => u !== url);
+  store.set('deniedUrls', updated);
+  console.log('Removed from denied URLs:', url);
+  return { success: true };
+});
 
 // Save open session IDs to persist across restarts
 ipcMain.handle('copilot:saveOpenSessions', async (_event, openSessions: StoredSession[]) => {
-  store.set('openSessions', openSessions)
-  
+  store.set('openSessions', openSessions);
+
   // Also persist marks to sessionMarks store (for when sessions go to history)
-  const sessionMarks = store.get('sessionMarks') as Record<string, { markedForReview?: boolean; reviewNote?: string }> || {}
+  const sessionMarks =
+    (store.get('sessionMarks') as Record<
+      string,
+      { markedForReview?: boolean; reviewNote?: string }
+    >) || {};
   for (const session of openSessions) {
     if (session.markedForReview || session.reviewNote) {
       sessionMarks[session.sessionId] = {
         markedForReview: session.markedForReview,
         reviewNote: session.reviewNote,
-      }
+      };
     } else {
       // Clean up if no longer marked
-      delete sessionMarks[session.sessionId]
+      delete sessionMarks[session.sessionId];
     }
   }
-  store.set('sessionMarks', sessionMarks)
-  
+  store.set('sessionMarks', sessionMarks);
+
   // Persist session names so they survive when sessions move to history
-  const sessionNames = store.get('sessionNames') as Record<string, string> || {}
+  const sessionNames = (store.get('sessionNames') as Record<string, string>) || {};
   for (const session of openSessions) {
     if (session.name) {
-      sessionNames[session.sessionId] = session.name
+      sessionNames[session.sessionId] = session.name;
     }
   }
-  store.set('sessionNames', sessionNames)
-  
-  console.log(`Saved ${openSessions.length} open sessions with models`)
-  return { success: true }
-})
+  store.set('sessionNames', sessionNames);
 
-ipcMain.handle('copilot:renameSession', async (_event, data: { sessionId: string; name: string }) => {
-  const openSessions = store.get('openSessions') as StoredSession[] || []
-  const updated = openSessions.map(s =>
-    s.sessionId === data.sessionId ? { ...s, name: data.name } : s
-  )
-  store.set('openSessions', updated)
-  
-  // Also persist to sessionNames for when session moves to history
-  const sessionNames = store.get('sessionNames') as Record<string, string> || {}
-  sessionNames[data.sessionId] = data.name
-  store.set('sessionNames', sessionNames)
-  
-  console.log(`Renamed session ${data.sessionId} to ${data.name}`)
-  return { success: true }
-})
+  console.log(`Saved ${openSessions.length} open sessions with models`);
+  return { success: true };
+});
+
+ipcMain.handle(
+  'copilot:renameSession',
+  async (_event, data: { sessionId: string; name: string }) => {
+    const openSessions = (store.get('openSessions') as StoredSession[]) || [];
+    const updated = openSessions.map((s) =>
+      s.sessionId === data.sessionId ? { ...s, name: data.name } : s
+    );
+    store.set('openSessions', updated);
+
+    // Also persist to sessionNames for when session moves to history
+    const sessionNames = (store.get('sessionNames') as Record<string, string>) || {};
+    sessionNames[data.sessionId] = data.name;
+    store.set('sessionNames', sessionNames);
+
+    console.log(`Renamed session ${data.sessionId} to ${data.name}`);
+    return { success: true };
+  }
+);
 
 // Message attachment types for persistence
 interface StoredAttachment {
-  messageIndex: number
+  messageIndex: number;
   imageAttachments?: Array<{
-    id: string
-    path: string
-    previewUrl: string
-    name: string
-    size: number
-    mimeType: string
-  }>
+    id: string;
+    path: string;
+    previewUrl: string;
+    name: string;
+    size: number;
+    mimeType: string;
+  }>;
   fileAttachments?: Array<{
-    id: string
-    path: string
-    name: string
-    size: number
-    mimeType: string
-  }>
+    id: string;
+    path: string;
+    name: string;
+    size: number;
+    mimeType: string;
+  }>;
 }
 
 // Save message attachments for a session
-ipcMain.handle('copilot:saveMessageAttachments', async (_event, data: { sessionId: string; attachments: StoredAttachment[] }) => {
-  const allAttachments = store.get('messageAttachments') as Record<string, StoredAttachment[]> || {}
-  allAttachments[data.sessionId] = data.attachments
-  store.set('messageAttachments', allAttachments)
-  console.log(`Saved ${data.attachments.length} attachment records for session ${data.sessionId}`)
-  return { success: true }
-})
+ipcMain.handle(
+  'copilot:saveMessageAttachments',
+  async (_event, data: { sessionId: string; attachments: StoredAttachment[] }) => {
+    const allAttachments =
+      (store.get('messageAttachments') as Record<string, StoredAttachment[]>) || {};
+    allAttachments[data.sessionId] = data.attachments;
+    store.set('messageAttachments', allAttachments);
+    console.log(
+      `Saved ${data.attachments.length} attachment records for session ${data.sessionId}`
+    );
+    return { success: true };
+  }
+);
 
 // Load message attachments for a session
 ipcMain.handle('copilot:loadMessageAttachments', async (_event, sessionId: string) => {
-  const allAttachments = store.get('messageAttachments') as Record<string, StoredAttachment[]> || {}
-  const result = allAttachments[sessionId] || []
-  console.log(`Loaded ${result.length} attachment records for session ${sessionId}`)
-  return { attachments: result }
-})
+  const allAttachments =
+    (store.get('messageAttachments') as Record<string, StoredAttachment[]>) || {};
+  const result = allAttachments[sessionId] || [];
+  console.log(`Loaded ${result.length} attachment records for session ${sessionId}`);
+  return { attachments: result };
+});
 
 // Git operations - get actual changed files
-ipcMain.handle('git:getChangedFiles', async (_event, data: { cwd: string; files: string[]; includeAll?: boolean }) => {
-  try {
-    const changedFiles: string[] = []
-    
-    if (data.includeAll) {
-      // Get ALL changed files (staged, unstaged, and untracked)
-      const { stdout: status } = await execAsync('git status --porcelain', { cwd: data.cwd })
-      for (const line of status.split('\n')) {
-        if (line.trim()) {
-          // Status format: XY filename (where XY is 2-char status)
-          const filename = line.substring(3).trim()
-          // Handle renamed files (format: "old -> new")
-          const actualFile = filename.includes(' -> ') ? filename.split(' -> ')[1] : filename
-          if (actualFile) {
-            changedFiles.push(actualFile)
+ipcMain.handle(
+  'git:getChangedFiles',
+  async (_event, data: { cwd: string; files: string[]; includeAll?: boolean }) => {
+    try {
+      const changedFiles: string[] = [];
+
+      if (data.includeAll) {
+        // Get ALL changed files (staged, unstaged, and untracked)
+        const { stdout: status } = await execAsync('git status --porcelain', { cwd: data.cwd });
+        for (const line of status.split('\n')) {
+          if (line.trim()) {
+            // Status format: XY filename (where XY is 2-char status)
+            const filename = line.substring(3).trim();
+            // Handle renamed files (format: "old -> new")
+            const actualFile = filename.includes(' -> ') ? filename.split(' -> ')[1] : filename;
+            if (actualFile) {
+              changedFiles.push(actualFile);
+            }
+          }
+        }
+      } else {
+        // Check which of the provided files actually have changes
+        for (const file of data.files) {
+          // Check if file has staged or unstaged changes
+          const { stdout: status } = await execAsync(`git status --porcelain -- "${file}"`, {
+            cwd: data.cwd,
+          });
+          if (status.trim()) {
+            changedFiles.push(file);
           }
         }
       }
-    } else {
-      // Check which of the provided files actually have changes
-      for (const file of data.files) {
-        // Check if file has staged or unstaged changes
-        const { stdout: status } = await execAsync(`git status --porcelain -- "${file}"`, { cwd: data.cwd })
-        if (status.trim()) {
-          changedFiles.push(file)
-        }
-      }
+
+      return { success: true, files: changedFiles };
+    } catch (error) {
+      console.error('Git getChangedFiles failed:', error);
+      return { success: false, files: [], error: String(error) };
     }
-    
-    return { success: true, files: changedFiles }
-  } catch (error) {
-    console.error('Git getChangedFiles failed:', error)
-    return { success: false, files: [], error: String(error) }
   }
-})
+);
 
 // Git operations - get diff for files
 ipcMain.handle('git:getDiff', async (_event, data: { cwd: string; files: string[] }) => {
   try {
     // Get the diff for the specified files
-    const fileArgs = data.files.map(f => `"${f}"`).join(' ')
-    const { stdout } = await execAsync(`git diff HEAD -- ${fileArgs}`, { cwd: data.cwd })
-    
+    const fileArgs = data.files.map((f) => `"${f}"`).join(' ');
+    const { stdout } = await execAsync(`git diff HEAD -- ${fileArgs}`, { cwd: data.cwd });
+
     // If no diff (files might be new/untracked), get their status
     if (!stdout.trim()) {
-      const { stdout: status } = await execAsync(`git status --porcelain -- ${fileArgs}`, { cwd: data.cwd })
-      return { diff: status || 'No changes detected', success: true }
+      const { stdout: status } = await execAsync(`git status --porcelain -- ${fileArgs}`, {
+        cwd: data.cwd,
+      });
+      return { diff: status || 'No changes detected', success: true };
     }
-    
-    return { diff: stdout, success: true }
+
+    return { diff: stdout, success: true };
   } catch (error) {
-    console.error('Git diff failed:', error)
-    return { diff: '', success: false, error: String(error) }
+    console.error('Git diff failed:', error);
+    return { diff: '', success: false, error: String(error) };
   }
-})
+});
 
 // Git operations - commit and push
-ipcMain.handle('git:commitAndPush', async (_event, data: { cwd: string; files: string[]; message: string }) => {
-  try {
-    // Get current branch name
-    const { stdout: branchOutput } = await execAsync('git branch --show-current', { cwd: data.cwd })
-    const currentBranch = branchOutput.trim()
-    
-    // First, unstage everything to ensure clean slate
-    // This prevents accidentally committing previously staged files
+ipcMain.handle(
+  'git:commitAndPush',
+  async (_event, data: { cwd: string; files: string[]; message: string }) => {
     try {
-      await execAsync('git reset HEAD', { cwd: data.cwd })
-    } catch {
-      // Ignore reset errors (might fail if nothing is staged or no HEAD yet)
-    }
-    
-    // Stage only the specific files we want to commit
-    for (const file of data.files) {
-      await execAsync(`git add "${file}"`, { cwd: data.cwd })
-    }
-    
-    // Commit with the message
-    await execGitWithEnv(`git commit -m "${data.message.replace(/"/g, '\\"')}"`, { cwd: data.cwd })
-    
-    // Push - handle upstream branch setting
-    try {
-      await execAsync('git push', { cwd: data.cwd })
-    } catch (pushError) {
-      // If push fails due to no upstream branch, set upstream and push
-      const errorMsg = String(pushError)
-      if (errorMsg.includes('has no upstream branch')) {
-        // Set upstream and push
-        await execAsync(`git push --set-upstream origin ${currentBranch}`, { cwd: data.cwd })
-      } else {
-        throw pushError
+      // Get current branch name
+      const { stdout: branchOutput } = await execAsync('git branch --show-current', {
+        cwd: data.cwd,
+      });
+      const currentBranch = branchOutput.trim();
+
+      // First, unstage everything to ensure clean slate
+      // This prevents accidentally committing previously staged files
+      try {
+        await execAsync('git reset HEAD', { cwd: data.cwd });
+      } catch {
+        // Ignore reset errors (might fail if nothing is staged or no HEAD yet)
       }
+
+      // Stage only the specific files we want to commit
+      for (const file of data.files) {
+        await execAsync(`git add "${file}"`, { cwd: data.cwd });
+      }
+
+      // Commit with the message
+      await execGitWithEnv(`git commit -m "${data.message.replace(/"/g, '\\"')}"`, {
+        cwd: data.cwd,
+      });
+
+      // Push - handle upstream branch setting
+      try {
+        await execAsync('git push', { cwd: data.cwd });
+      } catch (pushError) {
+        // If push fails due to no upstream branch, set upstream and push
+        const errorMsg = String(pushError);
+        if (errorMsg.includes('has no upstream branch')) {
+          // Set upstream and push
+          await execAsync(`git push --set-upstream origin ${currentBranch}`, { cwd: data.cwd });
+        } else {
+          throw pushError;
+        }
+      }
+
+      return { success: true, finalBranch: currentBranch };
+    } catch (error) {
+      console.error('Git commit/push failed:', error);
+      return { success: false, error: String(error) };
     }
-    
-    return { success: true, finalBranch: currentBranch }
-  } catch (error) {
-    console.error('Git commit/push failed:', error)
-    return { success: false, error: String(error) }
   }
-})
+);
 
 // Git operations - check for uncommitted/unpushed changes
 ipcMain.handle('git:getWorkingStatus', async (_event, cwd: string) => {
   try {
     // Check for uncommitted changes
-    const { stdout: statusOutput } = await execAsync('git status --porcelain', { cwd })
-    const hasUncommittedChanges = statusOutput.trim().length > 0
-    
+    const { stdout: statusOutput } = await execAsync('git status --porcelain', { cwd });
+    const hasUncommittedChanges = statusOutput.trim().length > 0;
+
     // Check for unpushed commits
-    let hasUnpushedCommits = false
+    let hasUnpushedCommits = false;
     try {
-      const { stdout: branch } = await execAsync('git branch --show-current', { cwd })
-      const branchName = branch.trim()
+      const { stdout: branch } = await execAsync('git branch --show-current', { cwd });
+      const branchName = branch.trim();
       if (branchName) {
         // Check if branch has an upstream
         try {
-          const { stdout: unpushed } = await execAsync(`git log origin/${branchName}..${branchName} --oneline`, { cwd })
-          hasUnpushedCommits = unpushed.trim().length > 0
+          const { stdout: unpushed } = await execAsync(
+            `git log origin/${branchName}..${branchName} --oneline`,
+            { cwd }
+          );
+          hasUnpushedCommits = unpushed.trim().length > 0;
         } catch {
           // No upstream branch, check if there are any commits at all
           try {
-            const { stdout: allCommits } = await execAsync('git log --oneline -1', { cwd })
-            hasUnpushedCommits = allCommits.trim().length > 0
+            const { stdout: allCommits } = await execAsync('git log --oneline -1', { cwd });
+            hasUnpushedCommits = allCommits.trim().length > 0;
           } catch {
-            hasUnpushedCommits = false
+            hasUnpushedCommits = false;
           }
         }
       }
     } catch {
       // Ignore branch errors
     }
-    
-    return { 
-      success: true, 
-      hasUncommittedChanges, 
-      hasUnpushedCommits 
-    }
+
+    return {
+      success: true,
+      hasUncommittedChanges,
+      hasUnpushedCommits,
+    };
   } catch (error) {
-    console.error('Git status check failed:', error)
-    return { success: false, hasUncommittedChanges: false, hasUnpushedCommits: false, error: String(error) }
+    console.error('Git status check failed:', error);
+    return {
+      success: false,
+      hasUncommittedChanges: false,
+      hasUnpushedCommits: false,
+      error: String(error),
+    };
   }
-})
+});
 
 // Git operations - check if directory is a git repository
 ipcMain.handle('git:isGitRepo', async (_event, cwd: string) => {
   try {
-    const gitDir = join(cwd, '.git')
-    const isRepo = existsSync(gitDir)
-    return { success: true, isGitRepo: isRepo }
+    const gitDir = join(cwd, '.git');
+    const isRepo = existsSync(gitDir);
+    return { success: true, isGitRepo: isRepo };
   } catch (error) {
-    console.error('Git repo check failed:', error)
-    return { success: false, isGitRepo: false, error: String(error) }
+    console.error('Git repo check failed:', error);
+    return { success: false, isGitRepo: false, error: String(error) };
   }
-})
+});
 
 // Git operations - get current branch
 ipcMain.handle('git:getBranch', async (_event, cwd: string) => {
   try {
-    const { stdout } = await execAsync('git branch --show-current', { cwd })
-    return { branch: stdout.trim(), success: true }
+    const { stdout } = await execAsync('git branch --show-current', { cwd });
+    return { branch: stdout.trim(), success: true };
   } catch (error) {
-    console.error('Git branch failed:', error)
-    return { branch: null, success: false, error: String(error) }
+    console.error('Git branch failed:', error);
+    return { branch: null, success: false, error: String(error) };
   }
-})
+});
 
 // Git operations - list all branches (remote and local)
 ipcMain.handle('git:listBranches', async (_event, cwd: string) => {
   try {
     // Fetch latest from origin first
     try {
-      await execAsync('git fetch origin --prune', { cwd })
+      await execAsync('git fetch origin --prune', { cwd });
     } catch {
       // Ignore fetch errors (e.g., no network)
     }
-    
+
     // Get remote branches
-    const { stdout: remoteBranches } = await execAsync('git branch -r', { cwd })
+    const { stdout: remoteBranches } = await execAsync('git branch -r', { cwd });
     const branches = remoteBranches
       .split('\n')
-      .map(b => b.trim())
-      .filter(b => b && !b.includes('->')) // Filter out HEAD -> origin/main entries
-      .map(b => b.replace(/^origin\//, '')) // Strip origin/ prefix
-      .filter(b => b) // Remove empty strings
-    
+      .map((b) => b.trim())
+      .filter((b) => b && !b.includes('->')) // Filter out HEAD -> origin/main entries
+      .map((b) => b.replace(/^origin\//, '')) // Strip origin/ prefix
+      .filter((b) => b); // Remove empty strings
+
     // Deduplicate and sort
     const uniqueBranches = [...new Set(branches)].sort((a, b) => {
       // Put main/master first
-      if (a === 'main' || a === 'master') return -1
-      if (b === 'main' || b === 'master') return 1
-      return a.localeCompare(b)
-    })
-    
-    return { success: true, branches: uniqueBranches }
+      if (a === 'main' || a === 'master') return -1;
+      if (b === 'main' || b === 'master') return 1;
+      return a.localeCompare(b);
+    });
+
+    return { success: true, branches: uniqueBranches };
   } catch (error) {
-    console.error('Git listBranches failed:', error)
-    return { success: false, branches: [], error: String(error) }
+    console.error('Git listBranches failed:', error);
+    return { success: false, branches: [], error: String(error) };
   }
-})
+});
 
 // Settings - get target branch for a repository
 ipcMain.handle('settings:getTargetBranch', async (_event, repoPath: string) => {
   try {
-    const targetBranches = store.get('targetBranches') as Record<string, string> || {}
-    return { success: true, targetBranch: targetBranches[repoPath] || null }
+    const targetBranches = (store.get('targetBranches') as Record<string, string>) || {};
+    return { success: true, targetBranch: targetBranches[repoPath] || null };
   } catch (error) {
-    console.error('Get target branch failed:', error)
-    return { success: false, targetBranch: null, error: String(error) }
+    console.error('Get target branch failed:', error);
+    return { success: false, targetBranch: null, error: String(error) };
   }
-})
+});
 
 // Settings - set target branch for a repository
-ipcMain.handle('settings:setTargetBranch', async (_event, data: { repoPath: string; targetBranch: string }) => {
-  try {
-    const targetBranches = store.get('targetBranches') as Record<string, string> || {}
-    targetBranches[data.repoPath] = data.targetBranch
-    store.set('targetBranches', targetBranches)
-    return { success: true }
-  } catch (error) {
-    console.error('Set target branch failed:', error)
-    return { success: false, error: String(error) }
+ipcMain.handle(
+  'settings:setTargetBranch',
+  async (_event, data: { repoPath: string; targetBranch: string }) => {
+    try {
+      const targetBranches = (store.get('targetBranches') as Record<string, string>) || {};
+      targetBranches[data.repoPath] = data.targetBranch;
+      store.set('targetBranches', targetBranches);
+      return { success: true };
+    } catch (error) {
+      console.error('Set target branch failed:', error);
+      return { success: false, error: String(error) };
+    }
   }
-})
+);
 
 // Git operations - check if origin/targetBranch is ahead of current branch
-ipcMain.handle('git:checkMainAhead', async (_event, data: { cwd: string; targetBranch: string }) => {
-  try {
-    const cwd = data.cwd
-    const targetBranch = data.targetBranch
-    
-    if (!targetBranch) {
-      return { success: false, isAhead: false, commits: [], error: 'Target branch must be specified' }
-    }
-    
-    // Get current branch
-    const { stdout: branchOutput } = await execAsync('git branch --show-current', { cwd })
-    const currentBranch = branchOutput.trim()
-    
-    // Check if current branch is the target branch
-    if (currentBranch === targetBranch) {
-      return { success: true, isAhead: false, commits: [] }
-    }
-    
-    // Fetch latest from origin
+ipcMain.handle(
+  'git:checkMainAhead',
+  async (_event, data: { cwd: string; targetBranch: string }) => {
     try {
-      await execAsync('git fetch origin', { cwd })
-    } catch {
-      // Ignore fetch errors
+      const cwd = data.cwd;
+      const targetBranch = data.targetBranch;
+
+      if (!targetBranch) {
+        return {
+          success: false,
+          isAhead: false,
+          commits: [],
+          error: 'Target branch must be specified',
+        };
+      }
+
+      // Get current branch
+      const { stdout: branchOutput } = await execAsync('git branch --show-current', { cwd });
+      const currentBranch = branchOutput.trim();
+
+      // Check if current branch is the target branch
+      if (currentBranch === targetBranch) {
+        return { success: true, isAhead: false, commits: [] };
+      }
+
+      // Fetch latest from origin
+      try {
+        await execAsync('git fetch origin', { cwd });
+      } catch {
+        // Ignore fetch errors
+      }
+
+      // Check if origin/targetBranch has commits not in current branch
+      const { stdout: aheadCommits } = await execAsync(
+        `git log --oneline HEAD..origin/${targetBranch}`,
+        { cwd }
+      );
+      const commits = aheadCommits
+        .trim()
+        .split('\n')
+        .filter((c) => c);
+
+      return {
+        success: true,
+        isAhead: commits.length > 0,
+        commits,
+        targetBranch,
+      };
+    } catch (error) {
+      console.error('Git checkMainAhead failed:', error);
+      return { success: false, isAhead: false, commits: [], error: String(error) };
     }
-    
-    // Check if origin/targetBranch has commits not in current branch
-    const { stdout: aheadCommits } = await execAsync(`git log --oneline HEAD..origin/${targetBranch}`, { cwd })
-    const commits = aheadCommits.trim().split('\n').filter(c => c)
-    
-    return { 
-      success: true, 
-      isAhead: commits.length > 0, 
-      commits,
-      targetBranch
-    }
-  } catch (error) {
-    console.error('Git checkMainAhead failed:', error)
-    return { success: false, isAhead: false, commits: [], error: String(error) }
   }
-})
+);
 
 // Git operations - merge origin/targetBranch into current branch
-ipcMain.handle('git:mergeMainIntoBranch', async (_event, data: { cwd: string; targetBranch: string }) => {
-  try {
-    const cwd = data.cwd
-    const targetBranch = data.targetBranch
-    
-    if (!targetBranch) {
-      return { success: false, error: 'Target branch must be specified' }
-    }
-    
-    // Check for uncommitted changes
-    const { stdout: statusOutput } = await execAsync('git status --porcelain', { cwd })
-    const hasUncommittedChanges = statusOutput.trim().length > 0
+ipcMain.handle(
+  'git:mergeMainIntoBranch',
+  async (_event, data: { cwd: string; targetBranch: string }) => {
+    try {
+      const cwd = data.cwd;
+      const targetBranch = data.targetBranch;
 
-    // Stash changes if needed
-    if (hasUncommittedChanges) {
-      try {
-        await execAsync('git stash push -m "Auto-stash before merging target branch"', { cwd })
-      } catch (stashError) {
-        return { success: false, error: `Failed to stash changes: ${String(stashError)}` }
+      if (!targetBranch) {
+        return { success: false, error: 'Target branch must be specified' };
       }
-    }
 
-    // Fetch latest
-    try {
-      await execAsync('git fetch origin', { cwd })
-    } catch {
-      // Ignore fetch errors
-    }
+      // Check for uncommitted changes
+      const { stdout: statusOutput } = await execAsync('git status --porcelain', { cwd });
+      const hasUncommittedChanges = statusOutput.trim().length > 0;
 
-    // Merge origin/targetBranch into current branch
-    try {
-      await execAsync(`git merge origin/${targetBranch}`, { cwd })
-    } catch (mergeError) {
-      const errorMsg = String(mergeError)
-      // Pop stash before returning error
+      // Stash changes if needed
       if (hasUncommittedChanges) {
-        try { await execAsync('git stash pop', { cwd }) } catch { /* ignore */ }
-      }
-      if (errorMsg.includes('CONFLICT')) {
-        return { success: false, error: `Merge conflicts detected. Please resolve them manually.` }
-      }
-      return { success: false, error: `Failed to merge origin/${targetBranch}: ${errorMsg}` }
-    }
-
-    // Pop the stash to restore changes
-    if (hasUncommittedChanges) {
-      try {
-        await execAsync('git stash pop', { cwd })
-      } catch (popError) {
-        const errorMsg = String(popError)
-        if (errorMsg.includes('CONFLICT')) {
-          // Get the list of conflicted files
-          let conflictedFiles: string[] = []
-          try {
-            const { stdout: statusOutput } = await execAsync('git status --porcelain', { cwd })
-            conflictedFiles = statusOutput
-              .split('\n')
-              .filter(line => line.startsWith('UU') || line.startsWith('AA') || line.startsWith('DD') || line.startsWith('AU') || line.startsWith('UA') || line.startsWith('DU') || line.startsWith('UD'))
-              .map(line => line.slice(3).trim())
-          } catch {
-            // Ignore status errors
-          }
-          return { success: true, targetBranch, warning: 'Merged successfully, but conflicts occurred when restoring your changes. Please resolve them.', conflictedFiles }
+        try {
+          await execAsync('git stash push -m "Auto-stash before merging target branch"', { cwd });
+        } catch (stashError) {
+          return { success: false, error: `Failed to stash changes: ${String(stashError)}` };
         }
-        // If pop failed for other reasons, try to recover
-        return { success: true, targetBranch, warning: 'Merged successfully, but failed to restore stashed changes. Run "git stash pop" manually.' }
       }
-    }
 
-    return { success: true, targetBranch }
-  } catch (error) {
-    console.error('Git mergeMainIntoBranch failed:', error)
-    return { success: false, error: String(error) }
+      // Fetch latest
+      try {
+        await execAsync('git fetch origin', { cwd });
+      } catch {
+        // Ignore fetch errors
+      }
+
+      // Merge origin/targetBranch into current branch
+      try {
+        await execAsync(`git merge origin/${targetBranch}`, { cwd });
+      } catch (mergeError) {
+        const errorMsg = String(mergeError);
+        // Pop stash before returning error
+        if (hasUncommittedChanges) {
+          try {
+            await execAsync('git stash pop', { cwd });
+          } catch {
+            /* ignore */
+          }
+        }
+        if (errorMsg.includes('CONFLICT')) {
+          return {
+            success: false,
+            error: `Merge conflicts detected. Please resolve them manually.`,
+          };
+        }
+        return { success: false, error: `Failed to merge origin/${targetBranch}: ${errorMsg}` };
+      }
+
+      // Pop the stash to restore changes
+      if (hasUncommittedChanges) {
+        try {
+          await execAsync('git stash pop', { cwd });
+        } catch (popError) {
+          const errorMsg = String(popError);
+          if (errorMsg.includes('CONFLICT')) {
+            // Get the list of conflicted files
+            let conflictedFiles: string[] = [];
+            try {
+              const { stdout: statusOutput } = await execAsync('git status --porcelain', { cwd });
+              conflictedFiles = statusOutput
+                .split('\n')
+                .filter(
+                  (line) =>
+                    line.startsWith('UU') ||
+                    line.startsWith('AA') ||
+                    line.startsWith('DD') ||
+                    line.startsWith('AU') ||
+                    line.startsWith('UA') ||
+                    line.startsWith('DU') ||
+                    line.startsWith('UD')
+                )
+                .map((line) => line.slice(3).trim());
+            } catch {
+              // Ignore status errors
+            }
+            return {
+              success: true,
+              targetBranch,
+              warning:
+                'Merged successfully, but conflicts occurred when restoring your changes. Please resolve them.',
+              conflictedFiles,
+            };
+          }
+          // If pop failed for other reasons, try to recover
+          return {
+            success: true,
+            targetBranch,
+            warning:
+              'Merged successfully, but failed to restore stashed changes. Run "git stash pop" manually.',
+          };
+        }
+      }
+
+      return { success: true, targetBranch };
+    } catch (error) {
+      console.error('Git mergeMainIntoBranch failed:', error);
+      return { success: false, error: String(error) };
+    }
   }
-})
+);
 
 // Git operations - checkout (create) branch
 ipcMain.handle('git:checkoutBranch', async (_event, data: { cwd: string; branchName: string }) => {
   try {
-    const branch = (data.branchName || '').trim()
+    const branch = (data.branchName || '').trim();
     if (!branch) {
-      return { success: false, error: 'Branch name is required' }
+      return { success: false, error: 'Branch name is required' };
     }
     // Prefer `git switch -c` when available
     try {
-      await execAsync(`git switch -c "${branch.replace(/"/g, '\\"')}"`, { cwd: data.cwd })
+      await execAsync(`git switch -c "${branch.replace(/"/g, '\\"')}"`, { cwd: data.cwd });
     } catch {
-      await execAsync(`git checkout -b "${branch.replace(/"/g, '\\"')}"`, { cwd: data.cwd })
+      await execAsync(`git checkout -b "${branch.replace(/"/g, '\\"')}"`, { cwd: data.cwd });
     }
-    return { success: true }
+    return { success: true };
   } catch (error) {
-    console.error('Git checkout branch failed:', error)
-    return { success: false, error: String(error) }
+    console.error('Git checkout branch failed:', error);
+    return { success: false, error: String(error) };
   }
-})
+});
 
 // Git operations - merge worktree branch to main/master
-ipcMain.handle('git:mergeToMain', async (_event, data: { cwd: string; deleteBranch?: boolean; targetBranch: string; untrackedFiles?: string[] }) => {
-  try {
-    // Get current branch name
-    const { stdout: branchOutput } = await execAsync('git branch --show-current', { cwd: data.cwd })
-    const currentBranch = branchOutput.trim()
-    
-    if (!currentBranch) {
-      return { success: false, error: 'Not on a branch (detached HEAD)' }
-    }
-    
-    // Target branch is required - must be provided by caller
-    const targetBranch = data.targetBranch
-    if (!targetBranch) {
-      return { success: false, error: 'Target branch must be specified' }
-    }
-    
-    // Check if already on the target branch
-    if (currentBranch === targetBranch) {
-      return { success: false, error: `Already on ${targetBranch} branch` }
-    }
-    
-    // Check if we're in a worktree by comparing git-dir and git-common-dir
-    const { stdout: gitDir } = await execAsync('git rev-parse --git-dir', { cwd: data.cwd })
-    const { stdout: commonDir } = await execAsync('git rev-parse --git-common-dir', { cwd: data.cwd })
-    const isWorktree = gitDir.trim() !== commonDir.trim()
-    
-    // Get the main repository path (where target branch is checked out)
-    let mainRepoPath = data.cwd
-    if (isWorktree) {
-      // commonDir points to the .git folder of the main repo
-      // The main repo is one level up from the .git folder
-      const commonDirPath = commonDir.trim()
-      mainRepoPath = dirname(commonDirPath)
-    }
-    
-    // Check for uncommitted changes (excluding untracked/excluded files)
-    const { stdout: statusOutput } = await execAsync('git status --porcelain', { cwd: data.cwd })
-    let didGitStash = false
-    if (statusOutput.trim()) {
-      // Parse uncommitted files from git status
-      // Format is like: " M file.txt" or "?? newfile.txt" or "A  staged.txt"
-      const uncommittedFiles = statusOutput.trim().split('\n')
-        .map(line => line.substring(3).trim()) // Remove status prefix (e.g., " M ", "?? ")
-        .filter(f => f)
-      
-      const untrackedFiles = data.untrackedFiles || []
-      
-      // Check if each uncommitted file is in our untracked list
-      // Use flexible matching: check if paths end with the same filename or match exactly
-      const isFileUntracked = (gitPath: string) => {
-        return untrackedFiles.some(untracked => {
-          // Exact match
-          if (gitPath === untracked) return true
-          // Git path ends with untracked path
-          if (gitPath.endsWith('/' + untracked) || gitPath.endsWith('\\' + untracked)) return true
-          // Untracked path ends with git path
-          if (untracked.endsWith('/' + gitPath) || untracked.endsWith('\\' + gitPath)) return true
-          // Both are just filenames and match
-          const gitName = gitPath.split(/[/\\]/).pop()
-          const untrackedName = untracked.split(/[/\\]/).pop()
-          if (gitName === untrackedName && gitName === gitPath && untrackedName === untracked) return true
-          return false
-        })
-      }
-      
-      const nonUntrackedUncommitted = uncommittedFiles.filter(f => !isFileUntracked(f))
-      
-      if (nonUntrackedUncommitted.length > 0) {
-        console.log('Uncommitted files not in untracked list:', nonUntrackedUncommitted)
-        console.log('Untracked files list:', untrackedFiles)
-        console.log('All uncommitted files:', uncommittedFiles)
-        return { success: false, error: 'Uncommitted changes exist. Please commit or stash them first.' }
-      }
-      // All uncommitted files are untracked (excluded from commit), so git stash them temporarily
-      if (uncommittedFiles.length > 0) {
-        try {
-          // Use -u to include untracked files, -k to keep index
-          await execAsync('git stash push -u -m "copilot-ui-temp-stash"', { cwd: data.cwd })
-          didGitStash = true
-        } catch (stashError) {
-          console.error('Git stash failed:', stashError)
-          return { success: false, error: `Failed to temporarily stash untracked files: ${String(stashError)}` }
-        }
-      }
-    }
-    
-    // Push current branch first
+ipcMain.handle(
+  'git:mergeToMain',
+  async (
+    _event,
+    data: { cwd: string; deleteBranch?: boolean; targetBranch: string; untrackedFiles?: string[] }
+  ) => {
     try {
-      await execAsync('git push', { cwd: data.cwd })
-    } catch (pushError) {
-      const errorMsg = String(pushError)
-      if (errorMsg.includes('has no upstream branch')) {
-        await execAsync(`git push --set-upstream origin ${currentBranch}`, { cwd: data.cwd })
-      } else {
-        throw pushError
+      // Get current branch name
+      const { stdout: branchOutput } = await execAsync('git branch --show-current', {
+        cwd: data.cwd,
+      });
+      const currentBranch = branchOutput.trim();
+
+      if (!currentBranch) {
+        return { success: false, error: 'Not on a branch (detached HEAD)' };
       }
-    }
-    
-    // For worktrees, we need to run merge commands from the main repo
-    // because main/master is checked out there
-    if (isWorktree) {
-      // Check if main repo has uncommitted changes or unresolved conflicts
-      const { stdout: mainRepoStatus } = await execAsync('git status --porcelain', { cwd: mainRepoPath })
-      if (mainRepoStatus.trim()) {
-        const hasConflicts = mainRepoStatus.includes('UU') || mainRepoStatus.includes('AA') || mainRepoStatus.includes('DD')
-        if (hasConflicts) {
-          return { success: false, error: `Main repository has unresolved merge conflicts. Please resolve conflicts in ${mainRepoPath} first.` }
+
+      // Target branch is required - must be provided by caller
+      const targetBranch = data.targetBranch;
+      if (!targetBranch) {
+        return { success: false, error: 'Target branch must be specified' };
+      }
+
+      // Check if already on the target branch
+      if (currentBranch === targetBranch) {
+        return { success: false, error: `Already on ${targetBranch} branch` };
+      }
+
+      // Check if we're in a worktree by comparing git-dir and git-common-dir
+      const { stdout: gitDir } = await execAsync('git rev-parse --git-dir', { cwd: data.cwd });
+      const { stdout: commonDir } = await execAsync('git rev-parse --git-common-dir', {
+        cwd: data.cwd,
+      });
+      const isWorktree = gitDir.trim() !== commonDir.trim();
+
+      // Get the main repository path (where target branch is checked out)
+      let mainRepoPath = data.cwd;
+      if (isWorktree) {
+        // commonDir points to the .git folder of the main repo
+        // The main repo is one level up from the .git folder
+        const commonDirPath = commonDir.trim();
+        mainRepoPath = dirname(commonDirPath);
+      }
+
+      // Check for uncommitted changes (excluding untracked/excluded files)
+      const { stdout: statusOutput } = await execAsync('git status --porcelain', { cwd: data.cwd });
+      let didGitStash = false;
+      if (statusOutput.trim()) {
+        // Parse uncommitted files from git status
+        // Format is like: " M file.txt" or "?? newfile.txt" or "A  staged.txt"
+        const uncommittedFiles = statusOutput
+          .trim()
+          .split('\n')
+          .map((line) => line.substring(3).trim()) // Remove status prefix (e.g., " M ", "?? ")
+          .filter((f) => f);
+
+        const untrackedFiles = data.untrackedFiles || [];
+
+        // Check if each uncommitted file is in our untracked list
+        // Use flexible matching: check if paths end with the same filename or match exactly
+        const isFileUntracked = (gitPath: string) => {
+          return untrackedFiles.some((untracked) => {
+            // Exact match
+            if (gitPath === untracked) return true;
+            // Git path ends with untracked path
+            if (gitPath.endsWith('/' + untracked) || gitPath.endsWith('\\' + untracked))
+              return true;
+            // Untracked path ends with git path
+            if (untracked.endsWith('/' + gitPath) || untracked.endsWith('\\' + gitPath))
+              return true;
+            // Both are just filenames and match
+            const gitName = gitPath.split(/[/\\]/).pop();
+            const untrackedName = untracked.split(/[/\\]/).pop();
+            if (gitName === untrackedName && gitName === gitPath && untrackedName === untracked)
+              return true;
+            return false;
+          });
+        };
+
+        const nonUntrackedUncommitted = uncommittedFiles.filter((f) => !isFileUntracked(f));
+
+        if (nonUntrackedUncommitted.length > 0) {
+          console.log('Uncommitted files not in untracked list:', nonUntrackedUncommitted);
+          console.log('Untracked files list:', untrackedFiles);
+          console.log('All uncommitted files:', uncommittedFiles);
+          return {
+            success: false,
+            error: 'Uncommitted changes exist. Please commit or stash them first.',
+          };
         }
-        return { success: false, error: `Main repository has uncommitted changes. Please commit or stash changes in ${mainRepoPath} first.` }
-      }
-      
-      // Check what branch is currently checked out in main repo
-      const { stdout: mainRepoBranch } = await execAsync('git branch --show-current', { cwd: mainRepoPath })
-      const currentMainRepoBranch = mainRepoBranch.trim()
-      
-      // If target branch is different from what's checked out in main repo, switch to it
-      if (currentMainRepoBranch !== targetBranch) {
-        try {
-          await execAsync(`git checkout ${targetBranch}`, { cwd: mainRepoPath })
-        } catch (checkoutError) {
-          return { success: false, error: `Failed to checkout ${targetBranch} in main repository: ${String(checkoutError)}` }
-        }
-      }
-      
-      // Pull latest on target branch in the main repo
-      try {
-        await execAsync('git pull', { cwd: mainRepoPath })
-      } catch (pullError) {
-        const errorMsg = String(pullError)
-        if (errorMsg.includes('CONFLICT')) {
-          return { success: false, error: `Pull resulted in merge conflicts in ${mainRepoPath}. Please resolve manually.` }
-        }
-        // Ignore other pull errors (might be a new repo)
-      }
-      
-      // Fetch latest to ensure we have the most recent main
-      try {
-        await execAsync('git fetch origin', { cwd: data.cwd })
-      } catch {
-        // Ignore fetch errors
-      }
-      
-      // Rebase feature branch on top of main to incorporate any changes (like version bumps)
-      // This ensures merge to main will be clean/fast-forward
-      try {
-        await execAsync(`git rebase origin/${targetBranch}`, { cwd: data.cwd })
-      } catch (rebaseError) {
-        const errorMsg = String(rebaseError)
-        if (errorMsg.includes('CONFLICT')) {
-          // Abort the rebase and return error
+        // All uncommitted files are untracked (excluded from commit), so git stash them temporarily
+        if (uncommittedFiles.length > 0) {
           try {
-            await execAsync('git rebase --abort', { cwd: data.cwd })
-          } catch {
-            // Ignore abort errors
+            // Use -u to include untracked files, -k to keep index
+            await execAsync('git stash push -u -m "copilot-ui-temp-stash"', { cwd: data.cwd });
+            didGitStash = true;
+          } catch (stashError) {
+            console.error('Git stash failed:', stashError);
+            return {
+              success: false,
+              error: `Failed to temporarily stash untracked files: ${String(stashError)}`,
+            };
           }
-          return { success: false, error: `Rebase conflicts detected when updating '${currentBranch}' with changes from ${targetBranch}. Please rebase manually.` }
         }
-        // If rebase fails for other reasons, continue with merge attempt
-        console.warn('Rebase failed, continuing with direct merge:', errorMsg)
       }
-      
-      // Force push the rebased branch (since we rebased, history changed)
+
+      // Push current branch first
       try {
-        await execAsync(`git push --force-with-lease`, { cwd: data.cwd })
+        await execAsync('git push', { cwd: data.cwd });
       } catch (pushError) {
-        const errorMsg = String(pushError)
+        const errorMsg = String(pushError);
         if (errorMsg.includes('has no upstream branch')) {
-          await execAsync(`git push --set-upstream origin ${currentBranch}`, { cwd: data.cwd })
+          await execAsync(`git push --set-upstream origin ${currentBranch}`, { cwd: data.cwd });
         } else {
-          // Ignore other push errors, continue with merge
-          console.warn('Force push after rebase failed:', errorMsg)
+          throw pushError;
         }
       }
-      
-      // Merge the feature branch into main (from the main repo) using squash
-      // This combines all commits into a single commit
-      try {
-        await execAsync(`git merge --squash ${currentBranch}`, { cwd: mainRepoPath })
-        // Squash merge doesn't auto-commit, so we need to create the commit
-        await execGitWithEnv(`git commit -m "Merge branch '${currentBranch}'"`, { cwd: mainRepoPath })
-      } catch (mergeError) {
-        const errorMsg = String(mergeError)
-        if (errorMsg.includes('CONFLICT')) {
-          return { success: false, error: `Merge conflicts detected when merging '${currentBranch}' into ${targetBranch}. Please resolve conflicts in ${mainRepoPath} manually.` }
+
+      // For worktrees, we need to run merge commands from the main repo
+      // because main/master is checked out there
+      if (isWorktree) {
+        // Check if main repo has uncommitted changes or unresolved conflicts
+        const { stdout: mainRepoStatus } = await execAsync('git status --porcelain', {
+          cwd: mainRepoPath,
+        });
+        if (mainRepoStatus.trim()) {
+          const hasConflicts =
+            mainRepoStatus.includes('UU') ||
+            mainRepoStatus.includes('AA') ||
+            mainRepoStatus.includes('DD');
+          if (hasConflicts) {
+            return {
+              success: false,
+              error: `Main repository has unresolved merge conflicts. Please resolve conflicts in ${mainRepoPath} first.`,
+            };
+          }
+          return {
+            success: false,
+            error: `Main repository has uncommitted changes. Please commit or stash changes in ${mainRepoPath} first.`,
+          };
         }
-        return { success: false, error: `Failed to merge '${currentBranch}': ${errorMsg}` }
-      }
-      
-      // Push main/master from the main repo
-      try {
-        await execAsync('git push', { cwd: mainRepoPath })
-      } catch (pushError) {
-        return { success: false, error: `Merge succeeded but push failed: ${String(pushError)}` }
-      }
-    } else {
-      // Standard flow for non-worktree repos
-      // Switch to main/master
-      try {
-        await execAsync(`git checkout ${targetBranch}`, { cwd: data.cwd })
-      } catch (checkoutError) {
-        return { success: false, error: `Failed to checkout ${targetBranch}: ${String(checkoutError)}` }
-      }
-      
-      // Pull latest
-      try {
-        await execAsync('git pull', { cwd: data.cwd })
-      } catch (pullError) {
-        const errorMsg = String(pullError)
-        if (errorMsg.includes('CONFLICT')) {
-          return { success: false, error: `Pull resulted in merge conflicts. Please resolve manually.` }
+
+        // Check what branch is currently checked out in main repo
+        const { stdout: mainRepoBranch } = await execAsync('git branch --show-current', {
+          cwd: mainRepoPath,
+        });
+        const currentMainRepoBranch = mainRepoBranch.trim();
+
+        // If target branch is different from what's checked out in main repo, switch to it
+        if (currentMainRepoBranch !== targetBranch) {
+          try {
+            await execAsync(`git checkout ${targetBranch}`, { cwd: mainRepoPath });
+          } catch (checkoutError) {
+            return {
+              success: false,
+              error: `Failed to checkout ${targetBranch} in main repository: ${String(checkoutError)}`,
+            };
+          }
         }
-        // Ignore other pull errors (might be a new repo)
-      }
-      
-      // Merge the feature branch using squash
-      // This combines all commits into a single commit
-      try {
-        await execAsync(`git merge --squash ${currentBranch}`, { cwd: data.cwd })
-        // Squash merge doesn't auto-commit, so we need to create the commit
-        await execGitWithEnv(`git commit -m "Merge branch '${currentBranch}'"`, { cwd: data.cwd })
-      } catch (mergeError) {
-        const errorMsg = String(mergeError)
-        if (errorMsg.includes('CONFLICT')) {
-          return { success: false, error: `Merge conflicts detected when merging '${currentBranch}' into ${targetBranch}. Please resolve conflicts manually.` }
+
+        // Pull latest on target branch in the main repo
+        try {
+          await execAsync('git pull', { cwd: mainRepoPath });
+        } catch (pullError) {
+          const errorMsg = String(pullError);
+          if (errorMsg.includes('CONFLICT')) {
+            return {
+              success: false,
+              error: `Pull resulted in merge conflicts in ${mainRepoPath}. Please resolve manually.`,
+            };
+          }
+          // Ignore other pull errors (might be a new repo)
         }
-        return { success: false, error: `Failed to merge '${currentBranch}': ${errorMsg}` }
+
+        // Fetch latest to ensure we have the most recent main
+        try {
+          await execAsync('git fetch origin', { cwd: data.cwd });
+        } catch {
+          // Ignore fetch errors
+        }
+
+        // Rebase feature branch on top of main to incorporate any changes (like version bumps)
+        // This ensures merge to main will be clean/fast-forward
+        try {
+          await execAsync(`git rebase origin/${targetBranch}`, { cwd: data.cwd });
+        } catch (rebaseError) {
+          const errorMsg = String(rebaseError);
+          if (errorMsg.includes('CONFLICT')) {
+            // Abort the rebase and return error
+            try {
+              await execAsync('git rebase --abort', { cwd: data.cwd });
+            } catch {
+              // Ignore abort errors
+            }
+            return {
+              success: false,
+              error: `Rebase conflicts detected when updating '${currentBranch}' with changes from ${targetBranch}. Please rebase manually.`,
+            };
+          }
+          // If rebase fails for other reasons, continue with merge attempt
+          console.warn('Rebase failed, continuing with direct merge:', errorMsg);
+        }
+
+        // Force push the rebased branch (since we rebased, history changed)
+        try {
+          await execAsync(`git push --force-with-lease`, { cwd: data.cwd });
+        } catch (pushError) {
+          const errorMsg = String(pushError);
+          if (errorMsg.includes('has no upstream branch')) {
+            await execAsync(`git push --set-upstream origin ${currentBranch}`, { cwd: data.cwd });
+          } else {
+            // Ignore other push errors, continue with merge
+            console.warn('Force push after rebase failed:', errorMsg);
+          }
+        }
+
+        // Merge the feature branch into main (from the main repo) using squash
+        // This combines all commits into a single commit
+        try {
+          await execAsync(`git merge --squash ${currentBranch}`, { cwd: mainRepoPath });
+          // Squash merge doesn't auto-commit, so we need to create the commit
+          await execGitWithEnv(`git commit -m "Merge branch '${currentBranch}'"`, {
+            cwd: mainRepoPath,
+          });
+        } catch (mergeError) {
+          const errorMsg = String(mergeError);
+          if (errorMsg.includes('CONFLICT')) {
+            return {
+              success: false,
+              error: `Merge conflicts detected when merging '${currentBranch}' into ${targetBranch}. Please resolve conflicts in ${mainRepoPath} manually.`,
+            };
+          }
+          return { success: false, error: `Failed to merge '${currentBranch}': ${errorMsg}` };
+        }
+
+        // Push main/master from the main repo
+        try {
+          await execAsync('git push', { cwd: mainRepoPath });
+        } catch (pushError) {
+          return { success: false, error: `Merge succeeded but push failed: ${String(pushError)}` };
+        }
+      } else {
+        // Standard flow for non-worktree repos
+        // Switch to main/master
+        try {
+          await execAsync(`git checkout ${targetBranch}`, { cwd: data.cwd });
+        } catch (checkoutError) {
+          return {
+            success: false,
+            error: `Failed to checkout ${targetBranch}: ${String(checkoutError)}`,
+          };
+        }
+
+        // Pull latest
+        try {
+          await execAsync('git pull', { cwd: data.cwd });
+        } catch (pullError) {
+          const errorMsg = String(pullError);
+          if (errorMsg.includes('CONFLICT')) {
+            return {
+              success: false,
+              error: `Pull resulted in merge conflicts. Please resolve manually.`,
+            };
+          }
+          // Ignore other pull errors (might be a new repo)
+        }
+
+        // Merge the feature branch using squash
+        // This combines all commits into a single commit
+        try {
+          await execAsync(`git merge --squash ${currentBranch}`, { cwd: data.cwd });
+          // Squash merge doesn't auto-commit, so we need to create the commit
+          await execGitWithEnv(`git commit -m "Merge branch '${currentBranch}'"`, {
+            cwd: data.cwd,
+          });
+        } catch (mergeError) {
+          const errorMsg = String(mergeError);
+          if (errorMsg.includes('CONFLICT')) {
+            return {
+              success: false,
+              error: `Merge conflicts detected when merging '${currentBranch}' into ${targetBranch}. Please resolve conflicts manually.`,
+            };
+          }
+          return { success: false, error: `Failed to merge '${currentBranch}': ${errorMsg}` };
+        }
+
+        // Push main/master
+        try {
+          await execAsync('git push', { cwd: data.cwd });
+        } catch (pushError) {
+          return { success: false, error: `Merge succeeded but push failed: ${String(pushError)}` };
+        }
       }
-      
-      // Push main/master
-      try {
-        await execAsync('git push', { cwd: data.cwd })
-      } catch (pushError) {
-        return { success: false, error: `Merge succeeded but push failed: ${String(pushError)}` }
+
+      // Optionally delete the feature branch
+      if (data.deleteBranch) {
+        try {
+          await execAsync(`git branch -d ${currentBranch}`, { cwd: mainRepoPath });
+          await execAsync(`git push origin --delete ${currentBranch}`, { cwd: mainRepoPath });
+        } catch {
+          // Ignore branch deletion errors
+        }
       }
+
+      // Restore stashed files if we stashed them and didn't delete the branch
+      if (didGitStash && !data.deleteBranch) {
+        try {
+          await execAsync('git stash pop', { cwd: data.cwd });
+        } catch {
+          // Ignore stash pop errors - the stash might have been consumed
+        }
+      }
+
+      return { success: true, mergedBranch: currentBranch, targetBranch };
+    } catch (error) {
+      console.error('Git merge to main failed:', error);
+      // Try to restore stash on error if we stashed
+      if (didGitStash) {
+        try {
+          await execAsync('git stash pop', { cwd: data.cwd });
+        } catch {
+          // Ignore
+        }
+      }
+      return { success: false, error: String(error) };
     }
-    
-    // Optionally delete the feature branch
-    if (data.deleteBranch) {
-      try {
-        await execAsync(`git branch -d ${currentBranch}`, { cwd: mainRepoPath })
-        await execAsync(`git push origin --delete ${currentBranch}`, { cwd: mainRepoPath })
-      } catch {
-        // Ignore branch deletion errors
-      }
-    }
-    
-    // Restore stashed files if we stashed them and didn't delete the branch
-    if (didGitStash && !data.deleteBranch) {
-      try {
-        await execAsync('git stash pop', { cwd: data.cwd })
-      } catch {
-        // Ignore stash pop errors - the stash might have been consumed
-      }
-    }
-    
-    return { success: true, mergedBranch: currentBranch, targetBranch }
-  } catch (error) {
-    console.error('Git merge to main failed:', error)
-    // Try to restore stash on error if we stashed
-    if (didGitStash) {
-      try {
-        await execAsync('git stash pop', { cwd: data.cwd })
-      } catch {
-        // Ignore
-      }
-    }
-    return { success: false, error: String(error) }
   }
-})
+);
 
 // Git operations - create pull request via gh CLI
-ipcMain.handle('git:createPullRequest', async (_event, data: { cwd: string; title?: string; draft?: boolean; targetBranch: string; untrackedFiles?: string[] }) => {
-  try {
-    // Check if gh CLI is available (use augmented PATH for packaged apps)
+ipcMain.handle(
+  'git:createPullRequest',
+  async (
+    _event,
+    data: {
+      cwd: string;
+      title?: string;
+      draft?: boolean;
+      targetBranch: string;
+      untrackedFiles?: string[];
+    }
+  ) => {
     try {
-      await execGitWithEnv('gh --version', { cwd: data.cwd })
-    } catch {
-      return { success: false, error: 'GitHub CLI (gh) is not installed. Install it from https://cli.github.com/' }
-    }
-    
-    // Get current branch name
-    const { stdout: branchOutput } = await execGitWithEnv('git branch --show-current', { cwd: data.cwd })
-    const currentBranch = branchOutput.trim()
-    
-    if (!currentBranch) {
-      return { success: false, error: 'Not on a branch (detached HEAD)' }
-    }
-    
-    // Target branch is required - must be provided by caller
-    const targetBranch = data.targetBranch
-    if (!targetBranch) {
-      return { success: false, error: 'Target branch must be specified' }
-    }
-    
-    // Check if trying to create PR from target branch to itself
-    if (currentBranch === targetBranch) {
-      return { success: false, error: `Cannot create PR from ${targetBranch} to itself` }
-    }
-    
-    // Check for uncommitted changes (excluding untracked/excluded files)
-    const { stdout: statusOutput } = await execGitWithEnv('git status --porcelain', { cwd: data.cwd })
-    if (statusOutput.trim()) {
-      // Parse uncommitted files from git status
-      const uncommittedFiles = statusOutput.trim().split('\n')
-        .map(line => line.substring(3).trim())
-        .filter(f => f)
-      
-      const untrackedFiles = data.untrackedFiles || []
-      
-      // Check if each uncommitted file is in our untracked list (flexible matching)
-      const isFileUntracked = (gitPath: string) => {
-        return untrackedFiles.some(untracked => {
-          if (gitPath === untracked) return true
-          if (gitPath.endsWith('/' + untracked) || gitPath.endsWith('\\' + untracked)) return true
-          if (untracked.endsWith('/' + gitPath) || untracked.endsWith('\\' + gitPath)) return true
-          const gitName = gitPath.split(/[/\\]/).pop()
-          const untrackedName = untracked.split(/[/\\]/).pop()
-          if (gitName === untrackedName && gitName === gitPath && untrackedName === untracked) return true
-          return false
-        })
+      // Check if gh CLI is available (use augmented PATH for packaged apps)
+      try {
+        await execGitWithEnv('gh --version', { cwd: data.cwd });
+      } catch {
+        return {
+          success: false,
+          error: 'GitHub CLI (gh) is not installed. Install it from https://cli.github.com/',
+        };
       }
-      
-      const nonUntrackedUncommitted = uncommittedFiles.filter(f => !isFileUntracked(f))
-      
-      if (nonUntrackedUncommitted.length > 0) {
-        return { success: false, error: 'Uncommitted changes exist. Please commit them first.' }
+
+      // Get current branch name
+      const { stdout: branchOutput } = await execGitWithEnv('git branch --show-current', {
+        cwd: data.cwd,
+      });
+      const currentBranch = branchOutput.trim();
+
+      if (!currentBranch) {
+        return { success: false, error: 'Not on a branch (detached HEAD)' };
       }
-      // All uncommitted files are untracked, this is fine for PR - they won't be in the PR
-    }
-    
-    // Push current branch
-    try {
-      await execGitWithEnv('git push', { cwd: data.cwd })
-    } catch (pushError) {
-      const errorMsg = String(pushError)
-      if (errorMsg.includes('has no upstream branch')) {
-        await execGitWithEnv(`git push --set-upstream origin ${currentBranch}`, { cwd: data.cwd })
-      } else {
-        throw pushError
+
+      // Target branch is required - must be provided by caller
+      const targetBranch = data.targetBranch;
+      if (!targetBranch) {
+        return { success: false, error: 'Target branch must be specified' };
       }
+
+      // Check if trying to create PR from target branch to itself
+      if (currentBranch === targetBranch) {
+        return { success: false, error: `Cannot create PR from ${targetBranch} to itself` };
+      }
+
+      // Check for uncommitted changes (excluding untracked/excluded files)
+      const { stdout: statusOutput } = await execGitWithEnv('git status --porcelain', {
+        cwd: data.cwd,
+      });
+      if (statusOutput.trim()) {
+        // Parse uncommitted files from git status
+        const uncommittedFiles = statusOutput
+          .trim()
+          .split('\n')
+          .map((line) => line.substring(3).trim())
+          .filter((f) => f);
+
+        const untrackedFiles = data.untrackedFiles || [];
+
+        // Check if each uncommitted file is in our untracked list (flexible matching)
+        const isFileUntracked = (gitPath: string) => {
+          return untrackedFiles.some((untracked) => {
+            if (gitPath === untracked) return true;
+            if (gitPath.endsWith('/' + untracked) || gitPath.endsWith('\\' + untracked))
+              return true;
+            if (untracked.endsWith('/' + gitPath) || untracked.endsWith('\\' + gitPath))
+              return true;
+            const gitName = gitPath.split(/[/\\]/).pop();
+            const untrackedName = untracked.split(/[/\\]/).pop();
+            if (gitName === untrackedName && gitName === gitPath && untrackedName === untracked)
+              return true;
+            return false;
+          });
+        };
+
+        const nonUntrackedUncommitted = uncommittedFiles.filter((f) => !isFileUntracked(f));
+
+        if (nonUntrackedUncommitted.length > 0) {
+          return { success: false, error: 'Uncommitted changes exist. Please commit them first.' };
+        }
+        // All uncommitted files are untracked, this is fine for PR - they won't be in the PR
+      }
+
+      // Push current branch
+      try {
+        await execGitWithEnv('git push', { cwd: data.cwd });
+      } catch (pushError) {
+        const errorMsg = String(pushError);
+        if (errorMsg.includes('has no upstream branch')) {
+          await execGitWithEnv(`git push --set-upstream origin ${currentBranch}`, {
+            cwd: data.cwd,
+          });
+        } else {
+          throw pushError;
+        }
+      }
+
+      // Get remote URL to construct PR URL
+      const { stdout: remoteUrl } = await execGitWithEnv('git remote get-url origin', {
+        cwd: data.cwd,
+      });
+      const remote = remoteUrl.trim();
+
+      // Parse GitHub URL from remote (handles both HTTPS and SSH formats)
+      let repoPath = '';
+      if (remote.startsWith('git@github.com:')) {
+        repoPath = remote.replace('git@github.com:', '').replace(/\.git$/, '');
+      } else if (remote.includes('github.com')) {
+        const match = remote.match(/github\.com[/:]([^/]+\/[^/]+?)(?:\.git)?$/);
+        repoPath = match ? match[1] : '';
+      }
+
+      if (!repoPath) {
+        return { success: false, error: 'Could not parse GitHub repository from remote URL' };
+      }
+
+      // Construct PR creation URL - GitHub will auto-fill the form
+      const title = data.title || currentBranch.replace(/[-_]/g, ' ');
+      const encodedTitle = encodeURIComponent(title);
+      const prUrl = `https://github.com/${repoPath}/compare/${targetBranch}...${currentBranch}?quick_pull=1&title=${encodedTitle}`;
+
+      return { success: true, prUrl, branch: currentBranch, targetBranch };
+    } catch (error) {
+      console.error('Create PR failed:', error);
+      return { success: false, error: String(error) };
     }
-    
-    // Get remote URL to construct PR URL
-    const { stdout: remoteUrl } = await execGitWithEnv('git remote get-url origin', { cwd: data.cwd })
-    const remote = remoteUrl.trim()
-    
-    // Parse GitHub URL from remote (handles both HTTPS and SSH formats)
-    let repoPath = ''
-    if (remote.startsWith('git@github.com:')) {
-      repoPath = remote.replace('git@github.com:', '').replace(/\.git$/, '')
-    } else if (remote.includes('github.com')) {
-      const match = remote.match(/github\.com[/:]([^/]+\/[^/]+?)(?:\.git)?$/)
-      repoPath = match ? match[1] : ''
-    }
-    
-    if (!repoPath) {
-      return { success: false, error: 'Could not parse GitHub repository from remote URL' }
-    }
-    
-    // Construct PR creation URL - GitHub will auto-fill the form
-    const title = data.title || currentBranch.replace(/[-_]/g, ' ')
-    const encodedTitle = encodeURIComponent(title)
-    const prUrl = `https://github.com/${repoPath}/compare/${targetBranch}...${currentBranch}?quick_pull=1&title=${encodedTitle}`
-    
-    return { success: true, prUrl, branch: currentBranch, targetBranch }
-  } catch (error) {
-    console.error('Create PR failed:', error)
-    return { success: false, error: String(error) }
   }
-})
+);
 
 // Resume a previous session (from the history list)
 ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string, cwd?: string) => {
   // Check if already resumed
   if (sessions.has(sessionId)) {
-    const sessionState = sessions.get(sessionId)!
-    return { sessionId, model: sessionState.model, cwd: sessionState.cwd, alreadyOpen: true }
+    const sessionState = sessions.get(sessionId)!;
+    return { sessionId, model: sessionState.model, cwd: sessionState.cwd, alreadyOpen: true };
   }
-  
-  const sessionModel = store.get('model') as string || 'gpt-5.2'
+
+  const sessionModel = (store.get('model') as string) || 'gpt-5.2';
   // Use provided cwd, or look up stored cwd, or fall back to default
-  const sessionCwds = store.get('sessionCwds') as Record<string, string> || {}
-  const defaultCwd = app.isPackaged ? app.getPath('home') : process.cwd()
-  const sessionCwd = cwd || sessionCwds[sessionId] || defaultCwd
-  
+  const sessionCwds = (store.get('sessionCwds') as Record<string, string>) || {};
+  const defaultCwd = app.isPackaged ? app.getPath('home') : process.cwd();
+  const sessionCwd = cwd || sessionCwds[sessionId] || defaultCwd;
+
   // Get or create client for this cwd
-  const client = await getClientForCwd(sessionCwd)
-  
+  const client = await getClientForCwd(sessionCwd);
+
   // Load MCP servers config
-  const mcpConfig = await readMcpConfig()
-  
+  const mcpConfig = await readMcpConfig();
+
   const session = await client.resumeSession(sessionId, {
     mcpServers: mcpConfig.mcpServers,
     tools: createBrowserTools(sessionId),
-    onPermissionRequest: (request, invocation) => handlePermissionRequest(request, invocation, sessionId)
-  })
-  
+    onPermissionRequest: (request, invocation) =>
+      handlePermissionRequest(request, invocation, sessionId),
+  });
+
   // Set up event handler
   session.on((event) => {
-    if (!mainWindow || mainWindow.isDestroyed()) return
-    
-    console.log(`[${sessionId}] Event:`, event.type)
-    
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+
+    console.log(`[${sessionId}] Event:`, event.type);
+
     if (event.type === 'assistant.message_delta') {
-      mainWindow.webContents.send('copilot:delta', { sessionId, content: event.data.deltaContent })
+      mainWindow.webContents.send('copilot:delta', { sessionId, content: event.data.deltaContent });
     } else if (event.type === 'assistant.message') {
-      mainWindow.webContents.send('copilot:message', { sessionId, content: event.data.content })
+      mainWindow.webContents.send('copilot:message', { sessionId, content: event.data.content });
     } else if (event.type === 'session.idle') {
-      const currentSessionState = sessions.get(sessionId)
-      if (currentSessionState) currentSessionState.isProcessing = false
-      mainWindow.webContents.send('copilot:idle', { sessionId })
-      bounceDock()
+      const currentSessionState = sessions.get(sessionId);
+      if (currentSessionState) currentSessionState.isProcessing = false;
+      mainWindow.webContents.send('copilot:idle', { sessionId });
+      bounceDock();
     } else if (event.type === 'tool.execution_start') {
-      console.log(`[${sessionId}] Tool start FULL:`, JSON.stringify(event.data, null, 2))
-      mainWindow.webContents.send('copilot:tool-start', { 
-        sessionId, 
-        toolCallId: event.data.toolCallId, 
-        toolName: event.data.toolName,
-        input: event.data.arguments || event.data.input || (event.data as Record<string, unknown>)
-      })
-    } else if (event.type === 'tool.execution_complete') {
-      console.log(`[${sessionId}] Tool end FULL:`, JSON.stringify(event.data, null, 2))
-      mainWindow.webContents.send('copilot:tool-end', { 
-        sessionId, 
-        toolCallId: event.data.toolCallId, 
+      console.log(`[${sessionId}] Tool start FULL:`, JSON.stringify(event.data, null, 2));
+      mainWindow.webContents.send('copilot:tool-start', {
+        sessionId,
+        toolCallId: event.data.toolCallId,
         toolName: event.data.toolName,
         input: event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
-        output: event.data.output
-      })
+      });
+    } else if (event.type === 'tool.execution_complete') {
+      console.log(`[${sessionId}] Tool end FULL:`, JSON.stringify(event.data, null, 2));
+      mainWindow.webContents.send('copilot:tool-end', {
+        sessionId,
+        toolCallId: event.data.toolCallId,
+        toolName: event.data.toolName,
+        input: event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
+        output: event.data.output,
+      });
     } else if (event.type === 'tool.confirmation_requested') {
-      console.log(`[${sessionId}] Confirmation requested:`, event.data)
-      mainWindow.webContents.send('copilot:confirm', { sessionId, ...event.data })
+      console.log(`[${sessionId}] Confirmation requested:`, event.data);
+      mainWindow.webContents.send('copilot:confirm', { sessionId, ...event.data });
     } else if (event.type === 'session.error') {
-      console.log(`[${sessionId}] Session error:`, event.data)
-      const errorMessage = event.data?.message || JSON.stringify(event.data)
-      
+      console.log(`[${sessionId}] Session error:`, event.data);
+      const errorMessage = event.data?.message || JSON.stringify(event.data);
+
       // Auto-repair tool_result errors (duplicate or orphaned after compaction)
-      if (errorMessage.includes('multiple `tool_result` blocks') || 
-          errorMessage.includes('each tool_use must have a single result') ||
-          errorMessage.includes('unexpected `tool_use_id`') ||
-          errorMessage.includes('Each `tool_result` block must have a corresponding `tool_use`')) {
-        log.info(`[${sessionId}] Detected tool_result corruption error, attempting auto-repair...`)
-        repairDuplicateToolResults(sessionId).then(repaired => {
+      if (
+        errorMessage.includes('multiple `tool_result` blocks') ||
+        errorMessage.includes('each tool_use must have a single result') ||
+        errorMessage.includes('unexpected `tool_use_id`') ||
+        errorMessage.includes('Each `tool_result` block must have a corresponding `tool_use`')
+      ) {
+        log.info(`[${sessionId}] Detected tool_result corruption error, attempting auto-repair...`);
+        repairDuplicateToolResults(sessionId).then((repaired) => {
           if (repaired) {
-            mainWindow?.webContents.send('copilot:error', { 
-              sessionId, 
+            mainWindow?.webContents.send('copilot:error', {
+              sessionId,
               message: 'Session repaired. Please resend your last message.',
-              isRepaired: true
-            })
+              isRepaired: true,
+            });
           } else {
-            mainWindow?.webContents.send('copilot:error', { sessionId, message: errorMessage })
+            mainWindow?.webContents.send('copilot:error', { sessionId, message: errorMessage });
           }
-        })
-        return
+        });
+        return;
       }
-      
-      mainWindow.webContents.send('copilot:error', { sessionId, message: errorMessage })
+
+      mainWindow.webContents.send('copilot:error', { sessionId, message: errorMessage });
     } else if (event.type === 'session.usage_info') {
-      mainWindow.webContents.send('copilot:usageInfo', { 
+      mainWindow.webContents.send('copilot:usageInfo', {
         sessionId,
         tokenLimit: event.data.tokenLimit,
         currentTokens: event.data.currentTokens,
-        messagesLength: event.data.messagesLength
-      })
+        messagesLength: event.data.messagesLength,
+      });
     } else if (event.type === 'session.compaction_start') {
-      console.log(`[${sessionId}] Compaction started`)
-      mainWindow.webContents.send('copilot:compactionStart', { sessionId })
+      console.log(`[${sessionId}] Compaction started`);
+      mainWindow.webContents.send('copilot:compactionStart', { sessionId });
     } else if (event.type === 'session.compaction_complete') {
-      console.log(`[${sessionId}] Compaction complete:`, event.data)
-      mainWindow.webContents.send('copilot:compactionComplete', { 
+      console.log(`[${sessionId}] Compaction complete:`, event.data);
+      mainWindow.webContents.send('copilot:compactionComplete', {
         sessionId,
         success: event.data.success,
         preCompactionTokens: event.data.preCompactionTokens,
         postCompactionTokens: event.data.postCompactionTokens,
         tokensRemoved: event.data.tokensRemoved,
         summaryContent: event.data.summaryContent,
-        error: event.data.error
-      })
+        error: event.data.error,
+      });
     }
-  })
-  
-  sessions.set(sessionId, { session, client, model: sessionModel, cwd: sessionCwd, alwaysAllowed: new Set(), allowedPaths: new Set(), isProcessing: false })
-  activeSessionId = sessionId
-  
-  console.log(`Resumed previous session ${sessionId} in ${sessionCwd}`)
-  return { sessionId, model: sessionModel, cwd: sessionCwd, alreadyOpen: false }
-})
+  });
+
+  sessions.set(sessionId, {
+    session,
+    client,
+    model: sessionModel,
+    cwd: sessionCwd,
+    alwaysAllowed: new Set(),
+    allowedPaths: new Set(),
+    isProcessing: false,
+  });
+  activeSessionId = sessionId;
+
+  console.log(`Resumed previous session ${sessionId} in ${sessionCwd}`);
+  return { sessionId, model: sessionModel, cwd: sessionCwd, alreadyOpen: false };
+});
 
 // MCP Server Management
 ipcMain.handle('mcp:getConfig', async () => {
-  const config = await readMcpConfig()
-  return config
-})
+  const config = await readMcpConfig();
+  return config;
+});
 
 ipcMain.handle('mcp:saveConfig', async (_event, config: MCPConfigFile) => {
-  await writeMcpConfig(config)
-  return { success: true }
-})
+  await writeMcpConfig(config);
+  return { success: true };
+});
 
 ipcMain.handle('mcp:addServer', async (_event, data: { name: string; server: MCPServerConfig }) => {
-  const config = await readMcpConfig()
-  config.mcpServers[data.name] = data.server
-  await writeMcpConfig(config)
-  return { success: true }
-})
+  const config = await readMcpConfig();
+  config.mcpServers[data.name] = data.server;
+  await writeMcpConfig(config);
+  return { success: true };
+});
 
-ipcMain.handle('mcp:updateServer', async (_event, data: { name: string; server: MCPServerConfig }) => {
-  const config = await readMcpConfig()
-  if (config.mcpServers[data.name]) {
-    config.mcpServers[data.name] = data.server
-    await writeMcpConfig(config)
-    return { success: true }
+ipcMain.handle(
+  'mcp:updateServer',
+  async (_event, data: { name: string; server: MCPServerConfig }) => {
+    const config = await readMcpConfig();
+    if (config.mcpServers[data.name]) {
+      config.mcpServers[data.name] = data.server;
+      await writeMcpConfig(config);
+      return { success: true };
+    }
+    return { success: false, error: 'Server not found' };
   }
-  return { success: false, error: 'Server not found' }
-})
+);
 
 ipcMain.handle('mcp:deleteServer', async (_event, name: string) => {
-  const config = await readMcpConfig()
+  const config = await readMcpConfig();
   if (config.mcpServers[name]) {
-    delete config.mcpServers[name]
-    await writeMcpConfig(config)
-    return { success: true }
+    delete config.mcpServers[name];
+    await writeMcpConfig(config);
+    return { success: true };
   }
-  return { success: false, error: 'Server not found' }
-})
+  return { success: false, error: 'Server not found' };
+});
 
 ipcMain.handle('mcp:getConfigPath', async () => {
-  return { path: getMcpConfigPath() }
-})
+  return { path: getMcpConfigPath() };
+});
 
 // Agent Skills handlers
 ipcMain.handle('skills:getAll', async (_event, cwd?: string) => {
   // Use provided cwd or try to get from active session
-  let projectCwd = cwd
+  let projectCwd = cwd;
   if (!projectCwd && sessions.size > 0) {
     // Get cwd from first active session
-    const firstSession = sessions.values().next().value
+    const firstSession = sessions.values().next().value;
     if (firstSession) {
-      projectCwd = firstSession.cwd
+      projectCwd = firstSession.cwd;
     }
   }
-  const result = await getAllSkills(projectCwd)
-  console.log(`Found ${result.skills.length} skills (${result.errors.length} errors)`)
-  return result
-})
+  const result = await getAllSkills(projectCwd);
+  console.log(`Found ${result.skills.length} skills (${result.errors.length} errors)`);
+  return result;
+});
 
 // Browser session management handlers
 ipcMain.handle('browser:hasActive', async () => {
-  return { active: browserManager.hasActiveBrowser() }
-})
+  return { active: browserManager.hasActiveBrowser() };
+});
 
 ipcMain.handle('browser:getActiveSessions', async () => {
-  return { sessions: browserManager.getActiveBrowserSessions() }
-})
+  return { sessions: browserManager.getActiveBrowserSessions() };
+});
 
 ipcMain.handle('browser:close', async (_event, sessionId?: string) => {
   if (sessionId) {
-    await browserManager.closeSessionPage(sessionId)
+    await browserManager.closeSessionPage(sessionId);
   } else {
-    await browserManager.closeBrowser()
+    await browserManager.closeBrowser();
   }
-  return { success: true }
-})
+  return { success: true };
+});
 
 ipcMain.handle('browser:saveState', async () => {
-  await browserManager.saveBrowserState()
-  return { success: true }
-})
+  await browserManager.saveBrowserState();
+  return { success: true };
+});
 
 // Window control handlers
 ipcMain.on('window:minimize', () => {
-  mainWindow?.minimize()
-})
+  mainWindow?.minimize();
+});
 
 ipcMain.on('window:maximize', () => {
   if (mainWindow?.isMaximized()) {
-    mainWindow.unmaximize()
+    mainWindow.unmaximize();
   } else {
-    mainWindow?.maximize()
+    mainWindow?.maximize();
   }
-})
+});
 
 ipcMain.on('window:close', () => {
-  mainWindow?.close()
-})
+  mainWindow?.close();
+});
 
 ipcMain.on('window:quit', () => {
-  app.quit()
-})
+  app.quit();
+});
 
 // Theme handlers
 ipcMain.handle('theme:get', () => {
-  return store.get('theme') as string
-})
+  return store.get('theme') as string;
+});
 
 ipcMain.handle('theme:set', (_event, themeId: string) => {
-  store.set('theme', themeId)
-  return { success: true }
-})
+  store.set('theme', themeId);
+  return { success: true };
+});
 
 ipcMain.handle('theme:getSystemTheme', () => {
-  return nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
-})
+  return nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
+});
 
 ipcMain.handle('theme:listExternal', () => {
-  return loadExternalThemes()
-})
+  return loadExternalThemes();
+});
 
 ipcMain.handle('theme:import', async () => {
   const result = await dialog.showOpenDialog(mainWindow!, {
     properties: ['openFile'],
     filters: [{ name: 'Theme Files', extensions: ['json'] }],
-    title: 'Import Theme'
-  })
-  
+    title: 'Import Theme',
+  });
+
   if (result.canceled || result.filePaths.length === 0) {
-    return { success: false, canceled: true }
+    return { success: false, canceled: true };
   }
-  
-  const sourcePath = result.filePaths[0]
-  const fileName = sourcePath.split(/[/\\]/).pop() || 'theme.json'
-  
+
+  const sourcePath = result.filePaths[0];
+  const fileName = sourcePath.split(/[/\\]/).pop() || 'theme.json';
+
   try {
-    const content = readFileSync(sourcePath, 'utf-8')
-    const data = JSON.parse(content)
-    const validationResult = validateTheme(data)
-    
+    const content = readFileSync(sourcePath, 'utf-8');
+    const data = JSON.parse(content);
+    const validationResult = validateTheme(data);
+
     if (!validationResult.valid) {
-      return { success: false, error: 'Theme file is not valid' }
+      return { success: false, error: 'Theme file is not valid' };
     }
-    
+
     // Copy to themes directory
-    const destPath = join(themesDir, fileName)
-    copyFileSync(sourcePath, destPath)
-    
-    return { success: true, theme: validationResult.theme }
+    const destPath = join(themesDir, fileName);
+    copyFileSync(sourcePath, destPath);
+
+    return { success: true, theme: validationResult.theme };
   } catch {
-    return { success: false, error: 'Theme file is not valid' }
+    return { success: false, error: 'Theme file is not valid' };
   }
-})
+});
 
 ipcMain.handle('theme:getThemesDir', () => {
-  return themesDir
-})
+  return themesDir;
+});
 
 // Listen to system theme changes and notify renderer
 nativeTheme.on('updated', () => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('theme:systemChanged', {
-      systemTheme: nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
-    })
+      systemTheme: nativeTheme.shouldUseDarkColors ? 'dark' : 'light',
+    });
   }
-})
+});
 
 // App lifecycle - enforce single instance (skip in dev/test mode)
-const isDev = !!process.env.ELECTRON_RENDERER_URL
-const isTest = process.env.NODE_ENV === 'test'
-const gotTheLock = isDev || isTest ? true : app.requestSingleInstanceLock()
+const isDev = !!process.env.ELECTRON_RENDERER_URL;
+const isTest = process.env.NODE_ENV === 'test';
+const gotTheLock = isDev || isTest ? true : app.requestSingleInstanceLock();
 
 if (!gotTheLock) {
-  app.quit()
+  app.quit();
 } else {
   if (!isDev && !isTest) {
     app.on('second-instance', () => {
       // Focus existing window if someone tries to open a second instance
       if (mainWindow) {
-        if (mainWindow.isMinimized()) mainWindow.restore()
-        mainWindow.focus()
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.focus();
       }
-    })
+    });
   }
 
   app.whenReady().then(() => {
     // Start CopilotClient initialization early - runs in parallel with window load
     // This saves ~500ms by not waiting for the renderer to finish loading first
-    startEarlyClientInit()
-    
+    startEarlyClientInit();
+
     // Start session resumption early - runs in parallel with window load
     // This saves several seconds since session resumption involves network calls
-    earlyResumptionPromise = startEarlySessionResumption()
-    
-    console.log('Baseline models:', AVAILABLE_MODELS.map(m => `${m.name} (${m.multiplier}×)`).join(', '))
-    
+    earlyResumptionPromise = startEarlySessionResumption();
+
+    console.log(
+      'Baseline models:',
+      AVAILABLE_MODELS.map((m) => `${m.name} (${m.multiplier}×)`).join(', ')
+    );
+
     // Set up custom application menu
     // We remove accelerators for Ctrl/Cmd+C,V,X to allow the terminal to handle them directly
     // The terminal handles copy/paste via xterm's own mechanisms
-    const isMac = process.platform === 'darwin'
+    const isMac = process.platform === 'darwin';
     const template: Electron.MenuItemConstructorOptions[] = [
       // App menu (macOS only)
-      ...(isMac ? [{
-        label: app.name,
-        submenu: [
-          { role: 'about' as const },
-          { type: 'separator' as const },
-          { role: 'services' as const },
-          { type: 'separator' as const },
-          { role: 'hide' as const },
-          { role: 'hideOthers' as const },
-          { role: 'unhide' as const },
-          { type: 'separator' as const },
-          { role: 'quit' as const }
-        ]
-      }] : []),
+      ...(isMac
+        ? [
+            {
+              label: app.name,
+              submenu: [
+                { role: 'about' as const },
+                { type: 'separator' as const },
+                { role: 'services' as const },
+                { type: 'separator' as const },
+                { role: 'hide' as const },
+                { role: 'hideOthers' as const },
+                { role: 'unhide' as const },
+                { type: 'separator' as const },
+                { role: 'quit' as const },
+              ],
+            },
+          ]
+        : []),
       // Edit menu - explicitly without accelerators for copy/paste/cut so terminal can handle them
       {
         label: 'Edit',
@@ -3577,8 +4066,8 @@ if (!gotTheLock) {
           { label: 'Copy', role: 'copy' as const, accelerator: undefined },
           { label: 'Paste', role: 'paste' as const, accelerator: undefined },
           { type: 'separator' as const },
-          { role: 'selectAll' as const }
-        ]
+          { role: 'selectAll' as const },
+        ],
       },
       // View menu
       {
@@ -3592,8 +4081,8 @@ if (!gotTheLock) {
           { role: 'zoomIn' as const },
           { role: 'zoomOut' as const },
           { type: 'separator' as const },
-          { role: 'togglefullscreen' as const }
-        ]
+          { role: 'togglefullscreen' as const },
+        ],
       },
       // Window menu
       {
@@ -3601,93 +4090,90 @@ if (!gotTheLock) {
         submenu: [
           { role: 'minimize' as const },
           { role: 'zoom' as const },
-          ...(isMac ? [
-            { type: 'separator' as const },
-            { role: 'front' as const }
-          ] : [
-            { role: 'close' as const }
-          ])
-        ]
-      }
-    ]
-    const menu = Menu.buildFromTemplate(template)
-    Menu.setApplicationMenu(menu)
-    
+          ...(isMac
+            ? [{ type: 'separator' as const }, { role: 'front' as const }]
+            : [{ role: 'close' as const }]),
+        ],
+      },
+    ];
+    const menu = Menu.buildFromTemplate(template);
+    Menu.setApplicationMenu(menu);
+
     // Clean up old cached images async (non-blocking to improve startup time)
-    const imageDir = join(app.getPath('home'), '.copilot', 'images')
+    const imageDir = join(app.getPath('home'), '.copilot', 'images');
     setImmediate(() => {
       if (existsSync(imageDir)) {
-        const now = Date.now()
-        const maxAge = 24 * 60 * 60 * 1000 // 24 hours
+        const now = Date.now();
+        const maxAge = 24 * 60 * 60 * 1000; // 24 hours
         try {
-          const files = readdirSync(imageDir)
+          const files = readdirSync(imageDir);
           for (const file of files) {
-            const filePath = join(imageDir, file)
-            const stats = statSync(filePath)
+            const filePath = join(imageDir, file);
+            const stats = statSync(filePath);
             if (now - stats.mtimeMs > maxAge) {
-              unlinkSync(filePath)
-              log.info(`Cleaned up old image: ${file}`)
+              unlinkSync(filePath);
+              log.info(`Cleaned up old image: ${file}`);
             }
           }
         } catch (err) {
-          log.error('Failed to clean up old images:', err)
+          log.error('Failed to clean up old images:', err);
         }
       }
-    })
-    
-    createWindow()
+    });
+
+    createWindow();
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
-        createWindow()
+        createWindow();
       }
-    })
-  })
+    });
+  });
 }
 
 app.on('window-all-closed', async () => {
   // Stop keep-alive timer
-  stopKeepAlive()
-  
+  stopKeepAlive();
+
   // Close browser and save state
-  await browserManager.closeBrowser()
-  
+  await browserManager.closeBrowser();
+
   // Destroy all sessions
   for (const [id, state] of sessions) {
-    await state.session.destroy()
-    console.log(`Destroyed session ${id}`)
+    await state.session.destroy();
+    console.log(`Destroyed session ${id}`);
   }
-  sessions.clear()
-  
+  sessions.clear();
+
   // Stop all clients
   for (const [cwd, client] of copilotClients) {
-    await client.stop()
-    console.log(`Stopped client for ${cwd}`)
+    await client.stop();
+    console.log(`Stopped client for ${cwd}`);
   }
-  copilotClients.clear()
-  
-  app.quit()
-})
+  copilotClients.clear();
+
+  app.quit();
+});
 
 app.on('before-quit', async () => {
   // Close all PTY instances
-  ptyManager.closeAllPtys()
-  
+  ptyManager.closeAllPtys();
+
   // Close browser and save state
-  await browserManager.closeBrowser()
-  
+  await browserManager.closeBrowser();
+
   // Destroy all sessions
   for (const [id, state] of sessions) {
-    await state.session.destroy()
+    await state.session.destroy();
   }
-  sessions.clear()
-  
+  sessions.clear();
+
   // Stop all clients
   for (const [cwd, client] of copilotClients) {
-    await client.stop()
+    await client.stop();
   }
-  copilotClients.clear()
-})
+  copilotClients.clear();
+});
 
 // ============================================================================
 // Worktree Session Management IPC Handlers
@@ -3695,230 +4181,264 @@ app.on('before-quit', async () => {
 
 // Fetch GitHub issue and generate branch name
 ipcMain.handle('worktree:fetchGitHubIssue', async (_event, issueUrl: string) => {
-  return worktree.fetchGitHubIssue(issueUrl)
-})
+  return worktree.fetchGitHubIssue(issueUrl);
+});
 
 // Fetch Azure DevOps work item and generate branch name
 ipcMain.handle('worktree:fetchAzureDevOpsWorkItem', async (_event, workItemUrl: string) => {
-  return worktree.fetchAzureDevOpsWorkItem(workItemUrl)
-})
+  return worktree.fetchAzureDevOpsWorkItem(workItemUrl);
+});
 
 // Check git version for worktree support
 ipcMain.handle('worktree:checkGitVersion', async () => {
-  return worktree.checkGitVersion()
-})
+  return worktree.checkGitVersion();
+});
 
 // Create a new worktree session
-ipcMain.handle('worktree:createSession', async (_event, data: { 
-  repoPath: string
-  branch: string
-}) => {
-  return worktree.createWorktreeSession(data.repoPath, data.branch)
-})
+ipcMain.handle(
+  'worktree:createSession',
+  async (
+    _event,
+    data: {
+      repoPath: string;
+      branch: string;
+    }
+  ) => {
+    return worktree.createWorktreeSession(data.repoPath, data.branch);
+  }
+);
 
 // Remove a worktree session
-ipcMain.handle('worktree:removeSession', async (_event, data: { 
-  sessionId: string
-  force?: boolean 
-}) => {
-  return worktree.removeWorktreeSession(data.sessionId, { force: data.force })
-})
+ipcMain.handle(
+  'worktree:removeSession',
+  async (
+    _event,
+    data: {
+      sessionId: string;
+      force?: boolean;
+    }
+  ) => {
+    return worktree.removeWorktreeSession(data.sessionId, { force: data.force });
+  }
+);
 
 // List all worktree sessions
-ipcMain.handle('worktree:listSessions', async (_event, options?: { includeDiskUsage?: boolean }) => {
-  return worktree.listWorktreeSessions(options)
-})
+ipcMain.handle(
+  'worktree:listSessions',
+  async (_event, options?: { includeDiskUsage?: boolean }) => {
+    return worktree.listWorktreeSessions(options);
+  }
+);
 
 // Get a specific session
 ipcMain.handle('worktree:getSession', async (_event, sessionId: string) => {
-  return worktree.getWorktreeSession(sessionId)
-})
+  return worktree.getWorktreeSession(sessionId);
+});
 
 // Find session by repo and branch
-ipcMain.handle('worktree:findSession', async (_event, data: { repoPath: string; branch: string }) => {
-  return worktree.findWorktreeSession(data.repoPath, data.branch)
-})
+ipcMain.handle(
+  'worktree:findSession',
+  async (_event, data: { repoPath: string; branch: string }) => {
+    return worktree.findWorktreeSession(data.repoPath, data.branch);
+  }
+);
 
 // Switch to a worktree session
 ipcMain.handle('worktree:switchSession', async (_event, sessionId: string) => {
-  return worktree.switchToWorktreeSession(sessionId)
-})
+  return worktree.switchToWorktreeSession(sessionId);
+});
 
 // Prune orphaned and stale sessions
-ipcMain.handle('worktree:pruneSessions', async (_event, options?: { 
-  dryRun?: boolean
-  maxAgeDays?: number 
-}) => {
-  return worktree.pruneWorktreeSessions(options)
-})
+ipcMain.handle(
+  'worktree:pruneSessions',
+  async (
+    _event,
+    options?: {
+      dryRun?: boolean;
+      maxAgeDays?: number;
+    }
+  ) => {
+    return worktree.pruneWorktreeSessions(options);
+  }
+);
 
 // Check for orphaned sessions
 ipcMain.handle('worktree:checkOrphaned', async () => {
-  return worktree.checkOrphanedSessions()
-})
+  return worktree.checkOrphanedSessions();
+});
 
 // Recover an orphaned session
 ipcMain.handle('worktree:recoverSession', async (_event, sessionId: string) => {
-  return worktree.recoverWorktreeSession(sessionId)
-})
+  return worktree.recoverWorktreeSession(sessionId);
+});
 
 // Get worktree config
 ipcMain.handle('worktree:getConfig', async () => {
-  return worktree.getWorktreeConfig()
-})
+  return worktree.getWorktreeConfig();
+});
 
 // Update worktree config
-ipcMain.handle('worktree:updateConfig', async (_event, updates: Partial<{
-  directory: string
-  pruneAfterDays: number
-  warnDiskThresholdMB: number
-}>) => {
-  worktree.updateWorktreeConfig(updates)
-  return { success: true }
-})
+ipcMain.handle(
+  'worktree:updateConfig',
+  async (
+    _event,
+    updates: Partial<{
+      directory: string;
+      pruneAfterDays: number;
+      warnDiskThresholdMB: number;
+    }>
+  ) => {
+    worktree.updateWorktreeConfig(updates);
+    return { success: true };
+  }
+);
 
 // PTY (Terminal) handlers
 ipcMain.handle('pty:create', async (_event, data: { sessionId: string; cwd: string }) => {
-  return ptyManager.createPty(data.sessionId, data.cwd, mainWindow)
-})
+  return ptyManager.createPty(data.sessionId, data.cwd, mainWindow);
+});
 
 ipcMain.handle('pty:write', async (_event, data: { sessionId: string; data: string }) => {
-  return ptyManager.writePty(data.sessionId, data.data)
-})
+  return ptyManager.writePty(data.sessionId, data.data);
+});
 
-ipcMain.handle('pty:resize', async (_event, data: { sessionId: string; cols: number; rows: number }) => {
-  return ptyManager.resizePty(data.sessionId, data.cols, data.rows)
-})
+ipcMain.handle(
+  'pty:resize',
+  async (_event, data: { sessionId: string; cols: number; rows: number }) => {
+    return ptyManager.resizePty(data.sessionId, data.cols, data.rows);
+  }
+);
 
 ipcMain.handle('pty:getOutput', async (_event, sessionId: string) => {
-  return ptyManager.getPtyOutput(sessionId)
-})
+  return ptyManager.getPtyOutput(sessionId);
+});
 
 ipcMain.handle('pty:clearBuffer', async (_event, sessionId: string) => {
-  return ptyManager.clearPtyBuffer(sessionId)
-})
+  return ptyManager.clearPtyBuffer(sessionId);
+});
 
 ipcMain.handle('pty:close', async (_event, sessionId: string) => {
-  return ptyManager.closePty(sessionId)
-})
+  return ptyManager.closePty(sessionId);
+});
 
 ipcMain.handle('pty:exists', async (_event, sessionId: string) => {
-  return { exists: ptyManager.hasPty(sessionId) }
-})
+  return { exists: ptyManager.hasPty(sessionId) };
+});
 
 // File operations - read file content for preview
-const MAX_FILE_SIZE = 1024 * 1024 // 1MB limit for preview
-const BINARY_CHECK_SIZE = 8000 // Check first 8KB for binary content
+const MAX_FILE_SIZE = 1024 * 1024; // 1MB limit for preview
+const BINARY_CHECK_SIZE = 8000; // Check first 8KB for binary content
 
 function isBinaryContent(buffer: Buffer): boolean {
   // Check for null bytes which indicate binary content
   for (let i = 0; i < Math.min(buffer.length, BINARY_CHECK_SIZE); i++) {
-    if (buffer[i] === 0) return true
+    if (buffer[i] === 0) return true;
   }
-  return false
+  return false;
 }
 
 ipcMain.handle('file:readContent', async (_event, filePath: string) => {
   try {
     // Check if file exists
     if (!existsSync(filePath)) {
-      return { success: false, error: 'File not found', errorType: 'not_found' }
+      return { success: false, error: 'File not found', errorType: 'not_found' };
     }
 
     // Get file stats
-    const stats = statSync(filePath)
-    const fileSize = stats.size
+    const stats = statSync(filePath);
+    const fileSize = stats.size;
 
     // Check file size
     if (fileSize > MAX_FILE_SIZE) {
-      return { 
-        success: false, 
+      return {
+        success: false,
         error: `File is too large to preview (${(fileSize / 1024 / 1024).toFixed(2)} MB). Maximum size is 1 MB.`,
         errorType: 'too_large',
-        fileSize
-      }
+        fileSize,
+      };
     }
 
     // Read file content
-    const buffer = readFileSync(filePath)
+    const buffer = readFileSync(filePath);
 
     // Check if binary
     if (isBinaryContent(buffer)) {
-      return { 
-        success: false, 
+      return {
+        success: false,
         error: 'This file appears to be binary and cannot be displayed as text.',
         errorType: 'binary',
-        fileSize
-      }
+        fileSize,
+      };
     }
 
     // Return content as string
-    const content = buffer.toString('utf-8')
-    return { 
-      success: true, 
-      content, 
+    const content = buffer.toString('utf-8');
+    return {
+      success: true,
+      content,
       fileSize,
-      fileName: filePath.split(/[/\\]/).pop() || filePath
-    }
+      fileName: filePath.split(/[/\\]/).pop() || filePath,
+    };
   } catch (error) {
-    console.error('Failed to read file:', error)
-    return { 
-      success: false, 
+    console.error('Failed to read file:', error);
+    return {
+      success: false,
       error: `Failed to read file: ${String(error)}`,
-      errorType: 'read_error'
-    }
+      errorType: 'read_error',
+    };
   }
-})
+});
 
 // File operations - reveal file in system file explorer
-ipcMain.handle('file:revealInFolder', async (_event, { filePath, cwd }: { filePath: string; cwd?: string }) => {
-  try {
-    // Resolve to absolute path if cwd is provided and filePath is relative
-    const absolutePath = cwd && !path.isAbsolute(filePath)
-      ? path.join(cwd, filePath)
-      : filePath
-    if (!existsSync(absolutePath)) {
-      return { success: false, error: 'File not found' }
+ipcMain.handle(
+  'file:revealInFolder',
+  async (_event, { filePath, cwd }: { filePath: string; cwd?: string }) => {
+    try {
+      // Resolve to absolute path if cwd is provided and filePath is relative
+      const absolutePath = cwd && !path.isAbsolute(filePath) ? path.join(cwd, filePath) : filePath;
+      if (!existsSync(absolutePath)) {
+        return { success: false, error: 'File not found' };
+      }
+      shell.showItemInFolder(absolutePath);
+      return { success: true };
+    } catch (error) {
+      console.error('Failed to reveal file:', error);
+      return { success: false, error: String(error) };
     }
-    shell.showItemInFolder(absolutePath)
-    return { success: true }
-  } catch (error) {
-    console.error('Failed to reveal file:', error)
-    return { success: false, error: String(error) }
   }
-})
+);
 
 ipcMain.handle('file:openFile', async (_event, filePath: string) => {
   try {
     if (!existsSync(filePath)) {
-      return { success: false, error: 'File not found' }
+      return { success: false, error: 'File not found' };
     }
-    const result = await shell.openPath(filePath)
+    const result = await shell.openPath(filePath);
     if (result) {
-      return { success: false, error: result }
+      return { success: false, error: result };
     }
-    return { success: true }
+    return { success: true };
   } catch (error) {
-    console.error('Failed to open file:', error)
-    return { success: false, error: String(error) }
+    console.error('Failed to open file:', error);
+    return { success: false, error: String(error) };
   }
-})
+});
 
 // ============================================================================
 // Update and Release Notes Handlers
 // ============================================================================
 
 // GitHub repository for checking updates
-const GITHUB_REPO_OWNER = 'idofrizler'
-const GITHUB_REPO_NAME = 'copilot-ui'
+const GITHUB_REPO_OWNER = 'idofrizler';
+const GITHUB_REPO_NAME = 'copilot-ui';
 
 interface GitHubRelease {
-  tag_name: string
-  name: string
-  body: string
-  html_url: string
-  published_at: string
-  assets: Array<{ name: string; browser_download_url: string }>
+  tag_name: string;
+  name: string;
+  body: string;
+  html_url: string;
+  published_at: string;
+  assets: Array<{ name: string; browser_download_url: string }>;
 }
 
 // Check for updates from GitHub releases
@@ -3928,35 +4448,35 @@ ipcMain.handle('updates:checkForUpdate', async () => {
       `https://api.github.com/repos/${GITHUB_REPO_OWNER}/${GITHUB_REPO_NAME}/releases/latest`,
       {
         headers: {
-          'Accept': 'application/vnd.github.v3+json',
-          'User-Agent': 'Copilot-Skins'
-        }
+          Accept: 'application/vnd.github.v3+json',
+          'User-Agent': 'Copilot-Skins',
+        },
       }
-    )
+    );
 
     if (!response.ok) {
       if (response.status === 404) {
-        return { hasUpdate: false, error: 'No releases found' }
+        return { hasUpdate: false, error: 'No releases found' };
       }
-      throw new Error(`GitHub API error: ${response.status}`)
+      throw new Error(`GitHub API error: ${response.status}`);
     }
 
-    const release = await response.json() as GitHubRelease
-    const latestVersion = release.tag_name.replace(/^v/, '')
-    
+    const release = (await response.json()) as GitHubRelease;
+    const latestVersion = release.tag_name.replace(/^v/, '');
+
     // Get current version from package.json
-    const pkgPath = join(__dirname, '..', '..', 'package.json')
-    let currentVersion = '1.0.0'
+    const pkgPath = join(__dirname, '..', '..', 'package.json');
+    let currentVersion = '1.0.0';
     try {
-      const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
-      currentVersion = pkg.version.split('+')[0].split('-')[0]
+      const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+      currentVersion = pkg.version.split('+')[0].split('-')[0];
     } catch {
       // Fallback to hardcoded version if package.json not accessible
     }
 
     // Compare versions (simple comparison, assumes semver)
-    const hasUpdate = compareVersions(latestVersion, currentVersion) > 0
-    const dismissedVersion = store.get('dismissedUpdateVersion', '') as string
+    const hasUpdate = compareVersions(latestVersion, currentVersion) > 0;
+    const dismissedVersion = store.get('dismissedUpdateVersion', '') as string;
 
     return {
       hasUpdate: hasUpdate && latestVersion !== dismissedVersion,
@@ -3964,128 +4484,132 @@ ipcMain.handle('updates:checkForUpdate', async () => {
       latestVersion,
       releaseNotes: release.body || '',
       releaseUrl: release.html_url,
-      downloadUrl: release.assets.find(a => a.name.endsWith('.dmg'))?.browser_download_url || release.html_url
-    }
+      downloadUrl:
+        release.assets.find((a) => a.name.endsWith('.dmg'))?.browser_download_url ||
+        release.html_url,
+    };
   } catch (error) {
-    console.error('Failed to check for updates:', error)
-    return { hasUpdate: false, error: String(error) }
+    console.error('Failed to check for updates:', error);
+    return { hasUpdate: false, error: String(error) };
   }
-})
+});
 
 // Dismiss update notification for a specific version
 ipcMain.handle('updates:dismissVersion', async (_event, version: string) => {
-  store.set('dismissedUpdateVersion', version)
-  return { success: true }
-})
+  store.set('dismissedUpdateVersion', version);
+  return { success: true };
+});
 
 // Get the last seen version (for showing release notes on first run)
 ipcMain.handle('updates:getLastSeenVersion', async () => {
-  return { version: store.get('lastSeenVersion', '') as string }
-})
+  return { version: store.get('lastSeenVersion', '') as string };
+});
 
 // Set the last seen version
 ipcMain.handle('updates:setLastSeenVersion', async (_event, version: string) => {
-  store.set('lastSeenVersion', version)
-  return { success: true }
-})
+  store.set('lastSeenVersion', version);
+  return { success: true };
+});
 
 // Open the download URL in the default browser (fallback)
 ipcMain.handle('updates:openDownloadUrl', async (_event, url: string) => {
   try {
-    await shell.openExternal(url)
-    return { success: true }
+    await shell.openExternal(url);
+    return { success: true };
   } catch (error) {
-    return { success: false, error: String(error) }
+    return { success: false, error: String(error) };
   }
-})
+});
 
 // Check if we're running from a git repository (can auto-update)
 ipcMain.handle('updates:canAutoUpdate', async () => {
   try {
     // Check if we're in a git repo by looking for .git folder
-    const repoRoot = join(__dirname, '..', '..')
-    const gitDir = join(repoRoot, '.git')
-    const isGitRepo = existsSync(gitDir)
-    
+    const repoRoot = join(__dirname, '..', '..');
+    const gitDir = join(repoRoot, '.git');
+    const isGitRepo = existsSync(gitDir);
+
     // Also check if git is available
     if (isGitRepo) {
-      await execAsync('git --version')
-      return { canAutoUpdate: true, repoPath: repoRoot }
+      await execAsync('git --version');
+      return { canAutoUpdate: true, repoPath: repoRoot };
     }
-    return { canAutoUpdate: false, reason: 'Not running from git repository' }
+    return { canAutoUpdate: false, reason: 'Not running from git repository' };
   } catch (error) {
-    return { canAutoUpdate: false, reason: 'Git not available' }
+    return { canAutoUpdate: false, reason: 'Git not available' };
   }
-})
+});
 
 // Perform the auto-update: git pull, npm install, and prepare for restart
 ipcMain.handle('updates:performUpdate', async (_event, onProgress?: (stage: string) => void) => {
   try {
-    const repoRoot = join(__dirname, '..', '..')
-    
+    const repoRoot = join(__dirname, '..', '..');
+
     // Stage 1: Git fetch and pull
-    console.log('Update: Fetching latest changes...')
-    await execAsync('git fetch origin main', { cwd: repoRoot })
-    
+    console.log('Update: Fetching latest changes...');
+    await execAsync('git fetch origin main', { cwd: repoRoot });
+
     // Check if there are changes to pull
-    const { stdout: behindCount } = await execAsync('git rev-list HEAD..origin/main --count', { cwd: repoRoot })
+    const { stdout: behindCount } = await execAsync('git rev-list HEAD..origin/main --count', {
+      cwd: repoRoot,
+    });
     if (parseInt(behindCount.trim()) === 0) {
-      return { success: true, message: 'Already up to date', needsRestart: false }
+      return { success: true, message: 'Already up to date', needsRestart: false };
     }
-    
+
     // Pull the changes
-    console.log('Update: Pulling latest changes...')
-    await execAsync('git pull origin main', { cwd: repoRoot })
-    
+    console.log('Update: Pulling latest changes...');
+    await execAsync('git pull origin main', { cwd: repoRoot });
+
     // Stage 2: Install dependencies
-    console.log('Update: Installing dependencies...')
-    await execAsync('npm install', { cwd: repoRoot })
-    
+    console.log('Update: Installing dependencies...');
+    await execAsync('npm install', { cwd: repoRoot });
+
     // Stage 3: Build the app
-    console.log('Update: Building application...')
-    await execAsync('npm run build', { cwd: repoRoot })
-    
-    console.log('Update: Complete! Ready to restart.')
-    return { success: true, message: 'Update complete', needsRestart: true }
+    console.log('Update: Building application...');
+    await execAsync('npm run build', { cwd: repoRoot });
+
+    console.log('Update: Complete! Ready to restart.');
+    return { success: true, message: 'Update complete', needsRestart: true };
   } catch (error) {
-    console.error('Update failed:', error)
-    return { success: false, error: String(error) }
+    console.error('Update failed:', error);
+    return { success: false, error: String(error) };
   }
-})
+});
 
 // Restart the application
 ipcMain.handle('updates:restartApp', async () => {
   // Relaunch the app and quit the current instance
-  app.relaunch()
-  app.quit()
-  return { success: true }
-})
+  app.relaunch();
+  app.quit();
+  return { success: true };
+});
 
 // Welcome wizard handlers
-const CURRENT_WIZARD_VERSION = 1;  // Bump this to re-show wizard to all users
+const CURRENT_WIZARD_VERSION = 1; // Bump this to re-show wizard to all users
 
 ipcMain.handle('wizard:hasSeenWelcome', async () => {
   const seenVersion = store.get('wizardVersion', 0) as number;
   // Show wizard if user hasn't seen current version
-  return { hasSeen: seenVersion >= CURRENT_WIZARD_VERSION }
-})
+  return { hasSeen: seenVersion >= CURRENT_WIZARD_VERSION };
+});
 
 ipcMain.handle('wizard:markWelcomeAsSeen', async () => {
-  store.set('hasSeenWelcomeWizard', true)
-  store.set('wizardVersion', CURRENT_WIZARD_VERSION)
-  return { success: true }
-})
+  store.set('hasSeenWelcomeWizard', true);
+  store.set('wizardVersion', CURRENT_WIZARD_VERSION);
+  return { success: true };
+});
 
 // Simple semver comparison: returns 1 if a > b, -1 if a < b, 0 if equal
 function compareVersions(a: string, b: string): number {
-  const partsA = a.split('.').map(Number)
-  const partsB = b.split('.').map(Number)
-  
+  const partsA = a.split('.').map(Number);
+  const partsB = b.split('.').map(Number);
+
   for (let i = 0; i < Math.max(partsA.length, partsB.length); i++) {
-    const partA = partsA[i] || 0
-    const partB = partsB[i] || 0
-    if (partA > partB) return 1
-    if (partA < partB) return -1
+    const partA = partsA[i] || 0;
+    const partB = partsB[i] || 0;
+    if (partA > partB) return 1;
+    if (partA < partB) return -1;
   }
-  return 0
+  return 0;
 }

@@ -1,2 +1,2 @@
-export { TerminalProvider, useTerminal, useTerminalRequired } from './TerminalContext'
-export type { TerminalContextValue, TerminalProviderProps } from './TerminalContext'
+export { TerminalProvider, useTerminal, useTerminalRequired } from './TerminalContext';
+export type { TerminalContextValue, TerminalProviderProps } from './TerminalContext';

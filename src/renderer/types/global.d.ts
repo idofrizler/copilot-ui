@@ -1,14 +1,14 @@
-import type { ElectronAPI } from '../../preload/preload'
+import type { ElectronAPI } from '../../preload/preload';
 
 declare module '*.png' {
-  const src: string
-  export default src
+  const src: string;
+  export default src;
 }
 
 declare global {
   interface Window {
-    electronAPI: ElectronAPI
+    electronAPI: ElectronAPI;
   }
 }
 
-export {}
+export {};

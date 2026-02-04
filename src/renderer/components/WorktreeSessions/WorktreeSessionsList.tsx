@@ -1,143 +1,152 @@
-import React, { useState, useEffect } from 'react'
-import { Modal } from '../Modal'
-import { Button } from '../Button'
-import { Spinner } from '../Spinner'
+import React, { useState, useEffect } from 'react';
+import { Modal } from '../Modal';
+import { Button } from '../Button';
+import { Spinner } from '../Spinner';
 
 interface WorktreeSession {
-  id: string
-  repoPath: string
-  branch: string
-  worktreePath: string
-  createdAt: string
-  lastAccessedAt: string
-  status: 'active' | 'idle' | 'orphaned'
-  diskUsage?: string
+  id: string;
+  repoPath: string;
+  branch: string;
+  worktreePath: string;
+  createdAt: string;
+  lastAccessedAt: string;
+  status: 'active' | 'idle' | 'orphaned';
+  diskUsage?: string;
 }
 
 interface WorktreeSessionsListProps {
-  isOpen: boolean
-  onClose: () => void
-  onOpenSession: (session: WorktreeSession) => void
-  onRemoveSession?: (worktreePath: string) => void
+  isOpen: boolean;
+  onClose: () => void;
+  onOpenSession: (session: WorktreeSession) => void;
+  onRemoveSession?: (worktreePath: string) => void;
 }
 
 export const WorktreeSessionsList: React.FC<WorktreeSessionsListProps> = ({
   isOpen,
   onClose,
   onOpenSession,
-  onRemoveSession
+  onRemoveSession,
 }) => {
-  const [sessions, setSessions] = useState<(WorktreeSession & { diskUsage: string })[]>([])
-  const [totalDiskUsage, setTotalDiskUsage] = useState('0 B')
-  const [isLoading, setIsLoading] = useState(false)
-  const [isPruning, setIsPruning] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [actionInProgress, setActionInProgress] = useState<string | null>(null)
-  const [successMessage, setSuccessMessage] = useState<string | null>(null)
-  const [confirmRemove, setConfirmRemove] = useState<{ sessionId: string; worktreePath: string; hasUncommitted: boolean; hasUnpushed: boolean } | null>(null)
+  const [sessions, setSessions] = useState<(WorktreeSession & { diskUsage: string })[]>([]);
+  const [totalDiskUsage, setTotalDiskUsage] = useState('0 B');
+  const [isLoading, setIsLoading] = useState(false);
+  const [isPruning, setIsPruning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [actionInProgress, setActionInProgress] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState<{
+    sessionId: string;
+    worktreePath: string;
+    hasUncommitted: boolean;
+    hasUnpushed: boolean;
+  } | null>(null);
 
   const loadSessions = async () => {
-    setIsLoading(true)
-    setError(null)
+    setIsLoading(true);
+    setError(null);
     try {
-      const result = await window.electronAPI.worktree.listSessions()
-      setSessions(result.sessions)
-      setTotalDiskUsage(result.totalDiskUsage)
+      const result = await window.electronAPI.worktree.listSessions();
+      setSessions(result.sessions);
+      setTotalDiskUsage(result.totalDiskUsage);
     } catch (err) {
-      setError(String(err))
+      setError(String(err));
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }
+  };
 
   useEffect(() => {
     if (isOpen) {
-      loadSessions()
-      setSuccessMessage(null)
-      setConfirmRemove(null)
+      loadSessions();
+      setSuccessMessage(null);
+      setConfirmRemove(null);
     }
-  }, [isOpen])
+  }, [isOpen]);
 
   const handlePrune = async () => {
-    setIsPruning(true)
+    setIsPruning(true);
     try {
-      const result = await window.electronAPI.worktree.pruneSessions()
+      const result = await window.electronAPI.worktree.pruneSessions();
       if (result.pruned.length > 0) {
-        await loadSessions()
+        await loadSessions();
       }
     } catch (err) {
-      setError(String(err))
+      setError(String(err));
     } finally {
-      setIsPruning(false)
+      setIsPruning(false);
     }
-  }
+  };
 
   const handleRemove = async (sessionId: string, worktreePath: string) => {
-    setActionInProgress(`remove-${sessionId}`)
-    setError(null)
+    setActionInProgress(`remove-${sessionId}`);
+    setError(null);
     try {
       // Check for uncommitted/unpushed changes first
-      const status = await window.electronAPI.git.getWorkingStatus(worktreePath)
+      const status = await window.electronAPI.git.getWorkingStatus(worktreePath);
       if (status.hasUncommittedChanges || status.hasUnpushedCommits) {
-        setConfirmRemove({ 
-          sessionId, 
-          worktreePath, 
-          hasUncommitted: status.hasUncommittedChanges, 
-          hasUnpushed: status.hasUnpushedCommits 
-        })
-        setActionInProgress(null)
-        return
+        setConfirmRemove({
+          sessionId,
+          worktreePath,
+          hasUncommitted: status.hasUncommittedChanges,
+          hasUnpushed: status.hasUnpushedCommits,
+        });
+        setActionInProgress(null);
+        return;
       }
       // No uncommitted changes, proceed with removal
-      await doRemove(sessionId, worktreePath)
+      await doRemove(sessionId, worktreePath);
     } catch (err) {
-      setError(String(err))
-      setActionInProgress(null)
+      setError(String(err));
+      setActionInProgress(null);
     }
-  }
+  };
 
   const doRemove = async (sessionId: string, worktreePath: string) => {
-    setActionInProgress(`remove-${sessionId}`)
+    setActionInProgress(`remove-${sessionId}`);
     try {
-      const result = await window.electronAPI.worktree.removeSession({ sessionId, force: true })
+      const result = await window.electronAPI.worktree.removeSession({ sessionId, force: true });
       if (result.success) {
         // Close the session tab if open
-        onRemoveSession?.(worktreePath)
-        await loadSessions()
-        setSuccessMessage('Worktree removed successfully')
+        onRemoveSession?.(worktreePath);
+        await loadSessions();
+        setSuccessMessage('Worktree removed successfully');
       } else {
-        setError(result.error || 'Failed to remove session')
+        setError(result.error || 'Failed to remove session');
       }
     } catch (err) {
-      setError(String(err))
+      setError(String(err));
     } finally {
-      setActionInProgress(null)
-      setConfirmRemove(null)
+      setActionInProgress(null);
+      setConfirmRemove(null);
     }
-  }
+  };
 
   const formatDate = (isoDate: string) => {
-    const date = new Date(isoDate)
-    const now = new Date()
-    const diffMs = now.getTime() - date.getTime()
-    const diffMins = Math.floor(diffMs / 60000)
-    const diffHours = Math.floor(diffMs / 3600000)
-    const diffDays = Math.floor(diffMs / 86400000)
+    const date = new Date(isoDate);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
 
-    if (diffMins < 60) return `${diffMins} min ago`
-    if (diffHours < 24) return `${diffHours} hours ago`
-    if (diffDays < 7) return `${diffDays} days ago`
-    return date.toLocaleDateString()
-  }
+    if (diffMins < 60) return `${diffMins} min ago`;
+    if (diffHours < 24) return `${diffHours} hours ago`;
+    if (diffDays < 7) return `${diffDays} days ago`;
+    return date.toLocaleDateString();
+  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'active': return 'text-copilot-success'
-      case 'idle': return 'text-copilot-text-muted'
-      case 'orphaned': return 'text-copilot-warning'
-      default: return 'text-copilot-text-muted'
+      case 'active':
+        return 'text-copilot-success';
+      case 'idle':
+        return 'text-copilot-text-muted';
+      case 'orphaned':
+        return 'text-copilot-warning';
+      default:
+        return 'text-copilot-text-muted';
     }
-  }
+  };
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Worktree Sessions" width="750px">
@@ -150,8 +159,8 @@ export const WorktreeSessionsList: React.FC<WorktreeSessionsListProps> = ({
         {error && (
           <div className="text-copilot-error text-sm mb-3 p-2 bg-copilot-error/10 rounded">
             {error}
-            <button 
-              onClick={() => setError(null)} 
+            <button
+              onClick={() => setError(null)}
               className="ml-2 text-copilot-text-muted hover:text-copilot-text"
             >
               ✕
@@ -164,12 +173,13 @@ export const WorktreeSessionsList: React.FC<WorktreeSessionsListProps> = ({
           </div>
         ) : sessions.length === 0 ? (
           <div className="text-copilot-text-muted text-sm py-4 text-center">
-            No worktree sessions found.<br />
+            No worktree sessions found.
+            <br />
             Create a new session from a branch to work in isolation.
           </div>
         ) : (
           <div className="space-y-2">
-            {sessions.map(session => (
+            {sessions.map((session) => (
               <div
                 key={session.id}
                 className="p-3 bg-copilot-bg rounded border border-copilot-border hover:border-copilot-border-hover transition-colors"
@@ -220,7 +230,9 @@ export const WorktreeSessionsList: React.FC<WorktreeSessionsListProps> = ({
       </Modal.Body>
       <Modal.Body className="pt-0">
         <div className="flex items-center justify-between text-xs text-copilot-text-muted border-t border-copilot-border pt-3">
-          <span>Total: {sessions.length} sessions, {totalDiskUsage}</span>
+          <span>
+            Total: {sessions.length} sessions, {totalDiskUsage}
+          </span>
           <Button
             variant="secondary"
             size="sm"
@@ -234,7 +246,12 @@ export const WorktreeSessionsList: React.FC<WorktreeSessionsListProps> = ({
 
       {/* Confirmation dialog for uncommitted/unpushed changes */}
       {confirmRemove && (
-        <Modal isOpen={true} onClose={() => setConfirmRemove(null)} title="Confirm Removal" width="400px">
+        <Modal
+          isOpen={true}
+          onClose={() => setConfirmRemove(null)}
+          title="Confirm Removal"
+          width="400px"
+        >
           <Modal.Body>
             <div className="text-sm text-copilot-text mb-4">
               This worktree has:
@@ -251,8 +268,8 @@ export const WorktreeSessionsList: React.FC<WorktreeSessionsListProps> = ({
             <Button variant="ghost" onClick={() => setConfirmRemove(null)}>
               Cancel
             </Button>
-            <Button 
-              variant="primary" 
+            <Button
+              variant="primary"
               onClick={() => doRemove(confirmRemove.sessionId, confirmRemove.worktreePath)}
               className="bg-copilot-error hover:bg-copilot-error/80"
             >
@@ -262,7 +279,7 @@ export const WorktreeSessionsList: React.FC<WorktreeSessionsListProps> = ({
         </Modal>
       )}
     </Modal>
-  )
-}
+  );
+};
 
-export default WorktreeSessionsList
+export default WorktreeSessionsList;

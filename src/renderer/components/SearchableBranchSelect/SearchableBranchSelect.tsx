@@ -1,24 +1,24 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react'
-import { useClickOutside } from '../../hooks/useClickOutside'
-import { ChevronDownIcon, GitBranchIcon } from '../Icons'
+import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { useClickOutside } from '../../hooks/useClickOutside';
+import { ChevronDownIcon, GitBranchIcon } from '../Icons';
 
 export interface SearchableBranchSelectProps {
   /** Currently selected branch */
-  value: string | null
+  value: string | null;
   /** List of available branches */
-  branches: string[]
+  branches: string[];
   /** Callback when branch is selected */
-  onSelect: (branch: string) => void
+  onSelect: (branch: string) => void;
   /** Loading state while fetching branches */
-  isLoading?: boolean
+  isLoading?: boolean;
   /** Placeholder text */
-  placeholder?: string
+  placeholder?: string;
   /** Disabled state */
-  disabled?: boolean
+  disabled?: boolean;
   /** Additional class name */
-  className?: string
+  className?: string;
   /** Label text */
-  label?: string
+  label?: string;
 }
 
 export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
@@ -31,57 +31,53 @@ export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
   className = '',
   label,
 }) => {
-  const [isOpen, setIsOpen] = useState(false)
-  const [searchTerm, setSearchTerm] = useState('')
-  const dropdownRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const handleClose = useCallback(() => {
-    setIsOpen(false)
-    setSearchTerm('')
-  }, [])
+    setIsOpen(false);
+    setSearchTerm('');
+  }, []);
 
-  useClickOutside(dropdownRef, handleClose, isOpen)
+  useClickOutside(dropdownRef, handleClose, isOpen);
 
   // Focus search input when dropdown opens
   useEffect(() => {
     if (isOpen && inputRef.current) {
-      inputRef.current.focus()
+      inputRef.current.focus();
     }
-  }, [isOpen])
+  }, [isOpen]);
 
-  const filteredBranches = branches.filter(branch =>
+  const filteredBranches = branches.filter((branch) =>
     branch.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  );
 
   const handleToggle = (e: React.MouseEvent) => {
-    e.stopPropagation()
+    e.stopPropagation();
     if (!disabled && !isLoading) {
-      setIsOpen(!isOpen)
+      setIsOpen(!isOpen);
     }
-  }
+  };
 
   const handleSelect = (branch: string) => {
-    onSelect(branch)
-    setIsOpen(false)
-    setSearchTerm('')
-  }
+    onSelect(branch);
+    setIsOpen(false);
+    setSearchTerm('');
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
-      handleClose()
+      handleClose();
     } else if (e.key === 'Enter' && filteredBranches.length > 0) {
-      handleSelect(filteredBranches[0])
+      handleSelect(filteredBranches[0]);
     }
-  }
+  };
 
   return (
     <div className={`relative ${className}`} ref={dropdownRef}>
-      {label && (
-        <label className="text-xs text-copilot-text-muted mb-1 block">
-          {label}
-        </label>
-      )}
+      {label && <label className="text-xs text-copilot-text-muted mb-1 block">{label}</label>}
       <button
         onClick={handleToggle}
         disabled={disabled || isLoading}
@@ -93,8 +89,10 @@ export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
         ) : (
           <GitBranchIcon size={12} className="text-copilot-text-muted shrink-0" />
         )}
-        <span className={`flex-1 truncate ${value ? 'text-copilot-text' : 'text-copilot-text-muted'}`}>
-          {isLoading ? 'Loading...' : (value || placeholder)}
+        <span
+          className={`flex-1 truncate ${value ? 'text-copilot-text' : 'text-copilot-text-muted'}`}
+        >
+          {isLoading ? 'Loading...' : value || placeholder}
         </span>
         <ChevronDownIcon size={10} className="text-copilot-text-muted shrink-0" />
       </button>
@@ -129,7 +127,9 @@ export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
                   key={branch}
                   onClick={() => handleSelect(branch)}
                   className={`w-full px-3 py-1.5 text-left text-xs hover:bg-copilot-surface-hover transition-colors flex items-center gap-2 ${
-                    branch === value ? 'text-copilot-accent bg-copilot-accent/10' : 'text-copilot-text'
+                    branch === value
+                      ? 'text-copilot-accent bg-copilot-accent/10'
+                      : 'text-copilot-text'
                   }`}
                 >
                   <GitBranchIcon size={10} className="shrink-0" />
@@ -149,7 +149,7 @@ export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
         </div>
       )}
     </div>
-  )
-}
+  );
+};
 
-export default SearchableBranchSelect
+export default SearchableBranchSelect;
