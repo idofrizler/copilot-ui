@@ -602,6 +602,19 @@ const App: React.FC = () => {
   }, []);
   useClickOutside(allowDropdownRef, closeAllowDropdown, showAllowDropdown);
 
+  // Session context menu state (for right-click "Mark for Review")
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; tabId: string } | null>(null);
+  // Note input modal state
+  const [noteInputModal, setNoteInputModal] = useState<{ tabId: string; currentNote?: string } | null>(null);
+  const [noteInputValue, setNoteInputValue] = useState("");
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+  
+  // Close context menu when clicking outside
+  const closeContextMenu = useCallback(() => {
+    setContextMenu(null);
+  }, []);
+  useClickOutside(contextMenuRef, closeContextMenu, contextMenu !== null);
+
   // Theme context
   const {
     themePreference,
@@ -903,6 +916,8 @@ const App: React.FC = () => {
         name: t.name,
         editedFiles: t.editedFiles,
         alwaysAllowed: t.alwaysAllowed,
+        markedForReview: t.markedForReview,
+        reviewNote: t.reviewNote,
       }));
       window.electronAPI.copilot.saveOpenSessions(openSessions);
     }
@@ -1152,6 +1167,8 @@ const App: React.FC = () => {
             currentIntentTimestamp: null,
             gitBranchRefresh: 0,
             lisaConfig,
+            markedForReview: s.markedForReview,
+            reviewNote: s.reviewNote,
           };
         });
 
@@ -3730,6 +3747,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               name: closingTab.name,
               modifiedTime: new Date().toISOString(),
               cwd: closingTab.cwd,
+              markedForReview: closingTab.markedForReview,
+              reviewNote: closingTab.reviewNote,
             },
             ...prev,
           ]);
@@ -3775,6 +3794,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
             name: closingTab.name,
             modifiedTime: new Date().toISOString(),
             cwd: closingTab.cwd,
+            markedForReview: closingTab.markedForReview,
+            reviewNote: closingTab.reviewNote,
           },
           ...prev,
         ]);
@@ -3805,6 +3826,54 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     }
   };
 
+  // Context menu handlers for session right-click
+  const handleTabContextMenu = (e: React.MouseEvent, tabId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({ x: e.clientX, y: e.clientY, tabId });
+  };
+
+  const handleToggleMarkForReview = (tabId: string) => {
+    const tab = tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+    const newMarked = !tab.markedForReview;
+    updateTab(tabId, { 
+      markedForReview: newMarked,
+      // Clear note if unmarking
+      reviewNote: newMarked ? tab.reviewNote : undefined,
+    });
+    setContextMenu(null);
+  };
+
+  const handleOpenNoteModal = (tabId: string) => {
+    const tab = tabs.find((t) => t.id === tabId);
+    setNoteInputModal({ tabId, currentNote: tab?.reviewNote });
+    setNoteInputValue(tab?.reviewNote || "");
+    setContextMenu(null);
+  };
+
+  const handleSaveNote = () => {
+    if (!noteInputModal) return;
+    const note = noteInputValue.trim();
+    updateTab(noteInputModal.tabId, { 
+      reviewNote: note || undefined,
+      // Auto-mark for review when adding a note
+      markedForReview: note ? true : tabs.find(t => t.id === noteInputModal.tabId)?.markedForReview,
+    });
+    setNoteInputModal(null);
+    setNoteInputValue("");
+    // Scroll to show the note banner at the bottom
+    if (note) {
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
+    }
+  };
+
+  const handleClearNote = (tabId: string) => {
+    updateTab(tabId, { reviewNote: undefined });
+  };
+
   const handleResumePreviousSession = async (prevSession: PreviousSession) => {
     try {
       setStatus("connecting");
@@ -3830,6 +3899,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         currentIntent: null,
         currentIntentTimestamp: null,
         gitBranchRefresh: 0,
+        markedForReview: prevSession.markedForReview,
+        reviewNote: prevSession.reviewNote,
       };
 
       setTabs((prev) => [...prev, newTab]);
@@ -4154,17 +4225,20 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               <div
                 key={tab.id}
                 onClick={() => handleSwitchTab(tab.id)}
+                onContextMenu={(e) => handleTabContextMenu(e, tab.id)}
                 className={`group w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors text-left cursor-pointer ${
                   tab.id === activeTabId
                     ? "bg-copilot-surface text-copilot-text border-l-2 border-l-copilot-accent"
                     : "text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface border-l-2 border-l-transparent"
                 }`}
               >
-                {/* Status indicator */}
+                {/* Status indicator - priority: pending > processing > marked > unread > idle */}
                 {tab.pendingConfirmations.length > 0 ? (
                   <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-accent animate-pulse" />
                 ) : tab.isProcessing ? (
                   <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-warning animate-pulse" />
+                ) : tab.markedForReview ? (
+                  <span className="shrink-0 w-2 h-2 rounded-full bg-cyan-500" title="Marked for review" />
                 ) : tab.hasUnreadCompletion ? (
                   <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-success" />
                 ) : (
@@ -4640,6 +4714,26 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   })()}
                 </div>
               )}
+
+            {/* Review Note Banner - shown when session has a note */}
+            {activeTab?.reviewNote && (
+              <div className="mx-3 mb-2 p-3 bg-cyan-500/10 border border-cyan-500/30 rounded-lg">
+                <div className="flex items-start gap-2">
+                  <span className="shrink-0 w-2 h-2 mt-1 rounded-full bg-cyan-500" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-medium text-cyan-400 mb-1">Review Note</div>
+                    <p className="text-sm text-copilot-text whitespace-pre-wrap break-words">{activeTab.reviewNote}</p>
+                  </div>
+                  <button
+                    onClick={() => handleClearNote(activeTab.id)}
+                    className="shrink-0 mt-0.5 text-copilot-text-muted hover:text-copilot-text transition-colors"
+                    title="Dismiss note"
+                  >
+                    <CloseIcon size={12} />
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div ref={messagesEndRef} />
           </div>
@@ -6710,6 +6804,115 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           }
         }}
       />
+
+      {/* Session Context Menu (right-click on tab) */}
+      {contextMenu && (
+        <div
+          ref={contextMenuRef}
+          className="fixed z-50 bg-copilot-surface border border-copilot-border rounded-lg shadow-lg py-1 min-w-[160px]"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+        >
+          {(() => {
+            const tab = tabs.find((t) => t.id === contextMenu.tabId);
+            const isMarked = tab?.markedForReview;
+            return (
+              <>
+                <button
+                  onClick={() => handleToggleMarkForReview(contextMenu.tabId)}
+                  className="w-full px-3 py-1.5 text-left text-xs text-copilot-text hover:bg-copilot-bg transition-colors flex items-center gap-2"
+                >
+                  <span className={`w-2 h-2 rounded-full ${isMarked ? 'bg-copilot-text-muted' : 'bg-cyan-500'}`} />
+                  {isMarked ? 'Remove Mark' : 'Mark for Review'}
+                </button>
+                <button
+                  onClick={() => handleOpenNoteModal(contextMenu.tabId)}
+                  className="w-full px-3 py-1.5 text-left text-xs text-copilot-text hover:bg-copilot-bg transition-colors flex items-center gap-2"
+                >
+                  <EditIcon size={10} />
+                  {tab?.reviewNote ? 'Edit Note...' : 'Add Note...'}
+                </button>
+                <div className="border-t border-copilot-border my-1" />
+                <button
+                  onClick={() => {
+                    setTabs((prev) =>
+                      prev.map((t) =>
+                        t.id === contextMenu.tabId
+                          ? { ...t, isRenaming: true, renameDraft: t.name }
+                          : t,
+                      ),
+                    );
+                    setContextMenu(null);
+                  }}
+                  className="w-full px-3 py-1.5 text-left text-xs text-copilot-text hover:bg-copilot-bg transition-colors flex items-center gap-2"
+                >
+                  <EditIcon size={10} />
+                  Rename...
+                </button>
+              </>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* Note Input Modal */}
+      {noteInputModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-copilot-surface border border-copilot-border rounded-lg shadow-xl w-full max-w-md mx-4 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-medium text-copilot-text">
+                {noteInputModal.currentNote ? 'Edit Review Note' : 'Add Review Note'}
+              </h3>
+              <button
+                onClick={() => {
+                  setNoteInputModal(null);
+                  setNoteInputValue("");
+                }}
+                className="text-copilot-text-muted hover:text-copilot-text"
+              >
+                <CloseIcon size={14} />
+              </button>
+            </div>
+            <textarea
+              autoFocus
+              value={noteInputValue}
+              onChange={(e) => setNoteInputValue(e.target.value)}
+              placeholder="Leave a note to remind yourself what to do when you return..."
+              className="w-full h-24 px-3 py-2 text-sm bg-copilot-bg border border-copilot-border rounded text-copilot-text placeholder:text-copilot-text-muted resize-none focus:outline-none focus:border-copilot-accent"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  handleSaveNote();
+                }
+                if (e.key === 'Escape') {
+                  setNoteInputModal(null);
+                  setNoteInputValue("");
+                }
+              }}
+            />
+            <div className="flex justify-end gap-2 mt-3">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setNoteInputModal(null);
+                  setNoteInputValue("");
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleSaveNote}
+              >
+                Save Note
+              </Button>
+            </div>
+            <p className="text-[10px] text-copilot-text-muted mt-2">
+              Tip: Press {navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+Enter to save
+            </p>
+          </div>
+        </div>
+      )}
     </div>
     </TerminalProvider>
   );

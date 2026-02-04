@@ -156,6 +156,8 @@ interface StoredSession {
   name?: string
   editedFiles?: string[]
   alwaysAllowed?: string[]
+  markedForReview?: boolean
+  reviewNote?: string
 }
 
 const store = new Store({
@@ -165,6 +167,7 @@ const store = new Store({
     trustedDirectories: [] as string[],  // Directories that are always trusted
     theme: 'system' as string,  // Theme preference: 'system', 'light', 'dark', or custom theme id
     sessionCwds: {} as Record<string, string>,  // Persistent map of sessionId -> cwd (survives session close)
+    sessionMarks: {} as Record<string, { markedForReview?: boolean; reviewNote?: string }>,  // Persistent mark/note state
     globalSafeCommands: [] as string[],  // Globally safe commands that are auto-approved for all sessions
     hasSeenWelcomeWizard: false as boolean,  // Whether user has completed the welcome wizard
     wizardVersion: 0 as number,  // Version of wizard shown (bump to re-show wizard after updates)
@@ -1264,11 +1267,19 @@ async function initCopilot(): Promise<void> {
     
     // Get stored session cwds for previous sessions (use mock cwds if in test mode)
     const sessionCwds = useMockSessions ? mockSessionCwds : (store.get('sessionCwds') as Record<string, string> || {})
+    const sessionMarks = store.get('sessionMarks') as Record<string, { markedForReview?: boolean; reviewNote?: string }> || {}
     
     // Build list of previous sessions (all sessions not in our open list)
     const previousSessions = allSessions
       .filter(s => !openSessionIds.includes(s.sessionId))
-      .map(s => ({ sessionId: s.sessionId, name: s.summary || undefined, modifiedTime: s.modifiedTime.toISOString(), cwd: sessionCwds[s.sessionId] }))
+      .map(s => ({ 
+        sessionId: s.sessionId, 
+        name: s.summary || undefined, 
+        modifiedTime: s.modifiedTime.toISOString(), 
+        cwd: sessionCwds[s.sessionId],
+        markedForReview: sessionMarks[s.sessionId]?.markedForReview,
+        reviewNote: sessionMarks[s.sessionId]?.reviewNote,
+      }))
     
     let resumedSessions: { sessionId: string; model: string; cwd: string; name?: string; editedFiles?: string[]; alwaysAllowed?: string[] }[] = []
     
@@ -2207,6 +2218,22 @@ ipcMain.handle('copilot:removeDeniedUrl', async (_event, url: string) => {
 // Save open session IDs to persist across restarts
 ipcMain.handle('copilot:saveOpenSessions', async (_event, openSessions: StoredSession[]) => {
   store.set('openSessions', openSessions)
+  
+  // Also persist marks to sessionMarks store (for when sessions go to history)
+  const sessionMarks = store.get('sessionMarks') as Record<string, { markedForReview?: boolean; reviewNote?: string }> || {}
+  for (const session of openSessions) {
+    if (session.markedForReview || session.reviewNote) {
+      sessionMarks[session.sessionId] = {
+        markedForReview: session.markedForReview,
+        reviewNote: session.reviewNote,
+      }
+    } else {
+      // Clean up if no longer marked
+      delete sessionMarks[session.sessionId]
+    }
+  }
+  store.set('sessionMarks', sessionMarks)
+  
   console.log(`Saved ${openSessions.length} open sessions with models`)
   return { success: true }
 })

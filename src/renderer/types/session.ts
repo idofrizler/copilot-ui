@@ -82,6 +82,8 @@ export interface PreviousSession {
   name?: string;
   modifiedTime: string;
   cwd?: string; // Original working directory for this session
+  markedForReview?: boolean; // Whether session was marked for follow-up
+  reviewNote?: string; // Optional user note
   // Worktree-specific properties (optional, present if session is a worktree)
   worktree?: {
     id: string; // Worktree session ID (e.g., "repo--branch")
@@ -193,4 +195,6 @@ export interface TabState {
   compactionStatus?: CompactionStatus; // Status of context compaction
   detectedChoices?: DetectedChoice[]; // Choices detected in last assistant message
   draftInput?: DraftInput; // Per-session textarea draft state
+  markedForReview?: boolean; // Whether session is marked for follow-up review
+  reviewNote?: string; // Optional user note displayed at bottom of conversation
 }
