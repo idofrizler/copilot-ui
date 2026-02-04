@@ -158,6 +158,8 @@ interface StoredSession {
   alwaysAllowed?: string[]
   markedForReview?: boolean
   reviewNote?: string
+  untrackedFiles?: string[]
+  fileViewMode?: 'flat' | 'tree'
 }
 
 const store = new Store({
@@ -1281,7 +1283,7 @@ async function initCopilot(): Promise<void> {
         reviewNote: sessionMarks[s.sessionId]?.reviewNote,
       }))
     
-    let resumedSessions: { sessionId: string; model: string; cwd: string; name?: string; editedFiles?: string[]; alwaysAllowed?: string[] }[] = []
+    let resumedSessions: { sessionId: string; model: string; cwd: string; name?: string; editedFiles?: string[]; alwaysAllowed?: string[]; untrackedFiles?: string[] }[] = []
     
     // Load MCP servers config once for resumption
     const mcpConfig = await readMcpConfig()
@@ -1349,7 +1351,9 @@ async function initCopilot(): Promise<void> {
           cwd: sessionCwd,
           name: storedSession?.name || meta?.summary || undefined,
           editedFiles: storedSession?.editedFiles || [],
-          alwaysAllowed: storedAlwaysAllowed
+          alwaysAllowed: storedAlwaysAllowed,
+          untrackedFiles: storedSession?.untrackedFiles || [],
+          fileViewMode: storedSession?.fileViewMode || 'flat'
         }
         resumedSessions.push(resumed)
         console.log(`Resumed session ${resumed.sessionId} with model ${resumed.model} in ${resumed.cwd}${meta?.summary ? ` (${meta.summary})` : ''}`)
@@ -1386,7 +1390,9 @@ async function initCopilot(): Promise<void> {
         cwd: sessionCwd,
         name: storedSession?.name || meta?.summary || undefined,
         editedFiles: storedSession?.editedFiles || [],
-        alwaysAllowed: storedSession?.alwaysAllowed || []
+        alwaysAllowed: storedSession?.alwaysAllowed || [],
+        untrackedFiles: storedSession?.untrackedFiles || [],
+        fileViewMode: storedSession?.fileViewMode || 'flat'
       }
     })
 
@@ -2349,7 +2355,15 @@ ipcMain.handle('git:commitAndPush', async (_event, data: { cwd: string; files: s
     const { stdout: branchOutput } = await execAsync('git branch --show-current', { cwd: data.cwd })
     const currentBranch = branchOutput.trim()
     
-    // Stage the files
+    // First, unstage everything to ensure clean slate
+    // This prevents accidentally committing previously staged files
+    try {
+      await execAsync('git reset HEAD', { cwd: data.cwd })
+    } catch {
+      // Ignore reset errors (might fail if nothing is staged or no HEAD yet)
+    }
+    
+    // Stage only the specific files we want to commit
     for (const file of data.files) {
       await execAsync(`git add "${file}"`, { cwd: data.cwd })
     }
@@ -2641,7 +2655,7 @@ ipcMain.handle('git:checkoutBranch', async (_event, data: { cwd: string; branchN
 })
 
 // Git operations - merge worktree branch to main/master
-ipcMain.handle('git:mergeToMain', async (_event, data: { cwd: string; deleteBranch?: boolean; targetBranch: string }) => {
+ipcMain.handle('git:mergeToMain', async (_event, data: { cwd: string; deleteBranch?: boolean; targetBranch: string; untrackedFiles?: string[] }) => {
   try {
     // Get current branch name
     const { stdout: branchOutput } = await execAsync('git branch --show-current', { cwd: data.cwd })
@@ -2676,10 +2690,55 @@ ipcMain.handle('git:mergeToMain', async (_event, data: { cwd: string; deleteBran
       mainRepoPath = dirname(commonDirPath)
     }
     
-    // Check for uncommitted changes
+    // Check for uncommitted changes (excluding untracked/excluded files)
     const { stdout: statusOutput } = await execAsync('git status --porcelain', { cwd: data.cwd })
+    let didGitStash = false
     if (statusOutput.trim()) {
-      return { success: false, error: 'Uncommitted changes exist. Please commit or stash them first.' }
+      // Parse uncommitted files from git status
+      // Format is like: " M file.txt" or "?? newfile.txt" or "A  staged.txt"
+      const uncommittedFiles = statusOutput.trim().split('\n')
+        .map(line => line.substring(3).trim()) // Remove status prefix (e.g., " M ", "?? ")
+        .filter(f => f)
+      
+      const untrackedFiles = data.untrackedFiles || []
+      
+      // Check if each uncommitted file is in our untracked list
+      // Use flexible matching: check if paths end with the same filename or match exactly
+      const isFileUntracked = (gitPath: string) => {
+        return untrackedFiles.some(untracked => {
+          // Exact match
+          if (gitPath === untracked) return true
+          // Git path ends with untracked path
+          if (gitPath.endsWith('/' + untracked) || gitPath.endsWith('\\' + untracked)) return true
+          // Untracked path ends with git path
+          if (untracked.endsWith('/' + gitPath) || untracked.endsWith('\\' + gitPath)) return true
+          // Both are just filenames and match
+          const gitName = gitPath.split(/[/\\]/).pop()
+          const untrackedName = untracked.split(/[/\\]/).pop()
+          if (gitName === untrackedName && gitName === gitPath && untrackedName === untracked) return true
+          return false
+        })
+      }
+      
+      const nonUntrackedUncommitted = uncommittedFiles.filter(f => !isFileUntracked(f))
+      
+      if (nonUntrackedUncommitted.length > 0) {
+        console.log('Uncommitted files not in untracked list:', nonUntrackedUncommitted)
+        console.log('Untracked files list:', untrackedFiles)
+        console.log('All uncommitted files:', uncommittedFiles)
+        return { success: false, error: 'Uncommitted changes exist. Please commit or stash them first.' }
+      }
+      // All uncommitted files are untracked (excluded from commit), so git stash them temporarily
+      if (uncommittedFiles.length > 0) {
+        try {
+          // Use -u to include untracked files, -k to keep index
+          await execAsync('git stash push -u -m "copilot-ui-temp-stash"', { cwd: data.cwd })
+          didGitStash = true
+        } catch (stashError) {
+          console.error('Git stash failed:', stashError)
+          return { success: false, error: `Failed to temporarily stash untracked files: ${String(stashError)}` }
+        }
+      }
     }
     
     // Push current branch first
@@ -2842,15 +2901,32 @@ ipcMain.handle('git:mergeToMain', async (_event, data: { cwd: string; deleteBran
       }
     }
     
+    // Restore stashed files if we stashed them and didn't delete the branch
+    if (didGitStash && !data.deleteBranch) {
+      try {
+        await execAsync('git stash pop', { cwd: data.cwd })
+      } catch {
+        // Ignore stash pop errors - the stash might have been consumed
+      }
+    }
+    
     return { success: true, mergedBranch: currentBranch, targetBranch }
   } catch (error) {
     console.error('Git merge to main failed:', error)
+    // Try to restore stash on error if we stashed
+    if (didGitStash) {
+      try {
+        await execAsync('git stash pop', { cwd: data.cwd })
+      } catch {
+        // Ignore
+      }
+    }
     return { success: false, error: String(error) }
   }
 })
 
 // Git operations - create pull request via gh CLI
-ipcMain.handle('git:createPullRequest', async (_event, data: { cwd: string; title?: string; draft?: boolean; targetBranch: string }) => {
+ipcMain.handle('git:createPullRequest', async (_event, data: { cwd: string; title?: string; draft?: boolean; targetBranch: string; untrackedFiles?: string[] }) => {
   try {
     // Check if gh CLI is available (use augmented PATH for packaged apps)
     try {
@@ -2878,10 +2954,35 @@ ipcMain.handle('git:createPullRequest', async (_event, data: { cwd: string; titl
       return { success: false, error: `Cannot create PR from ${targetBranch} to itself` }
     }
     
-    // Check for uncommitted changes
+    // Check for uncommitted changes (excluding untracked/excluded files)
     const { stdout: statusOutput } = await execGitWithEnv('git status --porcelain', { cwd: data.cwd })
     if (statusOutput.trim()) {
-      return { success: false, error: 'Uncommitted changes exist. Please commit them first.' }
+      // Parse uncommitted files from git status
+      const uncommittedFiles = statusOutput.trim().split('\n')
+        .map(line => line.substring(3).trim())
+        .filter(f => f)
+      
+      const untrackedFiles = data.untrackedFiles || []
+      
+      // Check if each uncommitted file is in our untracked list (flexible matching)
+      const isFileUntracked = (gitPath: string) => {
+        return untrackedFiles.some(untracked => {
+          if (gitPath === untracked) return true
+          if (gitPath.endsWith('/' + untracked) || gitPath.endsWith('\\' + untracked)) return true
+          if (untracked.endsWith('/' + gitPath) || untracked.endsWith('\\' + gitPath)) return true
+          const gitName = gitPath.split(/[/\\]/).pop()
+          const untrackedName = untracked.split(/[/\\]/).pop()
+          if (gitName === untrackedName && gitName === gitPath && untrackedName === untracked) return true
+          return false
+        })
+      }
+      
+      const nonUntrackedUncommitted = uncommittedFiles.filter(f => !isFileUntracked(f))
+      
+      if (nonUntrackedUncommitted.length > 0) {
+        return { success: false, error: 'Uncommitted changes exist. Please commit them first.' }
+      }
+      // All uncommitted files are untracked, this is fine for PR - they won't be in the PR
     }
     
     // Push current branch

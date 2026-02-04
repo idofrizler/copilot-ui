@@ -22,6 +22,7 @@ import {
   UploadIcon,
   ClockIcon,
   FolderIcon,
+  FolderOpenIcon,
   CommitIcon,
   FileIcon,
   EditIcon,
@@ -51,6 +52,8 @@ import {
   CodeBlockWithCopy,
   RepeatIcon,
   WarningIcon,
+  ArchiveIcon,
+  UnarchiveIcon,
 } from "./components";
 import {
   Status,
@@ -749,6 +752,8 @@ const App: React.FC = () => {
                 needsTitle: false,
                 alwaysAllowed: [],
                 editedFiles: [],
+                untrackedFiles: [],
+                fileViewMode: 'flat',
                 currentIntent: null,
                 currentIntentTimestamp: null,
                 gitBranchRefresh: 0,
@@ -918,6 +923,8 @@ const App: React.FC = () => {
         alwaysAllowed: t.alwaysAllowed,
         markedForReview: t.markedForReview,
         reviewNote: t.reviewNote,
+        untrackedFiles: t.untrackedFiles,
+        fileViewMode: t.fileViewMode,
       }));
       window.electronAPI.copilot.saveOpenSessions(openSessions);
     }
@@ -1131,6 +1138,8 @@ const App: React.FC = () => {
               needsTitle: true,
               alwaysAllowed: [],
               editedFiles: [],
+              untrackedFiles: [],
+              fileViewMode: 'flat',
               currentIntent: null,
               currentIntentTimestamp: null,
               gitBranchRefresh: 0,
@@ -1163,6 +1172,8 @@ const App: React.FC = () => {
             needsTitle: !s.name, // Only need title if no name provided
             alwaysAllowed: s.alwaysAllowed || [],
             editedFiles: s.editedFiles || [],
+            untrackedFiles: s.untrackedFiles || [],
+            fileViewMode: s.fileViewMode || 'flat',
             currentIntent: null,
             currentIntentTimestamp: null,
             gitBranchRefresh: 0,
@@ -1244,6 +1255,8 @@ const App: React.FC = () => {
               needsTitle: !s.name,
               alwaysAllowed: s.alwaysAllowed || [],
               editedFiles: s.editedFiles || [],
+              untrackedFiles: s.untrackedFiles || [],
+              fileViewMode: s.fileViewMode || 'flat',
               currentIntent: null,
               currentIntentTimestamp: null,
               gitBranchRefresh: 0,
@@ -3313,7 +3326,11 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
   const handleCommitAndPush = async () => {
     if (!activeTab) return;
 
-    const hasFilesToCommit = activeTab.editedFiles.length > 0;
+    // Filter out untracked files from the commit
+    const filesToCommit = activeTab.editedFiles.filter(
+      f => !(activeTab.untrackedFiles || []).includes(f)
+    );
+    const hasFilesToCommit = filesToCommit.length > 0;
     const effectiveTargetBranch = targetBranch || 'main';
     
     // Require commit message only if there are files to commit
@@ -3330,7 +3347,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       if (hasFilesToCommit) {
         const result = await window.electronAPI.git.commitAndPush(
           activeTab.cwd,
-          activeTab.editedFiles,
+          filesToCommit, // Use filtered list without stashed files
           commitMessage.trim(),
           commitAction === 'merge',
         );
@@ -3347,9 +3364,10 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
             incomingFiles: result.incomingFiles || [], 
             targetBranch: effectiveTargetBranch 
           });
-          // Clear the edited files list and refresh git branch widget (commit was successful)
+          // Clear only the committed files, keep untracked files in editedFiles
+          const remainingEditedFiles = activeTab.untrackedFiles || [];
           updateTab(activeTab.id, { 
-            editedFiles: [],
+            editedFiles: remainingEditedFiles,
             gitBranchRefresh: (activeTab.gitBranchRefresh || 0) + 1
           });
           setShowCommitModal(false);
@@ -3365,7 +3383,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           activeTab.cwd, 
           commitMessage.split('\n')[0] || undefined,
           undefined, // draft
-          effectiveTargetBranch
+          effectiveTargetBranch,
+          activeTab.untrackedFiles || []
         );
         if (prResult.success && prResult.prUrl) {
           window.open(prResult.prUrl, '_blank');
@@ -3382,7 +3401,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         const mergeResult = await window.electronAPI.git.mergeToMain(
           activeTab.cwd, 
           false,
-          effectiveTargetBranch
+          effectiveTargetBranch,
+          activeTab.untrackedFiles || []
         );
         if (!mergeResult.success) {
           setCommitError(mergeResult.error || 'Merge failed');
@@ -3407,9 +3427,10 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         }
       }
       
-      // Clear the edited files list and refresh git branch widget
+      // Clear only the committed files, keep untracked files in editedFiles
+      const remainingEditedFiles = activeTab.untrackedFiles || [];
       updateTab(activeTab.id, { 
-        editedFiles: [],
+        editedFiles: remainingEditedFiles,
         gitBranchRefresh: (activeTab.gitBranchRefresh || 0) + 1
       })
       setShowCommitModal(false)
@@ -3457,6 +3478,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         needsTitle: true,
         alwaysAllowed: [],
         editedFiles: [],
+        untrackedFiles: [],
+        fileViewMode: 'flat',
         currentIntent: null,
         currentIntentTimestamp: null,
         gitBranchRefresh: 0,
@@ -3529,6 +3552,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         needsTitle: false, // Already has a good name
         alwaysAllowed: preApprovedCommands,
         editedFiles: [],
+        untrackedFiles: [],
+        fileViewMode: 'flat',
         currentIntent: null,
         currentIntentTimestamp: null,
         gitBranchRefresh: 0,
@@ -3769,6 +3794,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           needsTitle: true,
           alwaysAllowed: [],
           editedFiles: [],
+          untrackedFiles: [],
+          fileViewMode: 'flat',
           currentIntent: null,
           currentIntentTimestamp: null,
           gitBranchRefresh: 0,
@@ -3896,6 +3923,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         needsTitle: !prevSession.name,
         alwaysAllowed: result.alwaysAllowed || [],
         editedFiles: result.editedFiles || [],
+        untrackedFiles: result.untrackedFiles || [],
+        fileViewMode: result.fileViewMode || 'flat',
         currentIntent: null,
         currentIntentTimestamp: null,
         gitBranchRefresh: 0,
@@ -4002,6 +4031,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           needsTitle: true,
           alwaysAllowed: [],
           editedFiles: [],
+          untrackedFiles: [],
+          fileViewMode: 'flat',
           currentIntent: null,
           currentIntentTimestamp: null,
           gitBranchRefresh: 0,
@@ -4036,6 +4067,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
             needsTitle: true,
             alwaysAllowed: [],
             editedFiles: [],
+            untrackedFiles: [],
+            fileViewMode: 'flat',
             currentIntent: null,
             currentIntentTimestamp: null,
             gitBranchRefresh: 0,
@@ -5768,7 +5801,12 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     <span>Edited Files</span>
                     {cleanedEditedFiles.length > 0 && (
                       <span className="text-copilot-accent">
-                        ({cleanedEditedFiles.length})
+                        ({cleanedEditedFiles.length - (activeTab?.untrackedFiles?.length || 0)})
+                      </span>
+                    )}
+                    {(activeTab?.untrackedFiles?.length || 0) > 0 && (
+                      <span className="text-copilot-text-muted" title="Untracked files (excluded from commit)">
+                        +{activeTab?.untrackedFiles?.length} untracked
                       </span>
                     )}
                     {showEditedFiles && !isGitRepo && (
@@ -5792,29 +5830,44 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   )}
                 </div>
                 {showEditedFiles && activeTab && (
-                  <div className="max-h-32 overflow-y-auto" data-clarity-mask="true">
+                  <div className="max-h-48 overflow-y-auto" data-clarity-mask="true">
                     {activeTab.editedFiles.length === 0 ? (
                       <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
                         No files edited
                       </div>
                     ) : (
+                      // Simple flat list - clicking opens the full overlay
                       cleanedEditedFiles.map((filePath) => {
                         const isConflicted = isGitRepo && conflictedFiles.some(cf => filePath.endsWith(cf) || cf.endsWith(filePath.split(/[/\\]/).pop() || ''));
+                        const isUntracked = (activeTab.untrackedFiles || []).includes(filePath);
                         return (
                           <button
                             key={filePath}
                             onClick={() => setFilePreviewPath(filePath)}
-                            className={`w-full flex items-center gap-2 px-3 py-1 text-[10px] hover:bg-copilot-surface cursor-pointer text-left ${isConflicted ? 'text-copilot-error' : 'text-copilot-text-muted'}`}
-                            title={isConflicted ? `${filePath} (conflict) - Click to preview` : `${filePath} - Click to preview`}
+                            className={`w-full flex items-center gap-2 px-3 py-1 text-[10px] hover:bg-copilot-surface text-left ${
+                              isUntracked 
+                                ? 'text-copilot-text-muted/50' 
+                                : isConflicted 
+                                  ? 'text-copilot-error' 
+                                  : 'text-copilot-text-muted'
+                            }`}
+                            title={isUntracked ? `${filePath} (untracked) - Click to preview` : isConflicted ? `${filePath} (conflict) - Click to preview` : `${filePath} - Click to preview`}
                           >
                             <FileIcon
                               size={8}
-                              className={`shrink-0 ${isConflicted ? 'text-copilot-error' : 'text-copilot-success'}`}
+                              className={`shrink-0 ${
+                                isUntracked 
+                                  ? 'text-copilot-text-muted/50' 
+                                  : isConflicted 
+                                    ? 'text-copilot-error' 
+                                    : 'text-copilot-success'
+                              }`}
                             />
-                            <span className="truncate font-mono">
+                            <span className={`truncate font-mono ${isUntracked ? 'line-through' : ''}`}>
                               {filePath}
                             </span>
                             {isConflicted && <span className="text-[8px] text-copilot-error">!</span>}
+                            {isUntracked && <span className="text-[8px] text-copilot-text-muted">(untracked)</span>}
                           </button>
                         );
                       })
@@ -6190,33 +6243,57 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         title="Commit & Push Changes"
       >
         <Modal.Body data-clarity-mask="true">
-          {activeTab && (
+          {activeTab && (() => {
+            // Compute files to commit (excluding untracked files)
+            const filesToCommit = activeTab.editedFiles.filter(
+              f => !(activeTab.untrackedFiles || []).includes(f)
+            );
+            const untrackedFilesList = (activeTab.untrackedFiles || []).filter(
+              f => activeTab.editedFiles.includes(f)
+            );
+            const hasFilesToCommit = filesToCommit.length > 0;
+            
+            return (
             <>
               {/* Files to commit */}
               <div className="mb-3">
-                {activeTab.editedFiles.length > 0 ? (
+                {hasFilesToCommit ? (
                   <>
                     <div className="text-xs text-copilot-text-muted mb-2">
-                      Files to commit ({activeTab.editedFiles.length}):
+                      Files to commit ({filesToCommit.length}):
                     </div>
                     <div className="bg-copilot-bg rounded border border-copilot-surface max-h-32 overflow-y-auto">
-                      {activeTab.editedFiles.map((filePath) => {
+                      {filesToCommit.map((filePath) => {
                         const fileName = filePath.split(/[/\\]/).pop() || '';
                         const isConflicted = conflictedFiles.some(cf => filePath.endsWith(cf) || cf.endsWith(fileName));
                         return (
-                          <button
+                          <div
                             key={filePath}
-                            onClick={() => setFilePreviewPath(filePath)}
-                            className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs font-mono truncate text-left hover:bg-copilot-surface transition-colors ${isConflicted ? 'text-copilot-error' : 'text-copilot-success'}`}
-                            title={isConflicted ? `${filePath} (conflict) - Click to preview diff` : `${filePath} - Click to preview diff`}
+                            className={`group flex items-center gap-2 px-3 py-1.5 text-xs font-mono hover:bg-copilot-surface transition-colors ${isConflicted ? 'text-copilot-error' : 'text-copilot-success'}`}
                           >
-                            <FileIcon
-                              size={10}
-                              className={`shrink-0 ${isConflicted ? 'text-copilot-error' : 'text-copilot-success'}`}
-                            />
-                            <span className="truncate">{filePath}</span>
-                            {isConflicted && <span className="text-[10px] text-copilot-error ml-auto">!</span>}
-                          </button>
+                            <button
+                              onClick={() => setFilePreviewPath(filePath)}
+                              className="flex items-center gap-2 flex-1 min-w-0 text-left"
+                              title={isConflicted ? `${filePath} (conflict) - Click to preview diff` : `${filePath} - Click to preview diff`}
+                            >
+                              <FileIcon
+                                size={10}
+                                className={`shrink-0 ${isConflicted ? 'text-copilot-error' : 'text-copilot-success'}`}
+                              />
+                              <span className="truncate">{filePath}</span>
+                              {isConflicted && <span className="text-[10px] text-copilot-error">!</span>}
+                            </button>
+                            <button
+                              onClick={() => {
+                                const newUntracked = [...(activeTab.untrackedFiles || []), filePath];
+                                updateTab(activeTab.id, { untrackedFiles: newUntracked });
+                              }}
+                              className="shrink-0 p-0.5 opacity-0 group-hover:opacity-100 text-copilot-text-muted hover:text-copilot-text transition-all"
+                              title="Untrack file (exclude from commit)"
+                            >
+                              <ArchiveIcon size={10} />
+                            </button>
+                          </div>
                         );
                       })}
                     </div>
@@ -6224,6 +6301,37 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 ) : (
                   <div className="text-xs text-copilot-text-muted italic">
                     No files to commit. You can still merge or create a PR for already committed changes.
+                  </div>
+                )}
+                
+                {/* Untracked files section */}
+                {untrackedFilesList.length > 0 && (
+                  <div className="mt-3">
+                    <div className="text-xs text-copilot-text-muted mb-2 flex items-center gap-1">
+                      <ArchiveIcon size={10} />
+                      Untracked files ({untrackedFilesList.length}) - not included in commit:
+                    </div>
+                    <div className="bg-copilot-bg/50 rounded border border-copilot-surface/50 max-h-24 overflow-y-auto">
+                      {untrackedFilesList.map((filePath) => (
+                        <div
+                          key={filePath}
+                          className="group flex items-center gap-2 px-3 py-1.5 text-xs font-mono text-copilot-text-muted/50"
+                        >
+                          <FileIcon size={10} className="shrink-0" />
+                          <span className="truncate line-through">{filePath}</span>
+                          <button
+                            onClick={() => {
+                              const newUntracked = (activeTab.untrackedFiles || []).filter(f => f !== filePath);
+                              updateTab(activeTab.id, { untrackedFiles: newUntracked });
+                            }}
+                            className="ml-auto shrink-0 p-0.5 opacity-0 group-hover:opacity-100 text-copilot-text-muted hover:text-copilot-text transition-all"
+                            title="Restore file (include in commit)"
+                          >
+                            <UnarchiveIcon size={10} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -6305,7 +6413,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               )}
 
               {/* Commit message - only show if there are files to commit */}
-              {activeTab.editedFiles.length > 0 && (
+              {hasFilesToCommit && (
                 <div className="mb-3 relative">
                   <label className="text-xs text-copilot-text-muted mb-2 block">
                     Commit message:
@@ -6367,11 +6475,11 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               {/* Options */}
               <div className="mb-4 flex items-center gap-2">
                 <span className="text-xs text-copilot-text-muted">
-                  {activeTab.editedFiles.length > 0 ? 'After push:' : 'Action:'}
+                  {hasFilesToCommit ? 'After push:' : 'Action:'}
                 </span>
                 <Dropdown
                   value={commitAction}
-                  options={activeTab.editedFiles.length > 0 
+                  options={hasFilesToCommit 
                     ? [
                         { id: 'push' as const, label: 'Nothing' },
                         { id: 'merge' as const, label: 'Merge to target branch' },
@@ -6428,10 +6536,10 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   variant="primary"
                   onClick={handleCommitAndPush}
                   disabled={
-                    (activeTab.editedFiles.length > 0 && !commitMessage.trim()) || 
+                    (hasFilesToCommit && !commitMessage.trim()) || 
                     isCommitting || 
                     isGeneratingMessage ||
-                    (activeTab.editedFiles.length === 0 && commitAction === 'push')
+                    (!hasFilesToCommit && commitAction === 'push')
                   }
                   isLoading={isCommitting}
                   leftIcon={
@@ -6440,7 +6548,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 >
                   {isCommitting 
                     ? "Processing..." 
-                    : activeTab.editedFiles.length === 0
+                    : !hasFilesToCommit
                       ? (commitAction === 'pr' ? "Create PR" : "Merge")
                       : commitAction === 'pr' 
                         ? "Commit & Create PR" 
@@ -6450,7 +6558,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 </Button>
               </Modal.Footer>
             </>
-          )}
+            );
+          })()}
         </Modal.Body>
       </Modal>
 
@@ -6501,7 +6610,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 setIsCommitting(true);
                 try {
                   const mergeTarget = pendingMergeInfo?.targetBranch || targetBranch || 'main';
-                  const result = await window.electronAPI.git.mergeToMain(activeTab.cwd, removeWorktreeAfterMerge, mergeTarget);
+                  const result = await window.electronAPI.git.mergeToMain(activeTab.cwd, removeWorktreeAfterMerge, mergeTarget, activeTab.untrackedFiles || []);
                   if (result.success) {
                     if (removeWorktreeAfterMerge && activeTab.cwd.includes('.copilot-sessions')) {
                       const sessionId = activeTab.cwd.split(/[/\\]/).pop() || '';
@@ -6763,6 +6872,27 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         filePath={filePreviewPath || ''}
         cwd={activeTab?.cwd}
         isGitRepo={isGitRepo}
+        editedFiles={activeTab ? getCleanEditedFiles(activeTab.editedFiles) : []}
+        untrackedFiles={activeTab?.untrackedFiles || []}
+        conflictedFiles={conflictedFiles}
+        fileViewMode={activeTab?.fileViewMode || 'flat'}
+        onUntrackFile={(filePath) => {
+          if (activeTab) {
+            const newUntracked = [...(activeTab.untrackedFiles || []), filePath];
+            updateTab(activeTab.id, { untrackedFiles: newUntracked });
+          }
+        }}
+        onRetrackFile={(filePath) => {
+          if (activeTab) {
+            const newUntracked = (activeTab.untrackedFiles || []).filter(f => f !== filePath);
+            updateTab(activeTab.id, { untrackedFiles: newUntracked });
+          }
+        }}
+        onViewModeChange={(mode) => {
+          if (activeTab) {
+            updateTab(activeTab.id, { fileViewMode: mode });
+          }
+        }}
       />
 
       {/* Update Available Modal */}

@@ -271,6 +271,54 @@ export const PlayIcon: React.FC<IconProps> = ({ size = 24, className }) => (
   </svg>
 )
 
+// Archive/Untrack icon - for excluding files from commit
+export const ArchiveIcon: React.FC<IconProps> = ({ size = 24, className, strokeWidth = 2 }) => (
+  <svg width={size} height={size} className={className} {...defaultProps} strokeWidth={strokeWidth}>
+    <polyline points="21 8 21 21 3 21 3 8" />
+    <rect x="1" y="3" width="22" height="5" />
+    <line x1="10" y1="12" x2="14" y2="12" />
+  </svg>
+)
+
+// Unarchive/Retrack icon - for including files back in commit
+export const UnarchiveIcon: React.FC<IconProps> = ({ size = 24, className, strokeWidth = 2 }) => (
+  <svg width={size} height={size} className={className} {...defaultProps} strokeWidth={strokeWidth}>
+    <polyline points="21 8 21 21 3 21 3 8" />
+    <rect x="1" y="3" width="22" height="5" />
+    <path d="M12 12v6M9 15l3-3 3 3" />
+  </svg>
+)
+
+// List icon - for flat view mode
+export const ListIcon: React.FC<IconProps> = ({ size = 24, className, strokeWidth = 2 }) => (
+  <svg width={size} height={size} className={className} {...defaultProps} strokeWidth={strokeWidth}>
+    <line x1="8" y1="6" x2="21" y2="6" />
+    <line x1="8" y1="12" x2="21" y2="12" />
+    <line x1="8" y1="18" x2="21" y2="18" />
+    <line x1="3" y1="6" x2="3.01" y2="6" />
+    <line x1="3" y1="12" x2="3.01" y2="12" />
+    <line x1="3" y1="18" x2="3.01" y2="18" />
+  </svg>
+)
+
+// Tree/hierarchy icon - for tree view mode  
+export const TreeIcon: React.FC<IconProps> = ({ size = 24, className, strokeWidth = 2 }) => (
+  <svg width={size} height={size} className={className} {...defaultProps} strokeWidth={strokeWidth}>
+    <path d="M3 3v18h18" />
+    <path d="M7 14h4" />
+    <path d="M7 10h8" />
+    <path d="M7 6h12" />
+  </svg>
+)
+
+// Folder open icon - for expanded folders in tree view
+export const FolderOpenIcon: React.FC<IconProps> = ({ size = 24, className, strokeWidth = 2 }) => (
+  <svg width={size} height={size} className={className} {...defaultProps} strokeWidth={strokeWidth}>
+    <path d="M5 19a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4l2 2h9a2 2 0 0 1 2 2v1" />
+    <path d="M5 19l2.9-8.4c.24-.7.9-1.1 1.6-1.1H22l-3.5 9.5a2 2 0 0 1-1.9 1.5H5a2 2 0 0 1-2-2v-1" />
+  </svg>
+)
+
 // Icons object for convenient access
 export const Icons = {
   ChevronDown: ChevronDownIcon,
@@ -283,6 +331,7 @@ export const Icons = {
   Upload: UploadIcon,
   Clock: ClockIcon,
   Folder: FolderIcon,
+  FolderOpen: FolderOpenIcon,
   GitBranch: GitBranchIcon,
   Commit: CommitIcon,
   File: FileIcon,
@@ -306,6 +355,10 @@ export const Icons = {
   Lisa: LisaIcon,
   Warning: WarningIcon,
   Play: PlayIcon,
+  Archive: ArchiveIcon,
+  Unarchive: UnarchiveIcon,
+  List: ListIcon,
+  Tree: TreeIcon,
 }
 
 export default Icons

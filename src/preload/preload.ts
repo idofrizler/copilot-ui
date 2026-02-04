@@ -238,11 +238,11 @@ const electronAPI = {
     checkoutBranch: (cwd: string, branchName: string): Promise<{ success: boolean; error?: string }> => {
       return ipcRenderer.invoke('git:checkoutBranch', { cwd, branchName })
     },
-    mergeToMain: (cwd: string, deleteBranch: boolean, targetBranch: string): Promise<{ success: boolean; error?: string; mergedBranch?: string; targetBranch?: string }> => {
-      return ipcRenderer.invoke('git:mergeToMain', { cwd, deleteBranch, targetBranch })
+    mergeToMain: (cwd: string, deleteBranch: boolean, targetBranch: string, untrackedFiles?: string[]): Promise<{ success: boolean; error?: string; mergedBranch?: string; targetBranch?: string }> => {
+      return ipcRenderer.invoke('git:mergeToMain', { cwd, deleteBranch, targetBranch, untrackedFiles })
     },
-    createPullRequest: (cwd: string, title: string | undefined, draft: boolean | undefined, targetBranch: string): Promise<{ success: boolean; error?: string; prUrl?: string; branch?: string; targetBranch?: string }> => {
-      return ipcRenderer.invoke('git:createPullRequest', { cwd, title, draft, targetBranch })
+    createPullRequest: (cwd: string, title: string | undefined, draft: boolean | undefined, targetBranch: string, untrackedFiles?: string[]): Promise<{ success: boolean; error?: string; prUrl?: string; branch?: string; targetBranch?: string }> => {
+      return ipcRenderer.invoke('git:createPullRequest', { cwd, title, draft, targetBranch, untrackedFiles })
     },
     getWorkingStatus: (cwd: string): Promise<{ success: boolean; hasUncommittedChanges: boolean; hasUnpushedCommits: boolean; error?: string }> => {
       return ipcRenderer.invoke('git:getWorkingStatus', cwd)
