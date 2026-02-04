@@ -3,6 +3,40 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import React from 'react'
 import { CodeBlockWithCopy } from '../../src/renderer/components/CodeBlock/CodeBlock'
+import { TerminalProvider } from '../../src/renderer/context/TerminalContext'
+
+// Helper to wrap components with TerminalProvider
+const renderWithTerminal = (
+  ui: React.ReactElement,
+  { isTerminalOpen = false, mockRunCommand = vi.fn() } = {}
+) => {
+  const mockOpenTerminal = vi.fn()
+  const mockInitializeTerminal = vi.fn()
+  
+  // Mock the electronAPI.pty.write
+  const mockPtyWrite = vi.fn().mockResolvedValue({ success: true })
+  ;(window as { electronAPI?: { pty?: { write?: typeof mockPtyWrite } } }).electronAPI = {
+    pty: {
+      write: mockPtyWrite,
+    },
+  }
+  
+  return {
+    ...render(
+      <TerminalProvider
+        sessionId="test-session"
+        isTerminalOpen={isTerminalOpen}
+        onOpenTerminal={mockOpenTerminal}
+        onInitializeTerminal={mockInitializeTerminal}
+      >
+        {ui}
+      </TerminalProvider>
+    ),
+    mockOpenTerminal,
+    mockInitializeTerminal,
+    mockPtyWrite,
+  }
+}
 
 describe('CodeBlockWithCopy Component', () => {
   beforeEach(() => {
@@ -134,5 +168,108 @@ describe('CodeBlockWithCopy Component', () => {
     await expect(user.click(copyButton)).resolves.not.toThrow()
     
     consoleError.mockRestore()
+  })
+
+  describe('Run in Terminal button', () => {
+    it('does not show run button when isCliCommand is false', () => {
+      renderWithTerminal(
+        <CodeBlockWithCopy textContent="const x = 1" isCliCommand={false}>
+          const x = 1
+        </CodeBlockWithCopy>
+      )
+      expect(screen.queryByRole('button', { name: /run in terminal/i })).not.toBeInTheDocument()
+    })
+
+    it('does not show run button when isCliCommand is not provided', () => {
+      renderWithTerminal(
+        <CodeBlockWithCopy textContent="const x = 1">
+          const x = 1
+        </CodeBlockWithCopy>
+      )
+      expect(screen.queryByRole('button', { name: /run in terminal/i })).not.toBeInTheDocument()
+    })
+
+    it('shows run button when isCliCommand is true and terminal context is available', () => {
+      renderWithTerminal(
+        <CodeBlockWithCopy textContent="npm install" isCliCommand={true}>
+          npm install
+        </CodeBlockWithCopy>
+      )
+      expect(screen.getByRole('button', { name: /run in terminal/i })).toBeInTheDocument()
+    })
+
+    it('does not show run button without terminal context even when isCliCommand is true', () => {
+      // Render without TerminalProvider
+      render(
+        <CodeBlockWithCopy textContent="npm install" isCliCommand={true}>
+          npm install
+        </CodeBlockWithCopy>
+      )
+      expect(screen.queryByRole('button', { name: /run in terminal/i })).not.toBeInTheDocument()
+    })
+
+    it('calls terminal runCommand when run button is clicked', async () => {
+      const user = userEvent.setup()
+      const { mockPtyWrite, mockOpenTerminal, mockInitializeTerminal } = renderWithTerminal(
+        <CodeBlockWithCopy textContent="npm install" isCliCommand={true}>
+          npm install
+        </CodeBlockWithCopy>,
+        { isTerminalOpen: true }
+      )
+      
+      const runButton = screen.getByRole('button', { name: /run in terminal/i })
+      await user.click(runButton)
+      
+      // Should initialize terminal
+      expect(mockInitializeTerminal).toHaveBeenCalled()
+      
+      // Should write command with newline
+      await waitFor(() => {
+        expect(mockPtyWrite).toHaveBeenCalledWith('test-session', 'npm install\n')
+      })
+    })
+
+    it('opens terminal when running command if terminal is closed', async () => {
+      const user = userEvent.setup()
+      const { mockOpenTerminal, mockInitializeTerminal } = renderWithTerminal(
+        <CodeBlockWithCopy textContent="npm install" isCliCommand={true}>
+          npm install
+        </CodeBlockWithCopy>,
+        { isTerminalOpen: false }
+      )
+      
+      const runButton = screen.getByRole('button', { name: /run in terminal/i })
+      await user.click(runButton)
+      
+      expect(mockInitializeTerminal).toHaveBeenCalled()
+      expect(mockOpenTerminal).toHaveBeenCalled()
+    })
+
+    it('shows "Running!" feedback after clicking run button', async () => {
+      const user = userEvent.setup()
+      renderWithTerminal(
+        <CodeBlockWithCopy textContent="npm install" isCliCommand={true}>
+          npm install
+        </CodeBlockWithCopy>,
+        { isTerminalOpen: true }
+      )
+      
+      const runButton = screen.getByRole('button', { name: /run in terminal/i })
+      await user.click(runButton)
+      
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /running/i })).toBeInTheDocument()
+      })
+    })
+
+    it('has both copy and run buttons for CLI commands', () => {
+      renderWithTerminal(
+        <CodeBlockWithCopy textContent="npm install" isCliCommand={true}>
+          npm install
+        </CodeBlockWithCopy>
+      )
+      expect(screen.getByRole('button', { name: /copy to clipboard/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /run in terminal/i })).toBeInTheDocument()
+    })
   })
 })

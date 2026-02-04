@@ -82,6 +82,8 @@ export interface PreviousSession {
   name?: string;
   modifiedTime: string;
   cwd?: string; // Original working directory for this session
+  markedForReview?: boolean; // Whether session was marked for follow-up
+  reviewNote?: string; // Optional user note
   // Worktree-specific properties (optional, present if session is a worktree)
   worktree?: {
     id: string; // Worktree session ID (e.g., "repo--branch")
@@ -182,6 +184,8 @@ export interface TabState {
   needsTitle: boolean; // True if we should generate AI title on next idle
   alwaysAllowed: string[]; // Executables that are always allowed for this session
   editedFiles: string[]; // Files edited/created in this session
+  untrackedFiles: string[]; // Files excluded from commit (user doesn't want to commit these)
+  fileViewMode: 'flat' | 'tree'; // How to display edited files list
   currentIntent: string | null; // Current agent intent from report_intent tool
   currentIntentTimestamp: number | null; // When the current intent was set
   gitBranchRefresh: number; // Bumps to refresh GitBranchWidget
@@ -193,4 +197,6 @@ export interface TabState {
   compactionStatus?: CompactionStatus; // Status of context compaction
   detectedChoices?: DetectedChoice[]; // Choices detected in last assistant message
   draftInput?: DraftInput; // Per-session textarea draft state
+  markedForReview?: boolean; // Whether session is marked for follow-up review
+  reviewNote?: string; // Optional user note displayed at bottom of conversation
 }
