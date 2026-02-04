@@ -89,8 +89,10 @@ import {
 import { playNotificationSound } from "./utils/sound";
 import { LONG_OUTPUT_LINE_THRESHOLD } from "./utils/cliOutputCompression";
 import { isAsciiDiagram, extractTextContent } from "./utils/isAsciiDiagram";
+import { isCliCommand } from "./utils/isCliCommand";
 import { useClickOutside } from "./hooks";
 import buildInfo from "./build-info.json";
+import { TerminalProvider } from "./context/TerminalContext";
 
 // Helper function to deduplicate and filter edited files
 const getCleanEditedFiles = (files: string[]): string[] => {
@@ -3982,7 +3984,27 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     return activeTab ? getCleanEditedFiles(activeTab.editedFiles) : [];
   }, [activeTab]);
 
+  // Callbacks for TerminalProvider
+  const handleOpenTerminal = useCallback(() => {
+    if (activeTab) {
+      setTerminalOpenForSession(activeTab.id);
+      trackEvent(TelemetryEvents.FEATURE_TERMINAL_OPENED);
+    }
+  }, [activeTab]);
+
+  const handleInitializeTerminal = useCallback(() => {
+    if (activeTab) {
+      setTerminalInitializedSessions(prev => new Set(prev).add(activeTab.id));
+    }
+  }, [activeTab]);
+
   return (
+    <TerminalProvider
+      sessionId={activeTab?.id || null}
+      isTerminalOpen={terminalOpenForSession === activeTab?.id}
+      onOpenTerminal={handleOpenTerminal}
+      onInitializeTerminal={handleInitializeTerminal}
+    >
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-copilot-bg rounded-xl">
       {/* Title Bar */}
       <div className="drag-region flex items-center justify-between px-4 py-2.5 bg-copilot-surface border-b border-copilot-border shrink-0">
@@ -4479,11 +4501,15 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                               // Check if content is an ASCII diagram
                               const isDiagram = isAsciiDiagram(textContent);
                               
+                              // Check if this is a CLI command (should show run button)
+                              const isCliCmd = isCliCommand(className, textContent);
+                              
                               if (isBlock) {
                                 return (
                                   <CodeBlockWithCopy
                                     isDiagram={isDiagram}
                                     textContent={textContent}
+                                    isCliCommand={isCliCmd}
                                   >
                                     {children}
                                   </CodeBlockWithCopy>
@@ -6685,6 +6711,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         }}
       />
     </div>
+    </TerminalProvider>
   );
 };
 

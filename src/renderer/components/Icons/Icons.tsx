@@ -264,6 +264,13 @@ export const WarningIcon: React.FC<IconProps> = ({ size = 24, className, strokeW
   </svg>
 )
 
+// Play icon - for "Run in Terminal" functionality
+export const PlayIcon: React.FC<IconProps> = ({ size = 24, className }) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 24 24" fill="currentColor">
+    <polygon points="5 3 19 12 5 21 5 3" />
+  </svg>
+)
+
 // Icons object for convenient access
 export const Icons = {
   ChevronDown: ChevronDownIcon,
@@ -298,6 +305,7 @@ export const Icons = {
   Ralph: RalphIcon,
   Lisa: LisaIcon,
   Warning: WarningIcon,
+  Play: PlayIcon,
 }
 
 export default Icons
