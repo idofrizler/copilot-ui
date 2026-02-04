@@ -1413,10 +1413,13 @@ function createWindow(): void {
     height: 750,
     minWidth: 900,
     minHeight: 500,
-    frame: false,
     backgroundColor: '#0d1117',
     titleBarStyle: 'hidden',
-    trafficLightPosition: { x: -100, y: -100 },
+    titleBarOverlay: {
+      color: '#0d1117',
+      symbolColor: '#c9d1d9',
+      height: 40
+    },
     hasShadow: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),

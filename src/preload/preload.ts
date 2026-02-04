@@ -1,6 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 const electronAPI = {
+  // Platform info
+  platform: process.platform,
+
   // Copilot communication
   copilot: {
     send: (sessionId: string, prompt: string, attachments?: { type: 'file'; path: string; displayName?: string }[], mode?: 'enqueue' | 'immediate'): Promise<string> => {
