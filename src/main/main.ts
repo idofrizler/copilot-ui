@@ -2906,7 +2906,7 @@ ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string
     return { sessionId, model: sessionState.model, cwd: sessionState.cwd, alreadyOpen: true }
   }
   
-  const sessionModel = store.get('model') as string || 'gpt-5.2'
+  let sessionModel = store.get('model') as string || 'gpt-5.2'
   // Use provided cwd, or look up stored cwd, or fall back to default
   const sessionCwds = store.get('sessionCwds') as Record<string, string> || {}
   const defaultCwd = app.isPackaged ? app.getPath('home') : process.cwd()
@@ -2923,6 +2923,26 @@ ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string
     tools: createBrowserTools(sessionId),
     onPermissionRequest: (request, invocation) => handlePermissionRequest(request, invocation, sessionId)
   })
+  
+  // Extract actual model from session history (handles sessions created in copilot-cli)
+  try {
+    const events = await session.getMessages()
+    for (let i = events.length - 1; i >= 0; i--) {
+      const event = events[i] as { type: string; data?: { newModel?: string; model?: string } }
+      if (event.type === 'session.model_change' && event.data?.newModel) {
+        sessionModel = event.data.newModel
+        console.log(`[${sessionId}] Extracted model from history: ${sessionModel}`)
+        break
+      }
+      if (event.type === 'session.created' && event.data?.model) {
+        sessionModel = event.data.model
+        console.log(`[${sessionId}] Extracted model from history: ${sessionModel}`)
+        break
+      }
+    }
+  } catch (err) {
+    console.warn(`[${sessionId}] Could not extract model from history:`, err)
+  }
   
   // Set up event handler
   session.on((event) => {
