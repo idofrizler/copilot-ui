@@ -564,15 +564,8 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
                           )}
                         </span>
 
-                        {/* Right side: size + badge/time - fixed widths for alignment */}
+                        {/* Right side: badge/time - fixed widths for alignment */}
                         <div className="flex items-center shrink-0">
-                          {/* Disk usage only shown when filtered to worktrees */}
-                          {filter === 'worktree' && (
-                            <span className="text-xs text-copilot-text-muted w-20 text-right">
-                              {session.worktree?.diskUsage || ''}
-                            </span>
-                          )}
-
                           {/* Time/badge column - fixed width, flex to align right */}
                           <div className="w-20 flex justify-end items-center">
                             {session.isActive ? (

@@ -783,51 +783,6 @@ describe('SessionHistory Component', () => {
       expect(screen.getByText('feature-branch')).toBeInTheDocument();
     });
 
-    it('displays disk usage for worktree sessions when filtered to worktree', async () => {
-      const sessionsWithWorktree: PreviousSession[] = [
-        {
-          ...createMockSession(
-            'session-1',
-            'Worktree session',
-            0,
-            '/Users/dev/.copilot-sessions/repo--feature-branch'
-          ),
-          worktree: {
-            id: 'repo--feature-branch',
-            branch: 'feature-branch',
-            worktreePath: '/Users/dev/.copilot-sessions/repo--feature-branch',
-            status: 'active' as const,
-            diskUsage: '10 MB',
-          },
-        },
-      ];
-
-      render(
-        <SessionHistory
-          isOpen={true}
-          onClose={mockOnClose}
-          sessions={sessionsWithWorktree}
-          onResumeSession={mockOnResumeSession}
-          onDeleteSession={mockOnDeleteSession}
-          activeSessions={[]}
-          activeSessionId={null}
-          onSwitchToSession={mockOnSwitchToSession}
-        />
-      );
-
-      // Disk usage should NOT be visible in "All" view
-      expect(screen.queryByText('10 MB')).not.toBeInTheDocument();
-
-      // Click on "Worktree" filter button (the one in the header with badge)
-      const worktreeButtons = screen.getAllByRole('button', { name: /worktree/i });
-      const worktreeFilterButton = worktreeButtons.find((btn) => btn.textContent?.includes('1'));
-      expect(worktreeFilterButton).toBeDefined();
-      await userEvent.click(worktreeFilterButton!);
-
-      // Now disk usage should be visible
-      expect(screen.getByText('10 MB')).toBeInTheDocument();
-    });
-
     it('shows worktree count badge on filter button', () => {
       const sessionsWithWorktree: PreviousSession[] = [
         createMockSession('session-1', 'Regular session', 0, '/Users/dev/project'),
