@@ -7,15 +7,7 @@
 
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-  rmSync,
-  statSync,
-  readdirSync,
-} from 'fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'fs';
 import { join, basename } from 'path';
 import { app } from 'electron';
 import { net } from 'electron';
@@ -279,44 +271,6 @@ async function isBranchInWorktree(repoPath: string, branch: string): Promise<str
   return existing ? existing.path : null;
 }
 
-// Get disk usage for a directory
-function getDiskUsage(path: string): number {
-  if (!existsSync(path)) return 0;
-
-  let totalSize = 0;
-
-  function walkDir(dir: string): void {
-    try {
-      const entries = readdirSync(dir, { withFileTypes: true });
-      for (const entry of entries) {
-        const fullPath = join(dir, entry.name);
-        try {
-          if (entry.isDirectory()) {
-            walkDir(fullPath);
-          } else {
-            totalSize += statSync(fullPath).size;
-          }
-        } catch {
-          // Skip inaccessible files
-        }
-      }
-    } catch {
-      // Skip inaccessible directories
-    }
-  }
-
-  walkDir(path);
-  return totalSize;
-}
-
-// Format bytes to human readable
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
-
 /**
  * Create a new worktree session
  */
@@ -486,31 +440,20 @@ export async function removeWorktreeSession(
 /**
  * List all worktree sessions
  */
-export function listWorktreeSessions(options: { includeDiskUsage?: boolean } = {}): {
-  sessions: Array<WorktreeSession & { diskUsage: string }>;
-  totalDiskUsage: string;
+export function listWorktreeSessions(): {
+  sessions: WorktreeSession[];
 } {
   const registry = loadRegistry();
-  let totalBytes = 0;
 
   const sessions = registry.sessions.map((session) => {
-    // Check if worktree still exists
     const exists = existsSync(session.worktreePath);
-    // Skip disk usage calculation by default (it's slow and blocks the main thread)
-    const diskBytes = options.includeDiskUsage && exists ? getDiskUsage(session.worktreePath) : 0;
-    totalBytes += diskBytes;
-
     return {
       ...session,
       status: exists ? session.status : ('orphaned' as const),
-      diskUsage: options.includeDiskUsage ? formatBytes(diskBytes) : 'Calculating...',
     };
   });
 
-  return {
-    sessions,
-    totalDiskUsage: options.includeDiskUsage ? formatBytes(totalBytes) : 'Calculating...',
-  };
+  return { sessions };
 }
 
 /**

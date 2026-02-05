@@ -4,11 +4,59 @@ import {
   smartCompress,
   compressOutput,
   countLines,
+  extractLastRun,
+  stripAnsiCodes,
   LONG_OUTPUT_LINE_THRESHOLD,
   DEFAULT_LAST_LINES_COUNT,
 } from '../../src/renderer/utils/cliOutputCompression';
 
 describe('CLI Output Compression Utilities', () => {
+  describe('stripAnsiCodes', () => {
+    it('should strip OSC sequences (window title, etc)', () => {
+      const input = '\x1b]2;Window Title\x07Some text';
+      const result = stripAnsiCodes(input);
+      expect(result).toBe('Some text');
+    });
+
+    it('should strip CSI sequences (colors, cursor)', () => {
+      const input = '\x1b[32mGreen text\x1b[0m';
+      const result = stripAnsiCodes(input);
+      expect(result).toBe('Green text');
+    });
+
+    it('should strip DEC private mode sequences', () => {
+      const input = 'text[?2004hmore[?2004l';
+      const result = stripAnsiCodes(input);
+      expect(result).toBe('textmore');
+    });
+
+    it('should handle real terminal output with escape sequences', () => {
+      const input = `%
+]2;user@Mac:~/dir]1;~/dir]7;file://Mac/Users/user/dir\\
+ user@Mac  ~/dir  [?1h=[?2004hls -la[?1l>[?2004l
+total 8
+-rw-r--r--  1 user  staff  100 Jan  1 00:00 file.txt
+%`;
+      const result = stripAnsiCodes(input);
+      expect(result).toContain('ls -la');
+      expect(result).toContain('file.txt');
+      expect(result).not.toContain('[?2004h');
+      expect(result).not.toContain(']2;');
+    });
+
+    it('should collapse multiple empty lines', () => {
+      const input = 'line1\n\n\n\nline2';
+      const result = stripAnsiCodes(input);
+      expect(result).toBe('line1\n\nline2');
+    });
+
+    it('should preserve normal text', () => {
+      const input = 'Normal text\nWith multiple lines';
+      const result = stripAnsiCodes(input);
+      expect(result).toBe(input);
+    });
+  });
+
   describe('countLines', () => {
     it('should count lines correctly', () => {
       expect(countLines('one')).toBe(1);
@@ -164,6 +212,119 @@ describe('CLI Output Compression Utilities', () => {
 
     it('should have correct default lines count', () => {
       expect(DEFAULT_LAST_LINES_COUNT).toBe(50);
+    });
+  });
+
+  describe('extractLastRun', () => {
+    it('should extract last command with $ prompt', () => {
+      const output = [
+        'user@host:~$ ls -la',
+        'total 8',
+        'drwxr-xr-x  2 user user 4096 Jan  1 00:00 .',
+        'drwxr-xr-x 10 user user 4096 Jan  1 00:00 ..',
+        'user@host:~$ echo hello',
+        'hello',
+        'user@host:~$',
+      ].join('\n');
+
+      const result = extractLastRun(output);
+      expect(result).toContain('echo hello');
+      expect(result).toContain('hello');
+      expect(result).not.toContain('ls -la');
+      expect(result).not.toContain('total 8');
+    });
+
+    it('should extract last command with % prompt (zsh)', () => {
+      const output = ['% cd /tmp', '% npm install', 'added 50 packages', 'done', '%'].join('\n');
+
+      const result = extractLastRun(output);
+      expect(result).toContain('npm install');
+      expect(result).toContain('added 50 packages');
+      expect(result).not.toContain('cd /tmp');
+    });
+
+    it('should extract last command with # prompt (root)', () => {
+      const output = [
+        '# apt update',
+        'Hit:1 http://archive.ubuntu.com/ubuntu focal InRelease',
+        '# apt install vim',
+        'Reading package lists...',
+        '#',
+      ].join('\n');
+
+      const result = extractLastRun(output);
+      expect(result).toContain('apt install vim');
+      expect(result).toContain('Reading package lists');
+      expect(result).not.toContain('apt update');
+    });
+
+    it('should handle PowerShell prompt', () => {
+      const output = [
+        'PS C:\\Users\\dev> dir',
+        'Directory: C:\\Users\\dev',
+        'PS C:\\Users\\dev> npm test',
+        'All tests passed',
+        'PS C:\\Users\\dev>',
+      ].join('\n');
+
+      const result = extractLastRun(output);
+      expect(result).toContain('npm test');
+      expect(result).toContain('All tests passed');
+      expect(result).not.toContain('dir');
+    });
+
+    it('should return whole output if no prompt found', () => {
+      const output = 'line1\nline2\nline3';
+      const result = extractLastRun(output);
+      expect(result).toBe(output);
+    });
+
+    it('should handle output ending with empty line after prompt', () => {
+      const output = [
+        'user@host:~$ first command',
+        'output1',
+        'user@host:~$ second command',
+        'output2',
+        'user@host:~$',
+        '',
+      ].join('\n');
+
+      const result = extractLastRun(output);
+      expect(result).toContain('second command');
+      expect(result).toContain('output2');
+      expect(result).not.toContain('first command');
+    });
+
+    it('should handle simple > prompt', () => {
+      const output = [
+        '> node index.js',
+        'Server started',
+        '> npm test',
+        'All tests pass',
+        '>',
+      ].join('\n');
+
+      const result = extractLastRun(output);
+      expect(result).toContain('npm test');
+      expect(result).toContain('All tests pass');
+      expect(result).not.toContain('node index.js');
+    });
+
+    it('should handle powerline/oh-my-zsh style prompts (symbol at end)', () => {
+      const output = [
+        ' user@Mac  ~/project  % first-command',
+        'output of first',
+        ' user@Mac  ~/project  % ls -la',
+        'total 48',
+        'drwxr-xr-x   5 user  staff   160 Feb  4 01:15 .',
+        ' user@Mac  ~/project  %',
+      ].join('\n');
+
+      const result = extractLastRun(output);
+      expect(result).toContain('ls -la');
+      expect(result).toContain('total 48');
+      expect(result).not.toContain('first-command');
+      expect(result).not.toContain('output of first');
     });
   });
 });

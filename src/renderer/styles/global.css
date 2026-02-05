@@ -6,8 +6,8 @@
 :root {
   /* Backgrounds */
   --copilot-bg: rgba(30, 30, 30, 0.85);
-  --copilot-surface: rgba(45, 45, 45, 0.9);
-  --copilot-surface-hover: rgba(55, 55, 55, 0.9);
+  --copilot-surface: rgb(45, 45, 45);
+  --copilot-surface-hover: rgb(55, 55, 55);
 
   /* Borders */
   --copilot-border: rgba(70, 70, 70, 0.5);

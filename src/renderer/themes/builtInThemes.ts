@@ -14,8 +14,8 @@ export const darkTheme: Theme = {
   colors: {
     // Backgrounds
     bg: 'rgba(30, 30, 30, 0.85)',
-    surface: 'rgba(45, 45, 45, 0.9)',
-    surfaceHover: 'rgba(55, 55, 55, 0.9)',
+    surface: 'rgb(45, 45, 45)',
+    surfaceHover: 'rgb(55, 55, 55)',
 
     // Borders
     border: 'rgba(70, 70, 70, 0.5)',
@@ -67,8 +67,8 @@ export const lightTheme: Theme = {
   colors: {
     // Backgrounds
     bg: 'rgba(255, 255, 255, 0.92)',
-    surface: 'rgba(246, 248, 250, 0.95)',
-    surfaceHover: 'rgba(234, 238, 242, 0.95)',
+    surface: 'rgb(246, 248, 250)',
+    surfaceHover: 'rgb(234, 238, 242)',
 
     // Borders
     border: 'rgba(208, 215, 222, 0.6)',

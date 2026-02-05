@@ -9,6 +9,18 @@ vi.mock('@microsoft/clarity', () => ({
   },
 }));
 
+// Mock the electronAPI for isPackaged and getInstallationId
+const mockIsPackaged = vi.fn().mockResolvedValue(false);
+const mockGetInstallationId = vi.fn().mockResolvedValue('test-installation-id');
+vi.stubGlobal('window', {
+  electronAPI: {
+    app: {
+      isPackaged: mockIsPackaged,
+      getInstallationId: mockGetInstallationId,
+    },
+  },
+});
+
 import Clarity from '@microsoft/clarity';
 import {
   initTelemetry,
@@ -81,8 +93,13 @@ describe('Telemetry Module', () => {
       expect(typeof initTelemetry).toBe('function');
     });
 
-    it('should not throw when called', () => {
-      expect(() => initTelemetry('1.5.0', 'main')).not.toThrow();
+    it('should return a promise', () => {
+      const result = initTelemetry('1.5.0', 'main');
+      expect(result).toBeInstanceOf(Promise);
+    });
+
+    it('should not throw when called', async () => {
+      await expect(initTelemetry('1.5.0', 'main')).resolves.not.toThrow();
     });
   });
 });

@@ -7,6 +7,7 @@ import { initTelemetry } from './utils/telemetry';
 import buildInfo from './build-info.json';
 
 // Initialize telemetry (no PII, just usage patterns)
+// Only active for packaged/distributed apps, not development builds
 initTelemetry(buildInfo.baseVersion, buildInfo.gitBranch);
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

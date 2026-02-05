@@ -156,10 +156,17 @@ process.on('uncaughtException', (err) => {
 // Replace console with electron-log
 Object.assign(console, log.functions);
 
-// Bounce dock icon to get user attention (macOS only)
-function bounceDock(): void {
-  if (process.platform === 'darwin' && !mainWindow?.isFocused()) {
+// Request user attention with platform-specific visual feedback
+function requestUserAttention(): void {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isFocused()) {
+    return;
+  }
+
+  if (process.platform === 'darwin') {
     app.dock?.bounce('informational');
+  } else {
+    // Flash taskbar icon on Windows/Linux for accessibility (deaf users, etc.)
+    mainWindow.flashFrame(true);
   }
 }
 
@@ -187,6 +194,7 @@ const store = new Store({
     globalSafeCommands: [] as string[], // Globally safe commands that are auto-approved for all sessions
     hasSeenWelcomeWizard: false as boolean, // Whether user has completed the welcome wizard
     wizardVersion: 0 as number, // Version of wizard shown (bump to re-show wizard after updates)
+    installationId: '' as string, // Unique ID for this installation (for telemetry user identification)
     // URL allowlist - domains that are auto-approved for web_fetch (similar to --allow-url in Copilot CLI)
     allowedUrls: [
       'github.com',
@@ -204,6 +212,17 @@ const store = new Store({
     deniedUrls: [] as string[],
   },
 });
+
+// Get or create a stable installation ID for telemetry
+function getInstallationId(): string {
+  let installationId = store.get('installationId') as string;
+  if (!installationId) {
+    // Generate a random UUID-like ID (no PII, just a random identifier)
+    installationId = `${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 15)}`;
+    store.set('installationId', installationId);
+  }
+  return installationId;
+}
 
 // Theme directory for external JSON themes
 const themesDir = join(app.getPath('userData'), 'themes');
@@ -569,7 +588,7 @@ async function resumeDisconnectedSession(
       const currentSessionState = sessions.get(sessionId);
       if (currentSessionState) currentSessionState.isProcessing = false;
       mainWindow.webContents.send('copilot:idle', { sessionId });
-      bounceDock();
+      requestUserAttention();
     } else if (event.type === 'tool.execution_start') {
       log.info(`[${sessionId}] Tool start FULL:`, JSON.stringify(event.data, null, 2));
       mainWindow.webContents.send('copilot:tool-start', {
@@ -760,7 +779,7 @@ async function startEarlySessionResumption(): Promise<void> {
             const currentSessionState = sessions.get(sessionId);
             if (currentSessionState) currentSessionState.isProcessing = false;
             mainWindow.webContents.send('copilot:idle', { sessionId });
-            bounceDock();
+            requestUserAttention();
           } else if (event.type === 'tool.execution_start') {
             console.log(`[${sessionId}] Tool start FULL:`, JSON.stringify(event.data, null, 2));
             mainWindow.webContents.send('copilot:tool-start', {
@@ -1085,7 +1104,7 @@ async function handlePermissionRequest(
           filesToDelete, // Issue #101: Show which files will be deleted
           ...request,
         });
-        bounceDock();
+        requestUserAttention();
       });
     }
 
@@ -1129,7 +1148,7 @@ async function handlePermissionRequest(
         isDestructive: false,
         ...request,
       });
-      bounceDock();
+      requestUserAttention();
     });
   }
 
@@ -1295,7 +1314,7 @@ async function handlePermissionRequest(
       isOutOfScope,
       ...request,
     });
-    bounceDock();
+    requestUserAttention();
   });
 
   // Track the in-flight request
@@ -1392,7 +1411,7 @@ Browser tools available: browser_navigate, browser_click, browser_fill, browser_
       const currentSessionState = sessions.get(sessionId);
       if (currentSessionState) currentSessionState.isProcessing = false;
       mainWindow.webContents.send('copilot:idle', { sessionId });
-      bounceDock();
+      requestUserAttention();
     } else if (event.type === 'tool.execution_start') {
       console.log(`[${sessionId}] Tool start FULL:`, JSON.stringify(event.data, null, 2));
       mainWindow.webContents.send('copilot:tool-start', {
@@ -1703,7 +1722,7 @@ async function initCopilot(): Promise<void> {
             const currentSessionState = sessions.get(sessionId);
             if (currentSessionState) currentSessionState.isProcessing = false;
             mainWindow.webContents.send('copilot:idle', { sessionId });
-            bounceDock();
+            requestUserAttention();
           } else if (event.type === 'tool.execution_start') {
             console.log(`[${sessionId}] Tool start FULL:`, JSON.stringify(event.data, null, 2));
             mainWindow.webContents.send('copilot:tool-start', {
@@ -1831,8 +1850,8 @@ function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 750,
-    minWidth: 900,
-    minHeight: 500,
+    minWidth: 320,
+    minHeight: 400,
     frame: false,
     backgroundColor: '#0d1117',
     titleBarStyle: 'hidden',
@@ -3742,7 +3761,7 @@ ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string
       const currentSessionState = sessions.get(sessionId);
       if (currentSessionState) currentSessionState.isProcessing = false;
       mainWindow.webContents.send('copilot:idle', { sessionId });
-      bounceDock();
+      requestUserAttention();
     } else if (event.type === 'tool.execution_start') {
       console.log(`[${sessionId}] Tool start FULL:`, JSON.stringify(event.data, null, 2));
       mainWindow.webContents.send('copilot:tool-start', {
@@ -4598,6 +4617,15 @@ ipcMain.handle('wizard:markWelcomeAsSeen', async () => {
   store.set('hasSeenWelcomeWizard', true);
   store.set('wizardVersion', CURRENT_WIZARD_VERSION);
   return { success: true };
+});
+
+// App info handlers
+ipcMain.handle('app:isPackaged', () => {
+  return app.isPackaged;
+});
+
+ipcMain.handle('app:getInstallationId', () => {
+  return getInstallationId();
 });
 
 // Simple semver comparison: returns 1 if a > b, -1 if a < b, 0 if equal

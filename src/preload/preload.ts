@@ -920,6 +920,15 @@ const electronAPI = {
       return ipcRenderer.invoke('wizard:markWelcomeAsSeen');
     },
   },
+  // App info
+  app: {
+    isPackaged: (): Promise<boolean> => {
+      return ipcRenderer.invoke('app:isPackaged');
+    },
+    getInstallationId: (): Promise<string> => {
+      return ipcRenderer.invoke('app:getInstallationId');
+    },
+  },
 };
 
 // MCP Server Configuration types

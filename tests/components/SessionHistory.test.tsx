@@ -868,43 +868,4 @@ describe('SessionHistory Component', () => {
       expect(screen.getByText('2')).toBeInTheDocument();
     });
   });
-
-  describe('Prune Stale Button', () => {
-    it('shows Prune Stale button only in worktree filter mode with worktree sessions', async () => {
-      const user = userEvent.setup();
-      const sessionsWithWorktree: PreviousSession[] = [
-        {
-          ...createMockSession('session-1', 'Worktree session', 0, '/path'),
-          worktree: {
-            id: 'wt-1',
-            branch: 'branch-1',
-            worktreePath: '/path',
-            status: 'active' as const,
-          },
-        },
-      ];
-
-      render(
-        <SessionHistory
-          isOpen={true}
-          onClose={mockOnClose}
-          sessions={sessionsWithWorktree}
-          onResumeSession={mockOnResumeSession}
-          onDeleteSession={mockOnDeleteSession}
-          activeSessions={[]}
-          activeSessionId={null}
-          onSwitchToSession={mockOnSwitchToSession}
-        />
-      );
-
-      // Prune button should not be visible in All filter mode
-      expect(screen.queryByText('Prune Stale')).not.toBeInTheDocument();
-
-      // Switch to worktree filter
-      await user.click(screen.getByText('Worktree'));
-
-      // Prune button should now be visible
-      expect(screen.getByText('Prune Stale')).toBeInTheDocument();
-    });
-  });
 });

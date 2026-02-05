@@ -6,8 +6,8 @@
   "version": "1.0.0",
   "colors": {
     "bg": "rgba(34, 39, 46, 0.92)",
-    "surface": "rgba(45, 51, 59, 0.95)",
-    "surfaceHover": "rgba(55, 62, 71, 0.95)",
+    "surface": "rgb(45, 51, 59)",
+    "surfaceHover": "rgb(55, 62, 71)",
     "border": "rgba(68, 76, 86, 0.6)",
     "borderHover": "rgba(88, 96, 105, 0.7)",
     "accent": "#539bf5",
