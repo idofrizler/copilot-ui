@@ -15,7 +15,7 @@ interface TerminalPanelProps {
   cwd: string;
   isOpen: boolean;
   onClose: () => void;
-  onSendToAgent: (output: string, lineCount: number) => void;
+  onSendToAgent: (output: string, lineCount: number, lastCommandStart?: number) => void;
 }
 
 export const TerminalPanel: React.FC<TerminalPanelProps> = ({
@@ -34,6 +34,9 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
   const [terminalHeight, setTerminalHeight] = useState(DEFAULT_HEIGHT);
   const [isResizing, setIsResizing] = useState(false);
   const sessionIdRef = useRef(sessionId);
+
+  // Track the line number where the last command started (when user pressed Enter)
+  const lastCommandLineRef = useRef<number>(0);
 
   // Keep sessionId ref in sync
   useEffect(() => {
@@ -134,8 +137,15 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
     fitAddonRef.current = fitAddon;
     setIsInitialized(true);
 
-    // Handle user input
+    // Handle user input - track when commands are executed (Enter pressed)
     xterm.onData((data) => {
+      // If user pressed Enter (carriage return or newline), record the current line as command start
+      if (data === '\r' || data === '\n' || data === '\r\n') {
+        const buffer = xterm.buffer.active;
+        // The command line is the current line (before Enter moves to next line)
+        // baseY is scrollback, cursorY is position in viewport
+        lastCommandLineRef.current = buffer.baseY + buffer.cursorY;
+      }
       window.electronAPI.pty.write(sessionIdRef.current, data);
     });
 
@@ -223,12 +233,34 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
   }, []); // Empty deps - only run cleanup on unmount
 
   const handleSendToAgent = useCallback(async () => {
-    const result = await window.electronAPI.pty.getOutput(sessionIdRef.current);
-    if (result.success && result.output) {
-      // Strip ANSI codes for cleaner output
-      const cleanOutput = result.output.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
-      const lineCount = (cleanOutput.match(/\n/g) || []).length + 1;
-      onSendToAgent(cleanOutput, lineCount);
+    if (!xtermRef.current) return;
+
+    // Read directly from xterm's buffer - this gives us the rendered content
+    // without escape sequences or terminal artifacts
+    const buffer = xtermRef.current.buffer.active;
+    const lines: string[] = [];
+
+    // Read all lines from the buffer
+    for (let i = 0; i < buffer.length; i++) {
+      const line = buffer.getLine(i);
+      if (line) {
+        // translateToString(true) should trim right, but we'll also trim manually to be safe
+        const text = line.translateToString(true).trimEnd();
+        lines.push(text);
+      }
+    }
+
+    // Remove trailing empty lines
+    while (lines.length > 0 && lines[lines.length - 1] === '') {
+      lines.pop();
+    }
+
+    const output = lines.join('\n');
+    const lineCount = lines.length;
+
+    if (output.trim()) {
+      // Pass the last command start line so the modal can extract just that command's output
+      onSendToAgent(output, lineCount, lastCommandLineRef.current);
     }
   }, [onSendToAgent]);
 

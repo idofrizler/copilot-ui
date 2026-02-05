@@ -677,6 +677,7 @@ const App: React.FC = () => {
   const [pendingTerminalOutput, setPendingTerminalOutput] = useState<{
     output: string;
     lineCount: number;
+    lastCommandStart?: number;
   } | null>(null);
 
   // Image attachment state
@@ -2165,7 +2166,7 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
     // Build message content with terminal attachment if present
     let messageContent = inputValue.trim();
     if (terminalAttachment) {
-      const terminalBlock = `\`\`\`\n${terminalAttachment.output}\n\`\`\``;
+      const terminalBlock = `\`\`\`bash\n${terminalAttachment.output}\n\`\`\``;
       messageContent = messageContent
         ? `${messageContent}\n\nTerminal output:\n${terminalBlock}`
         : `Terminal output:\n${terminalBlock}`;
@@ -2504,20 +2505,23 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
   ]);
 
   // Handle sending terminal output to the agent
-  const handleSendTerminalOutput = useCallback((output: string, lineCount: number) => {
-    if (!output.trim()) return;
-    const trimmedOutput = output.trim();
+  const handleSendTerminalOutput = useCallback(
+    (output: string, lineCount: number, lastCommandStart?: number) => {
+      if (!output.trim()) return;
+      const trimmedOutput = output.trim();
 
-    // If output exceeds threshold, show shrink modal
-    if (lineCount > LONG_OUTPUT_LINE_THRESHOLD) {
-      setPendingTerminalOutput({ output: trimmedOutput, lineCount });
-    } else {
-      // Store the terminal output as an attachment to be included in next message
-      setTerminalAttachment({ output: trimmedOutput, lineCount });
-      // Focus the input field
-      inputRef.current?.focus();
-    }
-  }, []);
+      // If output exceeds threshold, show shrink modal
+      if (lineCount > LONG_OUTPUT_LINE_THRESHOLD) {
+        setPendingTerminalOutput({ output: trimmedOutput, lineCount, lastCommandStart });
+      } else {
+        // Store the terminal output as an attachment to be included in next message
+        setTerminalAttachment({ output: trimmedOutput, lineCount });
+        // Focus the input field
+        inputRef.current?.focus();
+      }
+    },
+    []
+  );
 
   // Handle confirmation from shrink modal
   const handleShrinkModalConfirm = useCallback((output: string, lineCount: number) => {
@@ -4645,9 +4649,48 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                                 ))}
                               </div>
                             )}
-                            <span className="whitespace-pre-wrap break-words">
-                              {message.content}
-                            </span>
+                            {/* Render user message content - use ReactMarkdown if it contains code blocks */}
+                            {message.content.includes('```') ? (
+                              <ReactMarkdown
+                                remarkPlugins={[remarkGfm]}
+                                components={{
+                                  p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                                  code: ({ className, children }) => {
+                                    const textContent = String(children).replace(/\n$/, '');
+                                    const hasLanguageClass = className?.startsWith('language-');
+                                    const isMultiLine = textContent.includes('\n');
+                                    const isBlock = hasLanguageClass || isMultiLine;
+
+                                    if (isBlock) {
+                                      return (
+                                        <CodeBlockWithCopy
+                                          isDiagram={false}
+                                          textContent={textContent}
+                                          isCliCommand={false}
+                                        >
+                                          {children}
+                                        </CodeBlockWithCopy>
+                                      );
+                                    } else {
+                                      return (
+                                        <code className="bg-copilot-bg px-1 py-0.5 rounded text-copilot-warning text-xs break-all">
+                                          {children}
+                                        </code>
+                                      );
+                                    }
+                                  },
+                                  pre: ({ children }) => (
+                                    <div className="overflow-x-auto max-w-full">{children}</div>
+                                  ),
+                                }}
+                              >
+                                {message.content}
+                              </ReactMarkdown>
+                            ) : (
+                              <span className="whitespace-pre-wrap break-words">
+                                {message.content}
+                              </span>
+                            )}
                           </>
                         ) : message.content ? (
                           <ReactMarkdown
@@ -7050,6 +7093,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
             onConfirm={handleShrinkModalConfirm}
             output={pendingTerminalOutput.output}
             lineCount={pendingTerminalOutput.lineCount}
+            lastCommandStart={pendingTerminalOutput.lastCommandStart}
           />
         )}
 
