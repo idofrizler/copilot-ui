@@ -123,7 +123,6 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filter, setFilter] = useState<SessionFilter>(initialFilter);
-  const [isPruning, setIsPruning] = useState(false);
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -405,23 +404,6 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
     }
   };
 
-  const handlePrune = async () => {
-    setIsPruning(true);
-    setError(null);
-    try {
-      if (!window.electronAPI?.worktree?.pruneSessions) return;
-      const result = await window.electronAPI.worktree.pruneSessions();
-      if (result.pruned.length > 0) {
-        setSuccessMessage(`Pruned ${result.pruned.length} stale session(s)`);
-        setTimeout(() => setSuccessMessage(null), 3000);
-      }
-    } catch (err) {
-      setError(String(err));
-    } finally {
-      setIsPruning(false);
-    }
-  };
-
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'active':
@@ -534,7 +516,7 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
               {categorizedSessions.map((category) => (
                 <div key={category.label}>
                   {/* Category Header */}
-                  <div className="px-3 py-1.5 text-xs font-medium text-copilot-text-muted bg-copilot-bg/50 sticky top-0">
+                  <div className="px-3 py-1.5 text-xs font-medium text-copilot-text-muted bg-copilot-surface sticky top-0 z-10">
                     {category.label}
                   </div>
 
@@ -641,26 +623,19 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
           )}
         </div>
 
-        {/* Footer with count and prune button */}
-        <div className="px-3 py-2 border-t border-copilot-border text-xs text-copilot-text-muted flex items-center justify-between">
+        {/* Footer with count */}
+        <div className="px-3 py-2 border-t border-copilot-border text-xs text-copilot-text-muted">
           <span>
-            {searchQuery ? (
+            {searchQuery || filter === 'worktree' ? (
               <>
                 {filteredSessions.length} of {allSessions.length} sessions
               </>
-            ) : filter === 'worktree' ? (
-              <>{worktreeCount} worktree sessions</>
             ) : (
               <>
                 {allSessions.length} sessions ({activeSessions.length} active)
               </>
             )}
           </span>
-          {filter === 'worktree' && worktreeCount > 0 && (
-            <Button variant="secondary" size="sm" onClick={handlePrune} disabled={isPruning}>
-              {isPruning ? 'Pruning...' : 'Prune Stale'}
-            </Button>
-          )}
         </div>
       </Modal.Body>
 

@@ -7,15 +7,7 @@
 
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-  rmSync,
-  statSync,
-  readdirSync,
-} from 'fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'fs';
 import { join, basename } from 'path';
 import { app } from 'electron';
 import { net } from 'electron';
@@ -279,58 +271,6 @@ async function isBranchInWorktree(repoPath: string, branch: string): Promise<str
   return existing ? existing.path : null;
 }
 
-// Get disk usage for a directory
-async function getDiskUsage(path: string): Promise<number> {
-  if (!existsSync(path)) return 0;
-
-  // Use native `du` command for fast disk usage calculation on Unix
-  if (process.platform !== 'win32') {
-    try {
-      const { stdout } = await execAsync(`du -sk "${path}"`, { timeout: 5000 });
-      const sizeKB = parseInt(stdout.split(/\s+/)[0], 10);
-      if (!isNaN(sizeKB)) {
-        return sizeKB * 1024;
-      }
-    } catch {
-      // Fall through to sync method
-    }
-  }
-
-  // Fallback: synchronous walk (slower, but works everywhere)
-  let totalSize = 0;
-
-  function walkDir(dir: string): void {
-    try {
-      const entries = readdirSync(dir, { withFileTypes: true });
-      for (const entry of entries) {
-        const fullPath = join(dir, entry.name);
-        try {
-          if (entry.isDirectory()) {
-            walkDir(fullPath);
-          } else {
-            totalSize += statSync(fullPath).size;
-          }
-        } catch {
-          // Skip inaccessible files
-        }
-      }
-    } catch {
-      // Skip inaccessible directories
-    }
-  }
-
-  walkDir(path);
-  return totalSize;
-}
-
-// Format bytes to human readable
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
-
 /**
  * Create a new worktree session
  */
@@ -500,49 +440,20 @@ export async function removeWorktreeSession(
 /**
  * List all worktree sessions
  */
-export async function listWorktreeSessions(options: { includeDiskUsage?: boolean } = {}): Promise<{
-  sessions: Array<WorktreeSession & { diskUsage: string }>;
-  totalDiskUsage: string;
-}> {
+export function listWorktreeSessions(): {
+  sessions: WorktreeSession[];
+} {
   const registry = loadRegistry();
 
-  if (!options.includeDiskUsage) {
-    // Fast path: skip disk usage calculation
-    const sessions = registry.sessions.map((session) => {
-      const exists = existsSync(session.worktreePath);
-      return {
-        ...session,
-        status: exists ? session.status : ('orphaned' as const),
-        diskUsage: 'Calculating...',
-      };
-    });
-    return { sessions, totalDiskUsage: 'Calculating...' };
-  }
+  const sessions = registry.sessions.map((session) => {
+    const exists = existsSync(session.worktreePath);
+    return {
+      ...session,
+      status: exists ? session.status : ('orphaned' as const),
+    };
+  });
 
-  // Calculate disk usage in parallel for all sessions
-  const sessionsWithDisk = await Promise.all(
-    registry.sessions.map(async (session) => {
-      const exists = existsSync(session.worktreePath);
-      const diskBytes = exists ? await getDiskUsage(session.worktreePath) : 0;
-
-      return {
-        ...session,
-        status: exists ? session.status : ('orphaned' as const),
-        diskUsage: formatBytes(diskBytes),
-        diskBytes,
-      };
-    })
-  );
-
-  const totalBytes = sessionsWithDisk.reduce((sum, s) => sum + s.diskBytes, 0);
-
-  // Remove diskBytes from the returned sessions
-  const sessions = sessionsWithDisk.map(({ diskBytes, ...rest }) => rest);
-
-  return {
-    sessions,
-    totalDiskUsage: formatBytes(totalBytes),
-  };
+  return { sessions };
 }
 
 /**

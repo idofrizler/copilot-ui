@@ -11,7 +11,6 @@ interface WorktreeSession {
   createdAt: string;
   lastAccessedAt: string;
   status: 'active' | 'idle' | 'orphaned';
-  diskUsage?: string;
 }
 
 interface WorktreeSessionsListProps {
@@ -27,8 +26,7 @@ export const WorktreeSessionsList: React.FC<WorktreeSessionsListProps> = ({
   onOpenSession,
   onRemoveSession,
 }) => {
-  const [sessions, setSessions] = useState<(WorktreeSession & { diskUsage: string })[]>([]);
-  const [totalDiskUsage, setTotalDiskUsage] = useState('0 B');
+  const [sessions, setSessions] = useState<WorktreeSession[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isPruning, setIsPruning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,7 +45,6 @@ export const WorktreeSessionsList: React.FC<WorktreeSessionsListProps> = ({
     try {
       const result = await window.electronAPI.worktree.listSessions();
       setSessions(result.sessions);
-      setTotalDiskUsage(result.totalDiskUsage);
     } catch (err) {
       setError(String(err));
     } finally {
@@ -199,7 +196,6 @@ export const WorktreeSessionsList: React.FC<WorktreeSessionsListProps> = ({
                     </div>
                     <div className="flex gap-4 text-xs text-copilot-text-muted mt-1">
                       <span>Created: {formatDate(session.createdAt)}</span>
-                      <span>{session.diskUsage}</span>
                     </div>
                   </div>
                 </div>
@@ -230,9 +226,7 @@ export const WorktreeSessionsList: React.FC<WorktreeSessionsListProps> = ({
       </Modal.Body>
       <Modal.Body className="pt-0">
         <div className="flex items-center justify-between text-xs text-copilot-text-muted border-t border-copilot-border pt-3">
-          <span>
-            Total: {sessions.length} sessions, {totalDiskUsage}
-          </span>
+          <span>Total: {sessions.length} sessions</span>
           <Button
             variant="secondary"
             size="sm"

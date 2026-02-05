@@ -142,25 +142,15 @@ describe('worktree module', () => {
   });
 
   describe('listWorktreeSessions', () => {
-    it('should return empty list when no sessions exist', async () => {
+    it('should return empty list when no sessions exist', () => {
       mocks.existsSync.mockReturnValue(false);
 
-      const result = await listWorktreeSessions();
+      const result = listWorktreeSessions();
 
       expect(result.sessions).toEqual([]);
-      expect(result.totalDiskUsage).toBe('Calculating...');
     });
 
-    it('should return disk usage when includeDiskUsage is true and no sessions exist', async () => {
-      mocks.existsSync.mockReturnValue(false);
-
-      const result = await listWorktreeSessions({ includeDiskUsage: true });
-
-      expect(result.sessions).toEqual([]);
-      expect(result.totalDiskUsage).toBe('0 B');
-    });
-
-    it('should mark orphaned sessions correctly', async () => {
+    it('should mark orphaned sessions correctly', () => {
       // Registry exists but worktree directory doesn't
       mocks.existsSync.mockImplementation((path) => {
         if (String(path).includes('sessions.json')) return true;
@@ -184,7 +174,7 @@ describe('worktree module', () => {
         })
       );
 
-      const result = await listWorktreeSessions();
+      const result = listWorktreeSessions();
 
       expect(result.sessions.length).toBe(1);
       expect(result.sessions[0].status).toBe('orphaned');
