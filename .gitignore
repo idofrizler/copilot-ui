@@ -37,3 +37,9 @@ screenshot*.png
 # Evidence folder for testing
 evidence/
 plan.md
+
+# Voice/speech models (downloaded at runtime)
+public/vosk-model/
+public/vosk-model.tar.gz
+public/whisper-model/
+public/whisper-cpp/

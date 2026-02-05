@@ -1,4 +1,14 @@
-import { app, BrowserWindow, ipcMain, shell, dialog, nativeTheme, Menu } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  shell,
+  dialog,
+  nativeTheme,
+  Menu,
+  protocol,
+  net,
+} from 'electron';
 import path, { join, dirname } from 'path';
 import {
   existsSync,
@@ -12,6 +22,7 @@ import {
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { readFile, writeFile, mkdir } from 'fs/promises';
+import { createServer, Server } from 'http';
 
 const execAsync = promisify(exec);
 
@@ -65,6 +76,8 @@ import * as worktree from './worktree';
 import * as ptyManager from './pty';
 import * as browserManager from './browser';
 import { createBrowserTools } from './browserTools';
+import { voiceService } from './voiceService';
+import { whisperModelManager } from './whisperModelManager';
 
 // MCP Server Configuration types (matching SDK)
 interface MCPServerConfigBase {
@@ -1890,6 +1903,10 @@ function createWindow(): void {
   mainWindow.webContents.once('did-finish-load', () => {
     initCopilot();
   });
+
+  // Set main window for voice service
+  voiceService.setMainWindow(mainWindow);
+  whisperModelManager.setMainWindow(mainWindow);
 
   mainWindow.on('closed', () => {
     mainWindow = null;

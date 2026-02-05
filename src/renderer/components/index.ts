@@ -8,6 +8,7 @@ export * from './FilePreviewModal';
 export * from './SidebarDrawer';
 export * from './IconButton';
 export * from './Icons';
+export * from './MicButton';
 export * from './Modal';
 export * from './ReleaseNotesModal';
 export * from './SearchableBranchSelect';
@@ -23,3 +24,4 @@ export * from './SettingsModal';
 // Existing Components
 export * from './Spinner';
 export * from './GitBranchWidget';
+export * from './VoiceKeywordsPanel';
