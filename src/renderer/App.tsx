@@ -4416,7 +4416,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               </button>
             </div>
 
-            {/* New Session Button */}
+            {/* New Session Buttons */}
             <div className="border-b border-copilot-border">
               <button
                 onClick={() => {
@@ -4427,6 +4427,16 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               >
                 <PlusIcon size={16} />
                 New Session
+              </button>
+              <button
+                onClick={() => {
+                  handleNewWorktreeSession();
+                  setLeftDrawerOpen(false);
+                }}
+                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+              >
+                <GitBranchIcon size={16} />
+                New Worktree Session
               </button>
             </div>
 
