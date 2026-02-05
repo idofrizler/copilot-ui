@@ -15,6 +15,7 @@ export * from './WelcomeWizard';
 export * from './WindowControls';
 export * from './WorktreeSessions';
 export * from './Terminal';
+export * from './SettingsModal';
 
 // Existing Components
 export * from './Spinner';

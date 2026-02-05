@@ -54,6 +54,8 @@ import {
   WarningIcon,
   ArchiveIcon,
   UnarchiveIcon,
+  SettingsModal,
+  SettingsIcon,
 } from './components';
 import {
   Status,
@@ -716,6 +718,13 @@ const App: React.FC = () => {
   } | null>(null);
   const [showReleaseNotesModal, setShowReleaseNotesModal] = useState(false);
 
+  // Settings modal state
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(() => {
+    const saved = localStorage.getItem('copilot-sound-enabled');
+    return saved !== null ? saved === 'true' : true; // Default to enabled
+  });
+
   // Welcome wizard state
   const [showWelcomeWizard, setShowWelcomeWizard] = useState(false);
   const [shouldShowWizardWhenReady, setShouldShowWizardWhenReady] = useState(false);
@@ -725,6 +734,12 @@ const App: React.FC = () => {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const activeTabIdRef = useRef<string | null>(null);
   const prevActiveTabIdRef = useRef<string | null>(null);
+  const soundEnabledRef = useRef(soundEnabled);
+
+  // Keep soundEnabledRef in sync with state
+  useEffect(() => {
+    soundEnabledRef.current = soundEnabled;
+  }, [soundEnabled]);
 
   // Keep ref in sync with state (update prevActiveTabIdRef BEFORE activeTabIdRef)
   useEffect(() => {
@@ -1445,7 +1460,9 @@ const App: React.FC = () => {
       lastIdleTimestampRef.current.set(sessionId, now);
 
       // Play notification sound when session completes
-      playNotificationSound();
+      if (soundEnabledRef.current) {
+        playNotificationSound();
+      }
 
       // Update tab state
       setTabs((prev) => {
@@ -1940,7 +1957,9 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       }
 
       // Play notification sound when permission is needed
-      playNotificationSound();
+      if (soundEnabledRef.current) {
+        playNotificationSound();
+      }
 
       // Spread all data to preserve any extra fields from SDK
       const confirmation: PendingConfirmation = {
@@ -3837,6 +3856,12 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     }
   };
 
+  // Handle sound enabled change
+  const handleSoundEnabledChange = (enabled: boolean) => {
+    setSoundEnabled(enabled);
+    localStorage.setItem('copilot-sound-enabled', String(enabled));
+  };
+
   const handleCloseTab = async (tabId: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
 
@@ -4244,57 +4269,14 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               />
             </div>
 
-            {/* Theme Selector */}
-            <Dropdown
-              value={themePreference}
-              options={[
-                {
-                  id: 'system',
-                  label: 'System',
-                  icon: <MonitorIcon size={12} />,
-                },
-                ...availableThemes.map((theme) => ({
-                  id: theme.id,
-                  label: theme.name,
-                  icon:
-                    theme.id === 'dark' ? (
-                      <MoonIcon size={12} />
-                    ) : theme.id === 'light' ? (
-                      <SunIcon size={12} />
-                    ) : (
-                      <PaletteIcon size={12} />
-                    ),
-                })),
-              ]}
-              onSelect={(id) => {
-                setTheme(id);
-                trackEvent(TelemetryEvents.FEATURE_THEME_CHANGED);
-              }}
-              trigger={
-                <>
-                  {activeTheme.type === 'dark' ? <MoonIcon size={12} /> : <SunIcon size={12} />}
-                  <span>{themePreference === 'system' ? 'System' : activeTheme.name}</span>
-                  <ChevronDownIcon size={10} />
-                </>
-              }
-              title="Theme"
-              minWidth="180px"
-              dividers={[0]}
-              footerActions={
-                <button
-                  onClick={async () => {
-                    const result = await importTheme();
-                    if (result.error) {
-                      console.error('Failed to import theme:', result.error);
-                    }
-                  }}
-                  className="w-full px-3 py-1.5 text-left text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover transition-colors flex items-center gap-2"
-                >
-                  <UploadIcon size={12} />
-                  <span>Import Theme...</span>
-                </button>
-              }
-            />
+            {/* Settings Button */}
+            <button
+              onClick={() => setShowSettingsModal(true)}
+              className="flex items-center gap-1.5 px-2 py-1 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover rounded transition-colors"
+              title="Settings"
+            >
+              <SettingsIcon size={14} />
+            </button>
           </div>
         </div>
 
@@ -7179,6 +7161,14 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           }}
           version={buildInfo.baseVersion}
           releaseNotes={buildInfo.releaseNotes || ''}
+        />
+
+        {/* Settings Modal */}
+        <SettingsModal
+          isOpen={showSettingsModal}
+          onClose={() => setShowSettingsModal(false)}
+          soundEnabled={soundEnabled}
+          onSoundEnabledChange={handleSoundEnabledChange}
         />
 
         {/* Welcome Wizard - Spotlight Tour */}
