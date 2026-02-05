@@ -42,6 +42,8 @@ import {
   CreateWorktreeSession,
   ChoiceSelector,
   PaperclipIcon,
+  MicrophoneIcon,
+  MicButton,
   SessionHistory,
   FilePreviewModal,
   UpdateAvailableModal,
@@ -61,6 +63,7 @@ import {
   SettingsModal,
   SettingsIcon,
   ToolActivitySection,
+  VoiceKeywordsPanel,
 } from './components';
 import {
   Status,
@@ -95,7 +98,7 @@ import { playNotificationSound } from './utils/sound';
 import { LONG_OUTPUT_LINE_THRESHOLD } from './utils/cliOutputCompression';
 import { isAsciiDiagram, extractTextContent } from './utils/isAsciiDiagram';
 import { isCliCommand } from './utils/isCliCommand';
-import { useClickOutside, useResponsive } from './hooks';
+import { useClickOutside, useResponsive, useVoiceSpeech } from './hooks';
 import buildInfo from './build-info.json';
 import { TerminalProvider } from './context/TerminalContext';
 
@@ -654,6 +657,18 @@ const App: React.FC = () => {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [showSkills, setShowSkills] = useState(false);
 
+  // Voice control settings
+  const [pushToTalk, setPushToTalk] = useState(() => {
+    // Load from localStorage, default to false (click-to-toggle mode)
+    const saved = localStorage.getItem('voice-push-to-talk');
+    return saved === 'true';
+  });
+
+  const handleTogglePushToTalk = (enabled: boolean) => {
+    setPushToTalk(enabled);
+    localStorage.setItem('voice-push-to-talk', String(enabled));
+  };
+
   // Ralph Wiggum loop state
   const [showRalphSettings, setShowRalphSettings] = useState(false);
   const [ralphEnabled, setRalphEnabled] = useState(false);
@@ -751,6 +766,12 @@ const App: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const activeTabIdRef = useRef<string | null>(null);
+
+  // Voice speech hook for STT/TTS
+  const voiceSpeech = useVoiceSpeech();
+  const { isRecording } = voiceSpeech;
+  const voiceSpeakRef = useRef(voiceSpeech.speak);
+  voiceSpeakRef.current = voiceSpeech.speak; // Keep ref updated
   const prevActiveTabIdRef = useRef<string | null>(null);
   const soundEnabledRef = useRef(soundEnabled);
 
@@ -1533,6 +1554,18 @@ const App: React.FC = () => {
       if (soundEnabledRef.current) {
         playNotificationSound();
       }
+
+      // Speak the last assistant response (TTS) - only for active tab
+      setTabs((currentTabs) => {
+        const tab = currentTabs.find((t) => t.id === sessionId);
+        if (tab && sessionId === activeTabIdRef.current) {
+          const lastAssistant = [...tab.messages].reverse().find((m) => m.role === 'assistant');
+          if (lastAssistant?.content) {
+            voiceSpeakRef.current(lastAssistant.content);
+          }
+        }
+        return currentTabs; // No state change, just reading
+      });
 
       // Update tab state
       setTabs((prev) => {
@@ -6270,6 +6303,18 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     target.style.height = Math.min(target.scrollHeight, 200) + 'px';
                   }}
                 />
+                {/* Audio Input (Mic) Button - uses whisper.cpp for STT */}
+                {!activeTab?.isProcessing && (
+                  <MicButton
+                    onTranscript={(text) => {
+                      if (text.trim()) {
+                        setInputValue((prev) => (prev ? prev + ' ' + text : text));
+                      }
+                    }}
+                    className="shrink-0"
+                    pushToTalk={pushToTalk}
+                  />
+                )}
                 {/* File Attach Button */}
                 {!activeTab?.isProcessing && (
                   <button
@@ -6941,6 +6986,20 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                         </div>
                       )}
                     </div>
+
+                    {/* Voice Control Keywords Panel */}
+                    <VoiceKeywordsPanel
+                      isRecording={voiceSpeech.isRecording}
+                      isSpeaking={voiceSpeech.isSpeaking}
+                      isMuted={voiceSpeech.isMuted}
+                      isSupported={voiceSpeech.isSupported}
+                      isModelLoading={voiceSpeech.isModelLoading}
+                      modelLoaded={voiceSpeech.modelLoaded}
+                      error={voiceSpeech.error}
+                      onToggleMute={voiceSpeech.toggleMute}
+                      pushToTalk={pushToTalk}
+                      onTogglePushToTalk={handleTogglePushToTalk}
+                    />
                   </div>
                   {/* End MCP/Skills wrapper */}
                 </div>
