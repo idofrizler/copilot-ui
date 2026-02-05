@@ -4424,7 +4424,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         {/* Title Bar */}
         <div className="drag-region flex items-center justify-between px-4 py-2.5 bg-copilot-surface border-b border-copilot-border shrink-0">
           <div className="flex items-center gap-3">
-            <WindowControls />
+            {/* macOS/Linux: show traffic light controls; Windows: native overlay handles this */}
+            {window.electronAPI?.platform !== 'win32' && <WindowControls />}
 
             <div className="flex items-center gap-2 ml-2">
               <img src={logo} alt="Copilot Skins" className="w-4 h-4 rounded-sm" />
@@ -4471,6 +4472,10 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
             >
               <SettingsIcon size={14} />
             </button>
+            {/* Windows: spacer for native title bar overlay controls */}
+            {window.electronAPI?.platform === 'win32' && (
+              <div className="w-[138px]" data-testid="windows-controls-spacer" />
+            )}
           </div>
         </div>
 

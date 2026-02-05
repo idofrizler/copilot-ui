@@ -1,6 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 const electronAPI = {
+  // Platform information
+  platform: process.platform,
+
   // Copilot communication
   copilot: {
     send: (
@@ -474,6 +477,9 @@ const electronAPI = {
     },
     quit: (): void => {
       ipcRenderer.send('window:quit');
+    },
+    updateTitleBarOverlay: (options: { color: string; symbolColor: string }): void => {
+      ipcRenderer.send('window:updateTitleBarOverlay', options);
     },
   },
 

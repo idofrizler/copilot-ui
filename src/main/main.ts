@@ -1861,6 +1861,8 @@ async function initCopilot(): Promise<void> {
 }
 
 function createWindow(): void {
+  const isWindows = process.platform === 'win32';
+
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 750,
@@ -1870,6 +1872,14 @@ function createWindow(): void {
     backgroundColor: '#0d1117',
     titleBarStyle: 'hidden',
     trafficLightPosition: { x: -100, y: -100 },
+    // On Windows, use native title bar overlay for minimize/maximize/close buttons
+    ...(isWindows && {
+      titleBarOverlay: {
+        color: '#2d2d2d',
+        symbolColor: '#e6edf3',
+        height: 38,
+      },
+    }),
     hasShadow: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -3970,6 +3980,23 @@ ipcMain.on('window:close', () => {
 ipcMain.on('window:quit', () => {
   app.quit();
 });
+
+ipcMain.on(
+  'window:updateTitleBarOverlay',
+  (_event, options: { color: string; symbolColor: string }) => {
+    if (process.platform === 'win32' && mainWindow && !mainWindow.isDestroyed()) {
+      try {
+        mainWindow.setTitleBarOverlay({
+          color: options.color,
+          symbolColor: options.symbolColor,
+          height: 38,
+        });
+      } catch {
+        // setTitleBarOverlay may not be available on older Electron versions
+      }
+    }
+  }
+);
 
 // Theme handlers
 ipcMain.handle('theme:get', () => {
