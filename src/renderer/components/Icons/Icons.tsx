@@ -189,7 +189,7 @@ export const MicrophoneIcon: React.FC<IconProps> = ({ size = 24, className, stro
     <line x1="12" y1="19" x2="12" y2="23" />
     <line x1="8" y1="23" x2="16" y2="23" />
   </svg>
-)
+);
 
 export const HistoryIcon: React.FC<IconProps> = ({ size = 24, className, strokeWidth = 2 }) => (
   <svg width={size} height={size} className={className} {...defaultProps} strokeWidth={strokeWidth}>
@@ -369,6 +369,15 @@ export const VolumeMuteIcon: React.FC<IconProps> = ({ size = 24, className, stro
   </svg>
 );
 
+// Help circle icon - for tooltips and explanations
+export const HelpCircleIcon: React.FC<IconProps> = ({ size = 24, className, strokeWidth = 2 }) => (
+  <svg width={size} height={size} className={className} {...defaultProps} strokeWidth={strokeWidth}>
+    <circle cx="12" cy="12" r="10" />
+    <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+    <line x1="12" y1="17" x2="12.01" y2="17" />
+  </svg>
+);
+
 // Microphone icon for voice settings
 export const MicIcon: React.FC<IconProps> = ({ size = 24, className, strokeWidth = 2 }) => (
   <svg width={size} height={size} className={className} {...defaultProps} strokeWidth={strokeWidth}>
@@ -425,6 +434,7 @@ export const Icons = {
   Volume: VolumeIcon,
   VolumeMute: VolumeMuteIcon,
   Mic: MicIcon,
+  HelpCircle: HelpCircleIcon,
 };
 
 export default Icons;
