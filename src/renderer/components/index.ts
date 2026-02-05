@@ -12,7 +12,7 @@ export * from './SearchableBranchSelect';
 export * from './SessionHistory';
 export * from './UpdateAvailableModal';
 export * from './WelcomeWizard';
-export * from './WindowControls';
+
 export * from './WorktreeSessions';
 export * from './Terminal';
 

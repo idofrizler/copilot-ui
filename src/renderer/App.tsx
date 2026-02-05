@@ -7,7 +7,6 @@ import { trackEvent, TelemetryEvents } from './utils/telemetry';
 import {
   Spinner,
   GitBranchWidget,
-  WindowControls,
   Dropdown,
   Modal,
   Button,
@@ -4201,7 +4200,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         {/* Title Bar */}
         <div className="drag-region flex items-center justify-between px-4 py-2.5 bg-copilot-surface border-b border-copilot-border shrink-0">
           <div className="flex items-center gap-3">
-            <WindowControls />
+            {/* macOS spacer for traffic lights area */}
+            {window.electronAPI?.platform === 'darwin' && <div className="w-[70px]" />}
 
             <div className="flex items-center gap-2 ml-2">
               <img src={logo} alt="Copilot Skins" className="w-4 h-4 rounded-sm" />
@@ -4291,6 +4291,10 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 </button>
               }
             />
+            {/* Windows/Linux spacer for native title bar overlay controls */}
+            {window.electronAPI?.platform !== 'darwin' && (
+              <div className="w-[140px]" data-testid="windows-controls-spacer" />
+            )}
           </div>
         </div>
 

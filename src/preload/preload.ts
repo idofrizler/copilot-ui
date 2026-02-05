@@ -1,6 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 const electronAPI = {
+  // Platform information
+  platform: process.platform,
+
   // Copilot communication
   copilot: {
     send: (

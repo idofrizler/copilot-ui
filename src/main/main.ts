@@ -1828,6 +1828,8 @@ async function initCopilot(): Promise<void> {
 }
 
 function createWindow(): void {
+  const isMac = process.platform === 'darwin';
+
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 750,
@@ -1837,6 +1839,14 @@ function createWindow(): void {
     backgroundColor: '#0d1117',
     titleBarStyle: 'hidden',
     trafficLightPosition: { x: -100, y: -100 },
+    // On Windows/Linux, use native title bar overlay for minimize/maximize/close buttons
+    ...(!isMac && {
+      titleBarOverlay: {
+        color: '#0d1117',
+        symbolColor: '#ffffff',
+        height: 38,
+      },
+    }),
     hasShadow: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
