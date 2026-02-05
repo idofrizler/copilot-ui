@@ -47,7 +47,7 @@ const ModalHeader: React.FC<ModalHeaderProps> = ({ title, onClose, showCloseButt
     {showCloseButton && onClose && (
       <button
         onClick={onClose}
-        className="text-copilot-text-muted hover:text-copilot-text transition-colors"
+        className="p-2 -mr-2 text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover rounded transition-colors no-drag"
         aria-label="Close modal"
       >
         <CloseIcon size={14} />
@@ -87,12 +87,13 @@ export const Modal: React.FC<ModalProps> & {
 
   return (
     <div
-      className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50"
+      className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[100]"
+      style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       data-testid={testId}
     >
       <div
         className="bg-copilot-surface border border-copilot-border rounded-lg shadow-xl max-w-[90%]"
-        style={{ width }}
+        style={{ width, WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         role="dialog"
         aria-modal="true"
         aria-labelledby={`${testId}-title`}

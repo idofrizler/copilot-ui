@@ -270,6 +270,15 @@ export const WarningIcon: React.FC<IconProps> = ({ size = 24, className, strokeW
   </svg>
 );
 
+// Menu/Hamburger icon - for mobile navigation
+export const MenuIcon: React.FC<IconProps> = ({ size = 24, className, strokeWidth = 2 }) => (
+  <svg width={size} height={size} className={className} {...defaultProps} strokeWidth={strokeWidth}>
+    <line x1="3" y1="12" x2="21" y2="12" />
+    <line x1="3" y1="6" x2="21" y2="6" />
+    <line x1="3" y1="18" x2="21" y2="18" />
+  </svg>
+);
+
 // Play icon - for "Run in Terminal" functionality
 export const PlayIcon: React.FC<IconProps> = ({ size = 24, className }) => (
   <svg width={size} height={size} className={className} viewBox="0 0 24 24" fill="currentColor">
@@ -396,6 +405,7 @@ export const Icons = {
   Ralph: RalphIcon,
   Lisa: LisaIcon,
   Warning: WarningIcon,
+  Menu: MenuIcon,
   Play: PlayIcon,
   Archive: ArchiveIcon,
   Unarchive: UnarchiveIcon,

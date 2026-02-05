@@ -54,6 +54,10 @@ import {
   WarningIcon,
   ArchiveIcon,
   UnarchiveIcon,
+  SidebarDrawer,
+  AccordionSelect,
+  MenuIcon,
+  ZapIcon,
   SettingsModal,
   SettingsIcon,
   ToolActivitySection,
@@ -91,7 +95,7 @@ import { playNotificationSound } from './utils/sound';
 import { LONG_OUTPUT_LINE_THRESHOLD } from './utils/cliOutputCompression';
 import { isAsciiDiagram, extractTextContent } from './utils/isAsciiDiagram';
 import { isCliCommand } from './utils/isCliCommand';
-import { useClickOutside } from './hooks';
+import { useClickOutside, useResponsive } from './hooks';
 import buildInfo from './build-info.json';
 import { TerminalProvider } from './context/TerminalContext';
 
@@ -710,6 +714,19 @@ const App: React.FC = () => {
   const resizeStartX = useRef(0);
   const resizeStartWidth = useRef(0);
 
+  // Responsive state from hook
+  const { isMobile, isTablet, isDesktop, isMobileOrTablet, width: windowWidth } = useResponsive();
+
+  // Panel collapse state (for tablet/desktop) and drawer state (for mobile)
+  const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false);
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
+  const [leftDrawerOpen, setLeftDrawerOpen] = useState(false);
+  const [rightDrawerOpen, setRightDrawerOpen] = useState(false);
+
+  // Track if user manually toggled panels (prevents auto-collapse override)
+  const userToggledLeftRef = useRef(false);
+  const userToggledRightRef = useRef(false);
+
   // Update and Release Notes state
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<{
@@ -1053,6 +1070,58 @@ const App: React.FC = () => {
       document.removeEventListener('mouseup', handleMouseUp);
     };
   }, []);
+
+  // Auto-collapse panels based on responsive breakpoints
+  useEffect(() => {
+    // Auto-collapse logic for tablet (only if user hasn't manually toggled)
+    if (isTablet) {
+      // On tablet, collapse right panel by default
+      if (!userToggledRightRef.current && !rightPanelCollapsed) {
+        setRightPanelCollapsed(true);
+      }
+    } else if (isDesktop) {
+      // On desktop, expand panels if user hasn't toggled
+      if (!userToggledLeftRef.current && leftPanelCollapsed) {
+        setLeftPanelCollapsed(false);
+      }
+      if (!userToggledRightRef.current && rightPanelCollapsed) {
+        setRightPanelCollapsed(false);
+      }
+    }
+
+    // Close drawers when switching to desktop
+    if (isDesktop) {
+      setLeftDrawerOpen(false);
+      setRightDrawerOpen(false);
+    }
+  }, [isMobile, isTablet, isDesktop, leftPanelCollapsed, rightPanelCollapsed]);
+
+  // Reset user toggle flags when switching to desktop
+  useEffect(() => {
+    if (isDesktop) {
+      userToggledRightRef.current = false;
+      userToggledLeftRef.current = false;
+    }
+  }, [isDesktop]);
+
+  // Toggle handlers for manual panel collapse (tablet/desktop)
+  const toggleLeftPanel = useCallback(() => {
+    if (isMobileOrTablet) {
+      setLeftDrawerOpen((prev) => !prev);
+    } else {
+      userToggledLeftRef.current = true;
+      setLeftPanelCollapsed((prev) => !prev);
+    }
+  }, [isMobileOrTablet]);
+
+  const toggleRightPanel = useCallback(() => {
+    if (isMobileOrTablet) {
+      setRightDrawerOpen((prev) => !prev);
+    } else {
+      userToggledRightRef.current = true;
+      setRightPanelCollapsed((prev) => !prev);
+    }
+  }, [isMobileOrTablet]);
 
   // Reset textarea height when input is cleared
   useEffect(() => {
@@ -4255,7 +4324,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
             </div>
           </div>
 
-          <div className="flex items-center gap-2 no-drag">
+          <div className={`flex items-center gap-2 no-drag ${isMobile ? 'hidden' : ''}`}>
             {/* Model Selector */}
             <div data-tour="model-selector">
               <Dropdown
@@ -4297,104 +4366,635 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           </div>
         </div>
 
-        {/* Tab Bar */}
-        <div className="flex flex-1 overflow-hidden">
-          {/* Left Sidebar - Vertical Tabs */}
-          <div
-            className="bg-copilot-bg border-r border-copilot-border flex flex-col shrink-0"
-            style={{ width: leftPanelWidth }}
-          >
-            {/* New Session Button with Dropdown */}
-            <div className="relative group border-b border-copilot-border">
+        {/* Mobile Header Bar */}
+        {isMobile && (
+          <div className="flex items-center justify-between px-3 py-2 border-b border-copilot-border bg-copilot-surface">
+            <button
+              onClick={() => setLeftDrawerOpen(true)}
+              className="p-2 text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-bg rounded transition-colors"
+              title="Open sessions"
+            >
+              <MenuIcon size={20} />
+            </button>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-copilot-text truncate max-w-[150px]">
+                {activeTab?.name || 'New Session'}
+              </span>
+              {activeTab?.isProcessing && (
+                <span className="w-2 h-2 rounded-full bg-copilot-warning animate-pulse" />
+              )}
+            </div>
+            <button
+              onClick={() => setRightDrawerOpen(true)}
+              className="p-2 text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-bg rounded transition-colors"
+              title="Open activity"
+            >
+              <ZapIcon size={20} />
+            </button>
+          </div>
+        )}
+
+        {/* Mobile Left Drawer (Sessions) */}
+        <SidebarDrawer
+          isOpen={leftDrawerOpen}
+          onClose={() => setLeftDrawerOpen(false)}
+          side="left"
+          width={280}
+        >
+          <div className="flex flex-col h-full">
+            {/* Drawer Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-copilot-border">
+              <span className="text-sm font-medium text-copilot-text">Sessions</span>
               <button
-                onClick={() => handleNewTab()}
-                className="w-full flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setLeftDrawerOpen(false);
+                }}
+                className="p-2 text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface rounded transition-colors"
               >
-                <PlusIcon size={12} />
-                New Session
+                <CloseIcon size={20} />
               </button>
-              {/* Dropdown arrow / Worktree option on hover */}
-              <div className="absolute right-0 top-0 h-full flex items-center pr-2">
-                <div className="relative">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleNewWorktreeSession();
-                    }}
-                    className="p-1 text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover rounded opacity-0 group-hover:opacity-100 transition-opacity"
-                    title="New Worktree Session (isolated branch)"
-                    data-tour="new-worktree"
-                  >
-                    <GitBranchIcon size={12} />
-                  </button>
-                </div>
-              </div>
             </div>
 
-            {/* Open Tabs */}
-            <div className="flex-1 overflow-y-auto" data-tour="sidebar-tabs">
+            {/* New Session Buttons */}
+            <div className="border-b border-copilot-border">
+              <button
+                onClick={() => {
+                  handleNewTab();
+                  setLeftDrawerOpen(false);
+                }}
+                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+              >
+                <PlusIcon size={16} />
+                New Session
+              </button>
+              <button
+                onClick={() => {
+                  handleNewWorktreeSession();
+                  setLeftDrawerOpen(false);
+                }}
+                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+              >
+                <GitBranchIcon size={16} />
+                New Worktree Session
+              </button>
+            </div>
+
+            {/* Session List */}
+            <div className="flex-1 overflow-y-auto">
               {tabs.map((tab) => (
-                <div
+                <button
                   key={tab.id}
-                  onClick={() => handleSwitchTab(tab.id)}
-                  onContextMenu={(e) => handleTabContextMenu(e, tab.id)}
-                  className={`group w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors text-left cursor-pointer ${
+                  onClick={() => {
+                    handleSwitchTab(tab.id);
+                    setLeftDrawerOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-4 py-3 text-sm transition-colors text-left ${
                     tab.id === activeTabId
                       ? 'bg-copilot-surface text-copilot-text border-l-2 border-l-copilot-accent'
                       : 'text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface border-l-2 border-l-transparent'
                   }`}
                 >
-                  {/* Status indicator - priority: pending > processing > marked > unread > idle */}
+                  {/* Status indicator */}
                   {tab.pendingConfirmations.length > 0 ? (
                     <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-accent animate-pulse" />
                   ) : tab.isProcessing ? (
                     <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-warning animate-pulse" />
-                  ) : tab.markedForReview ? (
-                    <span
-                      className="shrink-0 w-2 h-2 rounded-full bg-cyan-500"
-                      title="Marked for review"
-                    />
                   ) : tab.hasUnreadCompletion ? (
                     <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-success" />
                   ) : (
                     <span className="shrink-0 w-2 h-2 rounded-full bg-transparent" />
                   )}
-                  {tab.isRenaming ? (
-                    <input
-                      autoFocus
-                      value={tab.renameDraft ?? tab.name}
-                      onChange={(e) =>
-                        setTabs((prev) =>
-                          prev.map((t) =>
-                            t.id === tab.id ? { ...t, renameDraft: e.target.value } : t
-                          )
-                        )
-                      }
-                      onClick={(e) => e.stopPropagation()}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === 'Escape') {
-                          e.preventDefault();
+                  <span className="truncate flex-1">{tab.name}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Session History */}
+            <div className="border-t border-copilot-border">
+              <button
+                onClick={() => {
+                  setShowSessionHistory(true);
+                  setLeftDrawerOpen(false);
+                }}
+                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+              >
+                <HistoryIcon size={16} />
+                Session History
+                {previousSessions.length > 0 && (
+                  <span className="ml-auto text-xs bg-copilot-bg px-2 py-0.5 rounded">
+                    {previousSessions.length}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {/* Settings Section - Model & Theme */}
+            <div className="border-t border-copilot-border">
+              <div className="px-4 py-2">
+                <span className="text-[10px] text-copilot-text-muted uppercase tracking-wide">
+                  Settings
+                </span>
+              </div>
+
+              {/* Model Selector */}
+              <AccordionSelect
+                label="Model"
+                icon={<MonitorIcon size={14} />}
+                value={activeTab?.model || null}
+                options={availableModels.map((m) => ({
+                  id: m.id,
+                  label: m.name || m.id,
+                  rightContent: (
+                    <span
+                      className={`text-xs ${
+                        m.multiplier === 0
+                          ? 'text-copilot-success'
+                          : m.multiplier < 1
+                            ? 'text-copilot-success'
+                            : m.multiplier > 1
+                              ? 'text-copilot-warning'
+                              : 'text-copilot-text-muted'
+                      }`}
+                    >
+                      {m.multiplier === 0 ? 'free' : `${m.multiplier}×`}
+                    </span>
+                  ),
+                }))}
+                onSelect={(modelId) => {
+                  handleModelChange(modelId);
+                }}
+                testId="mobile-drawer-model-select"
+              />
+
+              {/* Settings Button */}
+              <button
+                onClick={() => {
+                  setLeftDrawerOpen(false);
+                  setShowSettingsModal(true);
+                }}
+                className="flex items-center gap-3 w-full px-4 py-3 text-sm text-copilot-text hover:bg-copilot-surface-hover border-b border-copilot-border transition-colors"
+                data-testid="mobile-drawer-settings-button"
+              >
+                <SettingsIcon size={14} className="text-copilot-text-muted" />
+                <span>Settings</span>
+              </button>
+            </div>
+          </div>
+        </SidebarDrawer>
+
+        {/* Mobile Right Drawer (Activity) */}
+        <SidebarDrawer
+          isOpen={rightDrawerOpen}
+          onClose={() => setRightDrawerOpen(false)}
+          side="right"
+          width={300}
+        >
+          <div className="flex flex-col h-full">
+            {/* Drawer Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-copilot-border">
+              <span className="text-sm font-medium text-copilot-text">Activity</span>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setRightDrawerOpen(false);
+                }}
+                className="p-2 text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface rounded transition-colors"
+              >
+                <CloseIcon size={20} />
+              </button>
+            </div>
+
+            {/* Activity Content - Using AccordionSelect for mobile-friendly UI */}
+            <div className="flex-1 overflow-y-auto">
+              {/* Status */}
+              <div className="px-4 py-3 border-b border-copilot-border">
+                <div className="flex items-center gap-2">
+                  {activeTab?.isProcessing ? (
+                    <>
+                      <span className="w-2 h-2 rounded-full bg-copilot-warning animate-pulse" />
+                      <span className="text-sm text-copilot-text">
+                        {activeTab?.currentIntent || 'Working...'}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="w-2 h-2 rounded-full bg-copilot-success" />
+                      <span className="text-sm text-copilot-text-muted">Ready</span>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Working Directory */}
+              <AccordionSelect
+                label="Directory"
+                icon={<FolderIcon size={14} />}
+                value={activeTab?.cwd || null}
+                displayValue={activeTab?.cwd?.split('/').pop() || 'Unknown'}
+                options={[]}
+                onSelect={() => {}}
+              />
+
+              {/* Git Branch */}
+              <div className="px-4 py-3 border-b border-copilot-border">
+                <div className="text-xs text-copilot-text-muted uppercase tracking-wide mb-2">
+                  Git Branch
+                </div>
+                <GitBranchWidget cwd={activeTab?.cwd} refreshKey={activeTab?.gitBranchRefresh} />
+              </div>
+
+              {/* Edited Files Count */}
+              {cleanedEditedFiles.length > 0 && (
+                <div className="px-4 py-3 border-b border-copilot-border">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <FileIcon size={14} className="text-copilot-success" />
+                      <span className="text-sm text-copilot-text">Edited Files</span>
+                    </div>
+                    <span className="text-sm text-copilot-accent">{cleanedEditedFiles.length}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Allowed Commands */}
+              <div className="border-b border-copilot-border">
+                <button
+                  onClick={() => {
+                    setShowAllowedCommands(!showAllowedCommands);
+                    if (!showAllowedCommands) {
+                      refreshAlwaysAllowed();
+                      refreshGlobalSafeCommands();
+                    }
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-sm text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                >
+                  <ChevronRightIcon
+                    size={14}
+                    className={`transition-transform ${showAllowedCommands ? 'rotate-90' : ''}`}
+                  />
+                  <span>Allowed Commands</span>
+                  {(activeTab?.alwaysAllowed.length || 0) + globalSafeCommands.length > 0 && (
+                    <span className="ml-auto text-copilot-accent">
+                      {(activeTab?.alwaysAllowed.length || 0) + globalSafeCommands.length}
+                    </span>
+                  )}
+                </button>
+                {showAllowedCommands && (
+                  <div className="px-4 pb-3">
+                    {/* Add command input */}
+                    <div className="flex flex-col gap-2 mb-2">
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={addCommandScope}
+                          onChange={(e) =>
+                            setAddCommandScope(e.target.value as 'session' | 'global')
+                          }
+                          className="px-2 py-1.5 text-xs bg-copilot-surface border border-copilot-border rounded text-copilot-text shrink-0"
+                        >
+                          <option value="session">Session</option>
+                          <option value="global">Global</option>
+                        </select>
+                        <input
+                          type="text"
+                          value={addCommandValue}
+                          onChange={(e) => setAddCommandValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleAddAllowedCommand();
+                          }}
+                          placeholder="npm, git..."
+                          className="flex-1 min-w-0 px-2 py-1.5 text-xs bg-copilot-surface border border-copilot-border rounded text-copilot-text placeholder:text-copilot-text-muted"
+                        />
+                        <button
+                          onClick={handleAddAllowedCommand}
+                          disabled={!addCommandValue.trim()}
+                          className="px-2 py-1.5 text-xs bg-copilot-accent text-copilot-text rounded disabled:opacity-50 shrink-0"
+                        >
+                          Add
+                        </button>
+                      </div>
+                    </div>
+                    {/* Commands list */}
+                    <div className="max-h-32 overflow-y-auto space-y-1">
+                      {(activeTab?.alwaysAllowed.length || 0) + globalSafeCommands.length === 0 ? (
+                        <div className="text-xs text-copilot-text-muted">No allowed commands</div>
+                      ) : (
+                        <>
+                          {globalSafeCommands.map((cmd) => (
+                            <div key={`global-${cmd}`} className="flex items-center gap-2 text-xs">
+                              <GlobeIcon size={12} className="text-copilot-accent" />
+                              <span className="flex-1 truncate font-mono text-copilot-text-muted">
+                                {cmd}
+                              </span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRemoveGlobalSafeCommand(cmd);
+                                }}
+                                className="p-1 text-copilot-error hover:bg-copilot-surface rounded"
+                              >
+                                <CloseIcon size={14} />
+                              </button>
+                            </div>
+                          ))}
+                          {activeTab?.alwaysAllowed.map((cmd) => (
+                            <div key={`session-${cmd}`} className="flex items-center gap-2 text-xs">
+                              <span className="flex-1 truncate font-mono text-copilot-text-muted">
+                                {cmd}
+                              </span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRemoveAlwaysAllowed(cmd);
+                                }}
+                                className="p-1 text-copilot-error hover:bg-copilot-surface rounded"
+                              >
+                                <CloseIcon size={14} />
+                              </button>
+                            </div>
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* MCP Servers */}
+              <div className="border-b border-copilot-border">
+                <div className="flex items-center">
+                  <button
+                    onClick={() => setShowMcpServers(!showMcpServers)}
+                    className="flex-1 flex items-center gap-3 px-4 py-3 text-sm text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                  >
+                    <ChevronRightIcon
+                      size={14}
+                      className={`transition-transform ${showMcpServers ? 'rotate-90' : ''}`}
+                    />
+                    <span>MCP Servers</span>
+                    {Object.keys(mcpServers).length > 0 && (
+                      <span className="ml-auto text-copilot-accent">
+                        {Object.keys(mcpServers).length}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openAddMcpModal();
+                    }}
+                    className="mr-3 p-1.5 text-copilot-success hover:bg-copilot-surface rounded transition-colors"
+                    title="Add MCP server"
+                  >
+                    <PlusIcon size={16} />
+                  </button>
+                </div>
+                {showMcpServers && (
+                  <div className="px-4 pb-3">
+                    {Object.keys(mcpServers).length === 0 ? (
+                      <div className="text-xs text-copilot-text-muted">
+                        No MCP servers configured
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {Object.entries(mcpServers).map(([name, server]) => {
+                          const isLocal =
+                            !server.type || server.type === 'local' || server.type === 'stdio';
+                          const toolCount =
+                            server.tools[0] === '*' ? 'all' : `${server.tools.length}`;
+                          return (
+                            <div key={name} className="flex items-center gap-2 text-xs">
+                              {isLocal ? (
+                                <MonitorIcon size={12} className="text-copilot-accent" />
+                              ) : (
+                                <GlobeIcon size={12} className="text-copilot-accent" />
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <div className="text-copilot-text truncate">{name}</div>
+                                <div className="text-[10px] text-copilot-text-muted">
+                                  {toolCount} tools
+                                </div>
+                              </div>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openEditMcpModal(name, server);
+                                }}
+                                className="p-1.5 text-copilot-accent hover:bg-copilot-surface rounded"
+                              >
+                                <EditIcon size={14} />
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteMcpServer(name);
+                                }}
+                                className="p-1.5 text-copilot-error hover:bg-copilot-surface rounded"
+                              >
+                                <CloseIcon size={14} />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Agent Skills */}
+              <div className="border-b border-copilot-border">
+                <button
+                  onClick={() => setShowSkills(!showSkills)}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-sm text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                >
+                  <ChevronRightIcon
+                    size={14}
+                    className={`transition-transform ${showSkills ? 'rotate-90' : ''}`}
+                  />
+                  <span>Agent Skills</span>
+                  {skills.length > 0 && (
+                    <span className="ml-auto text-copilot-accent">{skills.length}</span>
+                  )}
+                </button>
+                {showSkills && (
+                  <div className="px-4 pb-3">
+                    {skills.length === 0 ? (
+                      <div className="text-xs text-copilot-text-muted">No skills found</div>
+                    ) : (
+                      <div className="space-y-2 max-h-32 overflow-y-auto">
+                        {skills.map((skill) => (
+                          <div key={skill.path} className="text-xs">
+                            <div className="flex items-center gap-2">
+                              <BookIcon size={12} className="text-copilot-accent" />
+                              <span className="text-copilot-text">{skill.name}</span>
+                            </div>
+                            <div className="text-[10px] text-copilot-text-muted ml-5 truncate">
+                              {skill.description}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </SidebarDrawer>
+
+        {/* Tab Bar - Desktop/Tablet Layout */}
+        <div className="flex flex-1 overflow-hidden">
+          {/* Left Panel Toggle Button (when collapsed) */}
+          {leftPanelCollapsed && !isMobile && (
+            <button
+              onClick={toggleLeftPanel}
+              className="shrink-0 w-10 bg-copilot-bg border-r border-copilot-border flex flex-col items-center py-2 gap-2 hover:bg-copilot-surface transition-colors"
+              title="Show sessions panel"
+            >
+              <ChevronRightIcon size={14} className="text-copilot-text-muted" />
+              <span
+                className="text-[10px] text-copilot-text-muted writing-mode-vertical"
+                style={{ writingMode: 'vertical-rl', textOrientation: 'mixed' }}
+              >
+                Sessions
+              </span>
+              {tabs.filter((t) => t.hasUnreadCompletion || t.pendingConfirmations.length > 0)
+                .length > 0 && (
+                <span className="w-2 h-2 rounded-full bg-copilot-accent animate-pulse" />
+              )}
+            </button>
+          )}
+
+          {/* Left Sidebar - Vertical Tabs */}
+          {!leftPanelCollapsed && !isMobile && (
+            <div
+              className="bg-copilot-bg border-r border-copilot-border flex flex-col shrink-0"
+              style={{ width: leftPanelWidth }}
+            >
+              {/* Collapse button + New Session Button */}
+              <div className="flex items-center border-b border-copilot-border">
+                <button
+                  onClick={toggleLeftPanel}
+                  className="shrink-0 p-2 text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                  title="Collapse sessions panel"
+                >
+                  <ChevronDownIcon size={12} className="rotate-90" />
+                </button>
+                <div className="relative group flex-1">
+                  <button
+                    onClick={() => handleNewTab()}
+                    className="w-full flex items-center gap-2 px-2 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                  >
+                    <PlusIcon size={12} />
+                    New Session
+                  </button>
+                  {/* Dropdown arrow / Worktree option on hover */}
+                  <div className="absolute right-0 top-0 h-full flex items-center pr-2">
+                    <div className="relative">
+                      <button
+                        onClick={(e) => {
                           e.stopPropagation();
-                        }
-                      }}
-                      onKeyUp={async (e) => {
-                        if (e.key === 'Escape') {
-                          e.stopPropagation();
+                          handleNewWorktreeSession();
+                        }}
+                        className="p-1 text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="New Worktree Session (isolated branch)"
+                        data-tour="new-worktree"
+                      >
+                        <GitBranchIcon size={12} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Open Tabs */}
+              <div className="flex-1 overflow-y-auto" data-tour="sidebar-tabs">
+                {tabs.map((tab) => (
+                  <div
+                    key={tab.id}
+                    onClick={() => handleSwitchTab(tab.id)}
+                    onContextMenu={(e) => handleTabContextMenu(e, tab.id)}
+                    className={`group w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors text-left cursor-pointer ${
+                      tab.id === activeTabId
+                        ? 'bg-copilot-surface text-copilot-text border-l-2 border-l-copilot-accent'
+                        : 'text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface border-l-2 border-l-transparent'
+                    }`}
+                  >
+                    {/* Status indicator - priority: pending > processing > marked > unread > idle */}
+                    {tab.pendingConfirmations.length > 0 ? (
+                      <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-accent animate-pulse" />
+                    ) : tab.isProcessing ? (
+                      <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-warning animate-pulse" />
+                    ) : tab.markedForReview ? (
+                      <span
+                        className="shrink-0 w-2 h-2 rounded-full bg-cyan-500"
+                        title="Marked for review"
+                      />
+                    ) : tab.hasUnreadCompletion ? (
+                      <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-success" />
+                    ) : (
+                      <span className="shrink-0 w-2 h-2 rounded-full bg-transparent" />
+                    )}
+                    {tab.isRenaming ? (
+                      <input
+                        autoFocus
+                        value={tab.renameDraft ?? tab.name}
+                        onChange={(e) =>
                           setTabs((prev) =>
                             prev.map((t) =>
-                              t.id === tab.id
-                                ? {
-                                    ...t,
-                                    isRenaming: false,
-                                    renameDraft: undefined,
-                                  }
-                                : t
+                              t.id === tab.id ? { ...t, renameDraft: e.target.value } : t
                             )
-                          );
-                          return;
+                          )
                         }
-                        if (e.key === 'Enter') {
-                          e.stopPropagation();
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === 'Escape') {
+                            e.preventDefault();
+                            e.stopPropagation();
+                          }
+                        }}
+                        onKeyUp={async (e) => {
+                          if (e.key === 'Escape') {
+                            e.stopPropagation();
+                            setTabs((prev) =>
+                              prev.map((t) =>
+                                t.id === tab.id
+                                  ? {
+                                      ...t,
+                                      isRenaming: false,
+                                      renameDraft: undefined,
+                                    }
+                                  : t
+                              )
+                            );
+                            return;
+                          }
+                          if (e.key === 'Enter') {
+                            e.stopPropagation();
+                            const nextName = (tab.renameDraft ?? tab.name).trim();
+                            const finalName = nextName || tab.name;
+                            setTabs((prev) =>
+                              prev.map((t) =>
+                                t.id === tab.id
+                                  ? {
+                                      ...t,
+                                      name: finalName,
+                                      isRenaming: false,
+                                      renameDraft: undefined,
+                                      needsTitle: false,
+                                    }
+                                  : t
+                              )
+                            );
+                            try {
+                              await window.electronAPI.copilot.renameSession(tab.id, finalName);
+                            } catch (err) {
+                              console.error('Failed to rename session:', err);
+                            }
+                          }
+                        }}
+                        onBlur={async () => {
                           const nextName = (tab.renameDraft ?? tab.name).trim();
                           const finalName = nextName || tab.name;
                           setTabs((prev) =>
@@ -4415,100 +5015,80 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                           } catch (err) {
                             console.error('Failed to rename session:', err);
                           }
-                        }
-                      }}
-                      onBlur={async () => {
-                        const nextName = (tab.renameDraft ?? tab.name).trim();
-                        const finalName = nextName || tab.name;
-                        setTabs((prev) =>
-                          prev.map((t) =>
-                            t.id === tab.id
-                              ? {
-                                  ...t,
-                                  name: finalName,
-                                  isRenaming: false,
-                                  renameDraft: undefined,
-                                  needsTitle: false,
-                                }
-                              : t
-                          )
-                        );
-                        try {
-                          await window.electronAPI.copilot.renameSession(tab.id, finalName);
-                        } catch (err) {
-                          console.error('Failed to rename session:', err);
-                        }
-                      }}
-                      className="flex-1 min-w-0 bg-copilot-bg border border-copilot-border rounded px-1 py-0.5 text-xs text-copilot-text outline-none focus:border-copilot-accent"
-                    />
-                  ) : (
-                    <span
-                      className="flex-1 truncate"
-                      onDoubleClick={(e) => {
-                        e.stopPropagation();
-                        setTabs((prev) =>
-                          prev.map((t) =>
-                            t.id === tab.id ? { ...t, isRenaming: true, renameDraft: t.name } : t
-                          )
-                        );
-                      }}
-                      title="Double-click to rename"
+                        }}
+                        className="flex-1 min-w-0 bg-copilot-bg border border-copilot-border rounded px-1 py-0.5 text-xs text-copilot-text outline-none focus:border-copilot-accent"
+                      />
+                    ) : (
+                      <span
+                        className="flex-1 truncate"
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          setTabs((prev) =>
+                            prev.map((t) =>
+                              t.id === tab.id ? { ...t, isRenaming: true, renameDraft: t.name } : t
+                            )
+                          );
+                        }}
+                        title="Double-click to rename"
+                      >
+                        {tab.name}
+                      </span>
+                    )}
+                    <button
+                      onClick={(e) => handleCloseTab(tab.id, e)}
+                      className="shrink-0 p-0.5 rounded hover:bg-copilot-border opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="Close tab"
                     >
-                      {tab.name}
-                    </span>
-                  )}
+                      <CloseIcon size={10} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {/* Bottom section - aligned with input area */}
+              <div className="mt-auto">
+                {/* Session History Button */}
+                <div className="border-t border-copilot-border h-[32px] flex items-center">
                   <button
-                    onClick={(e) => handleCloseTab(tab.id, e)}
-                    className="shrink-0 p-0.5 rounded hover:bg-copilot-border opacity-0 group-hover:opacity-100 transition-opacity"
-                    title="Close tab"
+                    onClick={() => setShowSessionHistory(true)}
+                    className="w-full h-full flex items-center gap-2 px-3 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
                   >
-                    <CloseIcon size={10} />
+                    <HistoryIcon size={14} strokeWidth={1.5} />
+                    <span>Session History</span>
+                    {tabs.length + previousSessions.length > 0 && (
+                      <span className="ml-auto text-[10px] bg-copilot-bg px-1.5 py-0.5 rounded">
+                        {tabs.length + previousSessions.length}
+                      </span>
+                    )}
                   </button>
                 </div>
-              ))}
-            </div>
 
-            {/* Bottom section - aligned with input area */}
-            <div className="mt-auto">
-              {/* Session History Button */}
-              <div className="border-t border-copilot-border h-[32px] flex items-center">
-                <button
-                  onClick={() => setShowSessionHistory(true)}
-                  className="w-full h-full flex items-center gap-2 px-3 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                {/* Build Info */}
+                <div
+                  className="border-t border-copilot-border h-[24px] flex items-center px-3 text-[10px] text-copilot-text-muted"
+                  title={`Build: ${buildInfo.version}\nBranch: ${buildInfo.gitBranch}\nCommit: ${buildInfo.gitSha}\nBuilt: ${buildInfo.buildDate} ${buildInfo.buildTime}`}
                 >
-                  <HistoryIcon size={14} strokeWidth={1.5} />
-                  <span>Session History</span>
-                  {tabs.length + previousSessions.length > 0 && (
-                    <span className="ml-auto text-[10px] bg-copilot-bg px-1.5 py-0.5 rounded">
-                      {tabs.length + previousSessions.length}
-                    </span>
-                  )}
-                </button>
-              </div>
-
-              {/* Build Info */}
-              <div
-                className="border-t border-copilot-border h-[24px] flex items-center px-3 text-[10px] text-copilot-text-muted"
-                title={`Build: ${buildInfo.version}\nBranch: ${buildInfo.gitBranch}\nCommit: ${buildInfo.gitSha}\nBuilt: ${buildInfo.buildDate} ${buildInfo.buildTime}`}
-              >
-                <span className="opacity-60">v{buildInfo.baseVersion}</span>
-                <span className="opacity-40 mx-1">•</span>
-                <span className="opacity-60 truncate">
-                  {buildInfo.gitBranch === 'main' || buildInfo.gitBranch === 'master'
-                    ? buildInfo.gitSha
-                    : buildInfo.gitBranch}
-                </span>
+                  <span className="opacity-60">v{buildInfo.baseVersion}</span>
+                  <span className="opacity-40 mx-1">•</span>
+                  <span className="opacity-60 truncate">
+                    {buildInfo.gitBranch === 'main' || buildInfo.gitBranch === 'master'
+                      ? buildInfo.gitSha
+                      : buildInfo.gitBranch}
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* Left Resize Handle */}
-          <div
-            className="w-0 cursor-col-resize shrink-0 relative z-10"
-            onMouseDown={(e) => handleResizeMouseDown(e, 'left')}
-          >
-            <div className="absolute inset-y-0 -left-1 w-2 hover:bg-copilot-accent/50 transition-colors" />
-          </div>
+          {!leftPanelCollapsed && !isMobile && (
+            <div
+              className="w-0 cursor-col-resize shrink-0 relative z-10"
+              onMouseDown={(e) => handleResizeMouseDown(e, 'left')}
+            >
+              <div className="absolute inset-y-0 -left-1 w-2 hover:bg-copilot-accent/50 transition-colors" />
+            </div>
+          )}
 
           {/* Main Content Area */}
           <div className="flex-1 flex flex-col min-h-0 min-w-0">
@@ -5667,12 +6247,20 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     isDraggingImage || isDraggingFile
                       ? 'Drop files here...'
                       : activeTab?.isProcessing
-                        ? 'Type to inject message to agent...'
+                        ? isMobile
+                          ? 'Inject message...'
+                          : 'Type to inject message to agent...'
                         : lisaEnabled
-                          ? 'Describe task for multi-phase analysis (Plan → Execute → Validate → Review)...'
+                          ? isMobile
+                            ? 'Describe task...'
+                            : 'Describe task for multi-phase analysis (Plan → Execute → Validate → Review)...'
                           : ralphEnabled
-                            ? 'Describe task with clear completion criteria...'
-                            : 'Ask Copilot... (Shift+Enter for new line)'
+                            ? isMobile
+                              ? 'Describe task...'
+                              : 'Describe task with clear completion criteria...'
+                            : isMobile
+                              ? 'Ask Copilot...'
+                              : 'Ask Copilot... (Shift+Enter for new line)'
                   }
                   className="flex-1 bg-transparent py-2.5 pl-3 pr-2 text-copilot-text placeholder-copilot-text-muted outline-none text-sm resize-none min-h-[40px] max-h-[200px]"
                   disabled={status !== 'connected'}
@@ -5768,499 +6356,224 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           </div>
 
           {/* Right Resize Handle */}
-          <div
-            className="w-0 cursor-col-resize shrink-0 relative z-10"
-            onMouseDown={(e) => handleResizeMouseDown(e, 'right')}
-          >
-            <div className="absolute inset-y-0 -right-1 w-2 hover:bg-copilot-accent/50 transition-colors" />
-          </div>
+          {!rightPanelCollapsed && !isMobile && (
+            <div
+              className="w-0 cursor-col-resize shrink-0 relative z-10"
+              onMouseDown={(e) => handleResizeMouseDown(e, 'right')}
+            >
+              <div className="absolute inset-y-0 -right-1 w-2 hover:bg-copilot-accent/50 transition-colors" />
+            </div>
+          )}
 
           {/* Right Panel - Activity & Session Info */}
-          <div
-            className="border-l border-copilot-border flex flex-col shrink-0 bg-copilot-bg"
-            style={{ width: rightPanelWidth }}
-          >
-            {/* Activity Header with Intent */}
-            <div className="px-3 py-2 border-b border-copilot-border bg-copilot-surface">
-              <div className="flex items-center gap-2">
-                {activeTab?.isProcessing ? (
-                  <>
-                    {activeTab?.lisaConfig?.active ? (
-                      <LisaIcon size={12} className="animate-pulse" />
-                    ) : activeTab?.ralphConfig?.active ? (
-                      <RalphIcon size={12} className="text-copilot-warning animate-pulse" />
-                    ) : (
-                      <span className="w-2 h-2 rounded-full bg-copilot-warning animate-pulse" />
-                    )}
-                    <span className="text-xs font-medium text-copilot-text truncate">
-                      {activeTab?.lisaConfig?.active
-                        ? (() => {
-                            const phase = activeTab.lisaConfig.currentPhase;
-                            const emoji: Record<LisaPhase, string> = {
-                              plan: '📋',
-                              'plan-review': '👀',
-                              execute: '💻',
-                              'code-review': '👀',
-                              validate: '🧪',
-                              'final-review': '👀',
-                            };
-                            const shortName: Record<LisaPhase, string> = {
-                              plan: 'Plan',
-                              'plan-review': 'Review',
-                              execute: 'Code',
-                              'code-review': 'Review',
-                              validate: 'Test',
-                              'final-review': 'Final',
-                            };
-                            return `Lisa ${emoji[phase]} ${shortName[phase]} ${activeTab.lisaConfig.phaseIterations[phase] || 1}`;
-                          })()
-                        : activeTab?.ralphConfig?.active
-                          ? `Ralph ${activeTab.ralphConfig.currentIteration}/${activeTab.ralphConfig.maxIterations}`
-                          : activeTab?.currentIntent || 'Working...'}
-                    </span>
-                    {(activeTab?.ralphConfig?.active || activeTab?.lisaConfig?.active) &&
-                      activeTab?.currentIntent && (
-                        <span className="text-[10px] text-copilot-text-muted truncate">
-                          — {activeTab.currentIntent}
-                        </span>
-                      )}
-                  </>
-                ) : (
-                  <>
-                    <span className="w-2 h-2 rounded-full bg-copilot-success" />
-                    <span className="text-xs font-medium text-copilot-text-muted">Ready</span>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* Session Info Section */}
-            <div className="flex-1 overflow-y-auto">
-              <div className="border-t border-copilot-border mt-auto">
-                {/* Working Directory */}
-                <div className="px-3 py-2 border-b border-copilot-surface">
-                  <div className="text-[10px] text-copilot-text-muted uppercase tracking-wide mb-1">
-                    Directory
-                  </div>
-                  <div className="flex items-center gap-1.5 text-xs min-w-0">
-                    <FolderIcon size={12} className="text-copilot-accent shrink-0" />
-                    <span className="text-copilot-text font-mono truncate" title={activeTab?.cwd}>
-                      {activeTab?.cwd || 'Unknown'}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Git Branch */}
-                <div className="px-3 py-2 border-b border-copilot-surface">
-                  <div className="flex items-center justify-between gap-2 mb-1">
-                    <div className="text-[10px] text-copilot-text-muted uppercase tracking-wide">
-                      Git Branch
-                    </div>
-                  </div>
-                  <GitBranchWidget cwd={activeTab?.cwd} refreshKey={activeTab?.gitBranchRefresh} />
-                </div>
-
-                {/* Edited Files */}
-                <div className="border-b border-copilot-surface" data-tour="edited-files">
-                  <div className="flex items-center">
-                    <button
-                      onClick={handleToggleEditedFiles}
-                      className="flex-1 flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
-                    >
-                      <ChevronRightIcon
-                        size={8}
-                        className={`transition-transform ${showEditedFiles ? 'rotate-90' : ''}`}
-                      />
-                      <span>Edited Files</span>
-                      {cleanedEditedFiles.length > 0 && (
-                        <span className="text-copilot-accent">
-                          ({cleanedEditedFiles.length - (activeTab?.untrackedFiles?.length || 0)})
-                        </span>
-                      )}
-                      {(activeTab?.untrackedFiles?.length || 0) > 0 && (
-                        <span
-                          className="text-copilot-text-muted"
-                          title="Untracked files (excluded from commit)"
-                        >
-                          +{activeTab?.untrackedFiles?.length} untracked
-                        </span>
-                      )}
-                      {showEditedFiles && !isGitRepo && (
-                        <span
-                          className="text-copilot-warning"
-                          title="Not in a Git repository. File list is based on manual tracking of files touched in this session."
-                        >
-                          <WarningIcon size={10} />
-                        </span>
-                      )}
-                    </button>
-                    {isGitRepo && (
-                      <IconButton
-                        icon={<CommitIcon size={12} />}
-                        onClick={handleOpenCommitModal}
-                        variant="accent"
-                        size="sm"
-                        title="Commit and push"
-                        className="mr-1"
-                      />
-                    )}
-                  </div>
-                  {showEditedFiles && activeTab && (
-                    <div className="max-h-48 overflow-y-auto" data-clarity-mask="true">
-                      {activeTab.editedFiles.length === 0 ? (
-                        <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
-                          No files edited
-                        </div>
+          {!rightPanelCollapsed && !isMobile ? (
+            <div
+              className="border-l border-copilot-border flex flex-col shrink-0 bg-copilot-bg"
+              style={{ width: rightPanelWidth }}
+            >
+              {/* Collapse button in header */}
+              <div className="px-2 py-2 border-b border-copilot-border bg-copilot-surface flex items-center gap-2">
+                <button
+                  onClick={toggleRightPanel}
+                  className="shrink-0 p-1 text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover rounded transition-colors"
+                  title="Collapse activity panel"
+                >
+                  <ChevronDownIcon size={12} className="-rotate-90" />
+                </button>
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                  {activeTab?.isProcessing ? (
+                    <>
+                      {activeTab?.lisaConfig?.active ? (
+                        <LisaIcon size={12} className="animate-pulse" />
+                      ) : activeTab?.ralphConfig?.active ? (
+                        <RalphIcon size={12} className="text-copilot-warning animate-pulse" />
                       ) : (
-                        // Simple flat list - clicking opens the full overlay
-                        cleanedEditedFiles.map((filePath) => {
-                          const isConflicted =
-                            isGitRepo &&
-                            conflictedFiles.some(
-                              (cf) =>
-                                filePath.endsWith(cf) ||
-                                cf.endsWith(filePath.split(/[/\\]/).pop() || '')
-                            );
-                          const isUntracked = (activeTab.untrackedFiles || []).includes(filePath);
-                          return (
-                            <button
-                              key={filePath}
-                              onClick={() => setFilePreviewPath(filePath)}
-                              className={`w-full flex items-center gap-2 px-3 py-1 text-[10px] hover:bg-copilot-surface text-left ${
-                                isUntracked
-                                  ? 'text-copilot-text-muted/50'
-                                  : isConflicted
-                                    ? 'text-copilot-error'
-                                    : 'text-copilot-text-muted'
-                              }`}
-                              title={
-                                isUntracked
-                                  ? `${filePath} (untracked) - Click to preview`
-                                  : isConflicted
-                                    ? `${filePath} (conflict) - Click to preview`
-                                    : `${filePath} - Click to preview`
-                              }
-                            >
-                              <FileIcon
-                                size={8}
-                                className={`shrink-0 ${
-                                  isUntracked
-                                    ? 'text-copilot-text-muted/50'
-                                    : isConflicted
-                                      ? 'text-copilot-error'
-                                      : 'text-copilot-success'
-                                }`}
-                              />
-                              <span
-                                className={`truncate font-mono ${isUntracked ? 'line-through' : ''}`}
-                              >
-                                {filePath}
-                              </span>
-                              {isConflicted && (
-                                <span className="text-[8px] text-copilot-error">!</span>
-                              )}
-                              {isUntracked && (
-                                <span className="text-[8px] text-copilot-text-muted">
-                                  (untracked)
-                                </span>
-                              )}
-                            </button>
-                          );
-                        })
+                        <span className="w-2 h-2 rounded-full bg-copilot-warning animate-pulse" />
                       )}
-                    </div>
+                      <span className="text-xs font-medium text-copilot-text truncate">
+                        {activeTab?.lisaConfig?.active
+                          ? (() => {
+                              const phase = activeTab.lisaConfig.currentPhase;
+                              const emoji: Record<LisaPhase, string> = {
+                                plan: '📋',
+                                'plan-review': '👀',
+                                execute: '💻',
+                                'code-review': '👀',
+                                validate: '🧪',
+                                'final-review': '👀',
+                              };
+                              const shortName: Record<LisaPhase, string> = {
+                                plan: 'Plan',
+                                'plan-review': 'Review',
+                                execute: 'Code',
+                                'code-review': 'Review',
+                                validate: 'Test',
+                                'final-review': 'Final',
+                              };
+                              return `Lisa ${emoji[phase]} ${shortName[phase]} ${activeTab.lisaConfig.phaseIterations[phase] || 1}`;
+                            })()
+                          : activeTab?.ralphConfig?.active
+                            ? `Ralph ${activeTab.ralphConfig.currentIteration}/${activeTab.ralphConfig.maxIterations}`
+                            : activeTab?.currentIntent || 'Working...'}
+                      </span>
+                      {(activeTab?.ralphConfig?.active || activeTab?.lisaConfig?.active) &&
+                        activeTab?.currentIntent && (
+                          <span className="text-[10px] text-copilot-text-muted truncate">
+                            — {activeTab.currentIntent}
+                          </span>
+                        )}
+                    </>
+                  ) : (
+                    <>
+                      <span className="w-2 h-2 rounded-full bg-copilot-success" />
+                      <span className="text-xs font-medium text-copilot-text-muted">Ready</span>
+                    </>
                   )}
                 </div>
+              </div>
 
-                {/* Allowed Commands (merged session + global) */}
-                <div className="border-b border-copilot-border" data-tour="allowed-commands">
-                  <div className="flex items-center">
-                    <button
-                      onClick={() => {
-                        setShowAllowedCommands(!showAllowedCommands);
-                        if (!showAllowedCommands) {
-                          refreshAlwaysAllowed();
-                          refreshGlobalSafeCommands();
-                        } else {
-                          // Hide the add command input when collapsing
-                          setShowAddAllowedCommand(false);
-                        }
-                      }}
-                      className="flex-1 flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
-                    >
-                      <ChevronRightIcon
-                        size={8}
-                        className={`transition-transform ${showAllowedCommands ? 'rotate-90' : ''}`}
-                      />
-                      <span>Allowed Commands</span>
-                      {(activeTab?.alwaysAllowed.length || 0) + globalSafeCommands.length > 0 && (
-                        <span className="text-copilot-accent">
-                          ({(activeTab?.alwaysAllowed.length || 0) + globalSafeCommands.length})
-                        </span>
-                      )}
-                    </button>
-                    <div className="relative mr-1">
-                      <IconButton
-                        icon={<PlusIcon size={12} />}
-                        onClick={() => {
-                          setShowAddAllowedCommand(!showAddAllowedCommand);
-                          if (!showAllowedCommands) {
-                            setShowAllowedCommands(true);
-                            refreshAlwaysAllowed();
-                            refreshGlobalSafeCommands();
-                          }
-                        }}
-                        variant="success"
-                        size="sm"
-                        title="Add allowed command"
-                      />
+              {/* Session Info Section */}
+              <div className="flex-1 overflow-y-auto">
+                {/* Processing indicator when no tools visible */}
+                {activeTab?.isProcessing && (activeTab?.activeTools?.length || 0) === 0 && (
+                  <div className="px-3 py-3 flex items-center gap-2 border-b border-copilot-surface">
+                    <Spinner size="sm" />
+                    <span className="text-xs text-copilot-text-muted">Thinking...</span>
+                  </div>
+                )}
+
+                <div className="border-t border-copilot-border mt-auto">
+                  {/* Working Directory */}
+                  <div className="px-3 py-2 border-b border-copilot-surface">
+                    <div className="text-[10px] text-copilot-text-muted uppercase tracking-wide mb-1">
+                      Directory
+                    </div>
+                    <div className="flex items-center gap-1.5 text-xs min-w-0">
+                      <FolderIcon size={12} className="text-copilot-accent shrink-0" />
+                      <span className="text-copilot-text font-mono truncate" title={activeTab?.cwd}>
+                        {activeTab?.cwd || 'Unknown'}
+                      </span>
                     </div>
                   </div>
-                  {showAddAllowedCommand && activeTab && (
-                    <div className="px-3 pb-2">
-                      <div className="flex items-center gap-2">
-                        <select
-                          value={addCommandScope}
-                          onChange={(e) =>
-                            setAddCommandScope(e.target.value as 'session' | 'global')
-                          }
-                          className="px-2 py-1 text-[10px] bg-copilot-surface border border-copilot-border rounded text-copilot-text focus:outline-none focus:border-copilot-accent"
-                        >
-                          <option value="session">Session</option>
-                          <option
-                            value="global"
-                            disabled={addCommandValue.trim().toLowerCase().startsWith('write')}
-                          >
-                            Global
-                          </option>
-                        </select>
-                        <input
-                          type="text"
-                          value={addCommandValue}
-                          onChange={(e) => {
-                            setAddCommandValue(e.target.value);
-                            // Reset to session scope if user types a "write" command while global is selected
-                            if (
-                              addCommandScope === 'global' &&
-                              e.target.value.trim().toLowerCase().startsWith('write')
-                            ) {
-                              setAddCommandScope('session');
-                            }
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleAddAllowedCommand();
-                            if (e.key === 'Escape') {
-                              setShowAddAllowedCommand(false);
-                              setAddCommandValue('');
-                            }
-                          }}
-                          placeholder="e.g., npm, git, python"
-                          className="flex-1 px-2 py-1 text-[10px] bg-copilot-surface border border-copilot-border rounded text-copilot-text placeholder:text-copilot-text-muted focus:outline-none focus:border-copilot-accent"
-                          autoFocus
-                        />
-                        <button
-                          onClick={handleAddAllowedCommand}
-                          disabled={!addCommandValue.trim()}
-                          className="px-2 py-1 text-[10px] bg-copilot-accent text-copilot-text rounded hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          Add
-                        </button>
+
+                  {/* Git Branch */}
+                  <div className="px-3 py-2 border-b border-copilot-surface">
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <div className="text-[10px] text-copilot-text-muted uppercase tracking-wide">
+                        Git Branch
                       </div>
                     </div>
-                  )}
-                  {showAllowedCommands && activeTab && (
-                    <div className="max-h-48 overflow-y-auto">
-                      {activeTab.alwaysAllowed.length === 0 && globalSafeCommands.length === 0 ? (
-                        <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
-                          No allowed commands
-                        </div>
-                      ) : (
-                        (() => {
-                          const isSpecialExe = (exe: string) =>
-                            exe.startsWith('write') ||
-                            exe.startsWith('url') ||
-                            exe.startsWith('mcp');
-                          const toPretty = (exe: string) => {
-                            const hasColon = exe.includes(':');
-                            const [rawPrefix, rawRest] = hasColon ? exe.split(':', 2) : [exe, null];
-                            const prefix = rawPrefix;
-                            const rest = rawRest;
+                    <GitBranchWidget
+                      cwd={activeTab?.cwd}
+                      refreshKey={activeTab?.gitBranchRefresh}
+                    />
+                  </div>
 
-                            const isSpecial =
-                              prefix === 'write' || prefix === 'url' || prefix === 'mcp';
-                            const meaning =
-                              prefix === 'write'
-                                ? 'File changes'
-                                : prefix === 'url'
-                                  ? 'Web access'
-                                  : prefix === 'mcp'
-                                    ? 'MCP tools'
-                                    : '';
-
-                            return isSpecial ? (rest ? `${meaning}: ${rest}` : meaning) : exe;
-                          };
-
-                          // Combine session and global commands with type indicator
-                          type AllowedCommand = {
-                            cmd: string;
-                            isGlobal: boolean;
-                            isSpecial: boolean;
-                            pretty: string;
-                          };
-                          const allCommands: AllowedCommand[] = [
-                            ...activeTab.alwaysAllowed.map((cmd) => ({
-                              cmd,
-                              isGlobal: false,
-                              isSpecial: isSpecialExe(cmd),
-                              pretty: toPretty(cmd),
-                            })),
-                            ...globalSafeCommands.map((cmd) => ({
-                              cmd,
-                              isGlobal: true,
-                              isSpecial: false,
-                              pretty: cmd,
-                            })),
-                          ].sort((a, b) => {
-                            // Global commands first, then special, then alphabetically
-                            if (a.isGlobal !== b.isGlobal) return a.isGlobal ? -1 : 1;
-                            if (a.isSpecial !== b.isSpecial) return a.isSpecial ? -1 : 1;
-                            return a.pretty.localeCompare(b.pretty);
-                          });
-
-                          return (
-                            <div className="pb-1">
-                              {allCommands.map(({ cmd, isGlobal, isSpecial, pretty }) => (
-                                <div
-                                  key={`${isGlobal ? 'global' : 'session'}-${cmd}`}
-                                  className="flex items-center gap-2 px-3 py-1 text-[10px] hover:bg-copilot-surface-hover transition-colors"
-                                >
-                                  {isGlobal && (
-                                    <GlobeIcon size={10} className="shrink-0 text-copilot-accent" />
-                                  )}
-                                  <span
-                                    className={`flex-1 truncate font-mono ${
-                                      isSpecial ? 'text-copilot-accent' : 'text-copilot-text-muted'
-                                    }`}
-                                    title={pretty}
-                                  >
-                                    {pretty}
-                                  </span>
-                                  <button
-                                    onClick={() =>
-                                      isGlobal
-                                        ? handleRemoveGlobalSafeCommand(cmd)
-                                        : handleRemoveAlwaysAllowed(cmd)
-                                    }
-                                    className="shrink-0 text-copilot-error hover:brightness-110"
-                                    title="Remove"
-                                  >
-                                    <CloseIcon size={10} />
-                                  </button>
-                                </div>
-                              ))}
-                            </div>
-                          );
-                        })()
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* MCP Servers & Skills Section */}
-                <div data-tour="mcp-skills">
-                  {/* MCP Servers */}
-                  <div>
+                  {/* Edited Files */}
+                  <div className="border-b border-copilot-surface" data-tour="edited-files">
                     <div className="flex items-center">
                       <button
-                        onClick={() => setShowMcpServers(!showMcpServers)}
+                        onClick={handleToggleEditedFiles}
                         className="flex-1 flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
                       >
                         <ChevronRightIcon
                           size={8}
-                          className={`transition-transform ${showMcpServers ? 'rotate-90' : ''}`}
+                          className={`transition-transform ${showEditedFiles ? 'rotate-90' : ''}`}
                         />
-                        <span>MCP Servers</span>
-                        {Object.keys(mcpServers).length > 0 && (
+                        <span>Edited Files</span>
+                        {cleanedEditedFiles.length > 0 && (
                           <span className="text-copilot-accent">
-                            ({Object.keys(mcpServers).length})
+                            ({cleanedEditedFiles.length - (activeTab?.untrackedFiles?.length || 0)})
+                          </span>
+                        )}
+                        {(activeTab?.untrackedFiles?.length || 0) > 0 && (
+                          <span
+                            className="text-copilot-text-muted"
+                            title="Untracked files (excluded from commit)"
+                          >
+                            +{activeTab?.untrackedFiles?.length} untracked
+                          </span>
+                        )}
+                        {showEditedFiles && !isGitRepo && (
+                          <span
+                            className="text-copilot-warning"
+                            title="Not in a Git repository. File list is based on manual tracking of files touched in this session."
+                          >
+                            <WarningIcon size={10} />
                           </span>
                         )}
                       </button>
-                      <IconButton
-                        icon={<FileIcon size={12} />}
-                        onClick={() => setShowMcpJsonModal(true)}
-                        variant="accent"
-                        size="sm"
-                        title="View JSON config"
-                        className="mr-1"
-                      />
-                      <IconButton
-                        icon={<RepeatIcon size={12} />}
-                        onClick={handleRefreshMcpServers}
-                        variant="accent"
-                        size="sm"
-                        title="Refresh MCP servers"
-                        className="mr-1"
-                      />
-                      <IconButton
-                        icon={<PlusIcon size={12} />}
-                        onClick={openAddMcpModal}
-                        variant="success"
-                        size="sm"
-                        title="Add MCP server"
-                        className="mr-1"
-                      />
+                      {isGitRepo && (
+                        <IconButton
+                          icon={<CommitIcon size={12} />}
+                          onClick={handleOpenCommitModal}
+                          variant="accent"
+                          size="sm"
+                          title="Commit and push"
+                          className="mr-1"
+                        />
+                      )}
                     </div>
-                    {showMcpServers && (
-                      <div className="max-h-48 overflow-y-auto">
-                        {Object.keys(mcpServers).length === 0 ? (
+                    {showEditedFiles && activeTab && (
+                      <div className="max-h-48 overflow-y-auto" data-clarity-mask="true">
+                        {activeTab.editedFiles.length === 0 ? (
                           <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
-                            No MCP servers configured
+                            No files edited
                           </div>
                         ) : (
-                          Object.entries(mcpServers).map(([name, server]) => {
-                            const isLocal =
-                              !server.type || server.type === 'local' || server.type === 'stdio';
-                            const toolCount =
-                              server.tools[0] === '*' ? 'all' : `${server.tools.length}`;
+                          // Simple flat list - clicking opens the full overlay
+                          cleanedEditedFiles.map((filePath) => {
+                            const isConflicted =
+                              isGitRepo &&
+                              conflictedFiles.some(
+                                (cf) =>
+                                  filePath.endsWith(cf) ||
+                                  cf.endsWith(filePath.split(/[/\\]/).pop() || '')
+                              );
+                            const isUntracked = (activeTab.untrackedFiles || []).includes(filePath);
                             return (
-                              <div
-                                key={name}
-                                className="group px-3 py-1.5 hover:bg-copilot-surface border-b border-copilot-border last:border-b-0"
+                              <button
+                                key={filePath}
+                                onClick={() => setFilePreviewPath(filePath)}
+                                className={`w-full flex items-center gap-2 px-3 py-1 text-[10px] hover:bg-copilot-surface text-left ${
+                                  isUntracked
+                                    ? 'text-copilot-text-muted/50'
+                                    : isConflicted
+                                      ? 'text-copilot-error'
+                                      : 'text-copilot-text-muted'
+                                }`}
+                                title={
+                                  isUntracked
+                                    ? `${filePath} (untracked) - Click to preview`
+                                    : isConflicted
+                                      ? `${filePath} (conflict) - Click to preview`
+                                      : `${filePath} - Click to preview`
+                                }
                               >
-                                <div className="flex items-center gap-2">
-                                  {isLocal ? (
-                                    <MonitorIcon
-                                      size={10}
-                                      className="shrink-0 text-copilot-accent"
-                                    />
-                                  ) : (
-                                    <GlobeIcon size={10} className="shrink-0 text-copilot-accent" />
-                                  )}
-                                  <div className="flex-1 min-w-0">
-                                    <div className="text-xs text-copilot-text truncate">{name}</div>
-                                    <div className="text-[10px] text-copilot-accent">
-                                      {toolCount} tools
-                                    </div>
-                                  </div>
-                                  <div className="shrink-0 opacity-0 group-hover:opacity-100 flex gap-1">
-                                    <IconButton
-                                      icon={<EditIcon size={10} />}
-                                      onClick={() => openEditMcpModal(name, server)}
-                                      variant="accent"
-                                      size="xs"
-                                      title="Edit"
-                                    />
-                                    <IconButton
-                                      icon={<CloseIcon size={10} />}
-                                      onClick={() => handleDeleteMcpServer(name)}
-                                      variant="error"
-                                      size="xs"
-                                      title="Delete"
-                                    />
-                                  </div>
-                                </div>
-                              </div>
+                                <FileIcon
+                                  size={8}
+                                  className={`shrink-0 ${
+                                    isUntracked
+                                      ? 'text-copilot-text-muted/50'
+                                      : isConflicted
+                                        ? 'text-copilot-error'
+                                        : 'text-copilot-success'
+                                  }`}
+                                />
+                                <span
+                                  className={`truncate font-mono ${isUntracked ? 'line-through' : ''}`}
+                                >
+                                  {filePath}
+                                </span>
+                                {isConflicted && (
+                                  <span className="text-[8px] text-copilot-error">!</span>
+                                )}
+                                {isUntracked && (
+                                  <span className="text-[8px] text-copilot-text-muted">
+                                    (untracked)
+                                  </span>
+                                )}
+                              </button>
                             );
                           })
                         )}
@@ -6268,67 +6581,394 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     )}
                   </div>
 
-                  {/* Separator */}
-                  <div className="border-t border-copilot-border" />
-
-                  {/* Agent Skills */}
-                  <div>
+                  {/* Allowed Commands (merged session + global) */}
+                  <div className="border-b border-copilot-border" data-tour="allowed-commands">
                     <div className="flex items-center">
                       <button
-                        onClick={() => setShowSkills(!showSkills)}
+                        onClick={() => {
+                          setShowAllowedCommands(!showAllowedCommands);
+                          if (!showAllowedCommands) {
+                            refreshAlwaysAllowed();
+                            refreshGlobalSafeCommands();
+                          } else {
+                            // Hide the add command input when collapsing
+                            setShowAddAllowedCommand(false);
+                          }
+                        }}
                         className="flex-1 flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
                       >
                         <ChevronRightIcon
                           size={8}
-                          className={`transition-transform ${showSkills ? 'rotate-90' : ''}`}
+                          className={`transition-transform ${showAllowedCommands ? 'rotate-90' : ''}`}
                         />
-                        <span>Agent Skills</span>
-                        {skills.length > 0 && (
-                          <span className="text-copilot-accent">({skills.length})</span>
+                        <span>Allowed Commands</span>
+                        {(activeTab?.alwaysAllowed.length || 0) + globalSafeCommands.length > 0 && (
+                          <span className="text-copilot-accent">
+                            ({(activeTab?.alwaysAllowed.length || 0) + globalSafeCommands.length})
+                          </span>
                         )}
                       </button>
+                      <div className="relative mr-1">
+                        <IconButton
+                          icon={<PlusIcon size={12} />}
+                          onClick={() => {
+                            setShowAddAllowedCommand(!showAddAllowedCommand);
+                            if (!showAllowedCommands) {
+                              setShowAllowedCommands(true);
+                              refreshAlwaysAllowed();
+                              refreshGlobalSafeCommands();
+                            }
+                          }}
+                          variant="success"
+                          size="sm"
+                          title="Add allowed command"
+                        />
+                      </div>
                     </div>
-                    {showSkills && (
+                    {showAddAllowedCommand && activeTab && (
+                      <div className="px-3 pb-2">
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={addCommandScope}
+                            onChange={(e) =>
+                              setAddCommandScope(e.target.value as 'session' | 'global')
+                            }
+                            className="px-2 py-1 text-[10px] bg-copilot-surface border border-copilot-border rounded text-copilot-text focus:outline-none focus:border-copilot-accent"
+                          >
+                            <option value="session">Session</option>
+                            <option
+                              value="global"
+                              disabled={addCommandValue.trim().toLowerCase().startsWith('write')}
+                            >
+                              Global
+                            </option>
+                          </select>
+                          <input
+                            type="text"
+                            value={addCommandValue}
+                            onChange={(e) => {
+                              setAddCommandValue(e.target.value);
+                              // Reset to session scope if user types a "write" command while global is selected
+                              if (
+                                addCommandScope === 'global' &&
+                                e.target.value.trim().toLowerCase().startsWith('write')
+                              ) {
+                                setAddCommandScope('session');
+                              }
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleAddAllowedCommand();
+                              if (e.key === 'Escape') {
+                                setShowAddAllowedCommand(false);
+                                setAddCommandValue('');
+                              }
+                            }}
+                            placeholder="e.g., npm, git, python"
+                            className="flex-1 px-2 py-1 text-[10px] bg-copilot-surface border border-copilot-border rounded text-copilot-text placeholder:text-copilot-text-muted focus:outline-none focus:border-copilot-accent"
+                            autoFocus
+                          />
+                          <button
+                            onClick={handleAddAllowedCommand}
+                            disabled={!addCommandValue.trim()}
+                            className="px-2 py-1 text-[10px] bg-copilot-accent text-copilot-text rounded hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            Add
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {showAllowedCommands && activeTab && (
                       <div className="max-h-48 overflow-y-auto">
-                        {skills.length === 0 ? (
+                        {activeTab.alwaysAllowed.length === 0 && globalSafeCommands.length === 0 ? (
                           <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
-                            No skills found
+                            No allowed commands
                           </div>
                         ) : (
-                          skills.map((skill) => (
-                            <div
-                              key={skill.path}
-                              className="group px-3 py-1.5 hover:bg-copilot-surface border-b border-copilot-border last:border-b-0"
-                            >
-                              <div className="flex items-center gap-2">
-                                <BookIcon size={10} className="shrink-0 text-copilot-accent" />
-                                <div className="flex-1 min-w-0">
-                                  <div className="text-xs text-copilot-text truncate">
-                                    {skill.name}
-                                  </div>
+                          (() => {
+                            const isSpecialExe = (exe: string) =>
+                              exe.startsWith('write') ||
+                              exe.startsWith('url') ||
+                              exe.startsWith('mcp');
+                            const toPretty = (exe: string) => {
+                              const hasColon = exe.includes(':');
+                              const [rawPrefix, rawRest] = hasColon
+                                ? exe.split(':', 2)
+                                : [exe, null];
+                              const prefix = rawPrefix;
+                              const rest = rawRest;
+
+                              const isSpecial =
+                                prefix === 'write' || prefix === 'url' || prefix === 'mcp';
+                              const meaning =
+                                prefix === 'write'
+                                  ? 'File changes'
+                                  : prefix === 'url'
+                                    ? 'Web access'
+                                    : prefix === 'mcp'
+                                      ? 'MCP tools'
+                                      : '';
+
+                              return isSpecial ? (rest ? `${meaning}: ${rest}` : meaning) : exe;
+                            };
+
+                            // Combine session and global commands with type indicator
+                            type AllowedCommand = {
+                              cmd: string;
+                              isGlobal: boolean;
+                              isSpecial: boolean;
+                              pretty: string;
+                            };
+                            const allCommands: AllowedCommand[] = [
+                              ...activeTab.alwaysAllowed.map((cmd) => ({
+                                cmd,
+                                isGlobal: false,
+                                isSpecial: isSpecialExe(cmd),
+                                pretty: toPretty(cmd),
+                              })),
+                              ...globalSafeCommands.map((cmd) => ({
+                                cmd,
+                                isGlobal: true,
+                                isSpecial: false,
+                                pretty: cmd,
+                              })),
+                            ].sort((a, b) => {
+                              // Global commands first, then special, then alphabetically
+                              if (a.isGlobal !== b.isGlobal) return a.isGlobal ? -1 : 1;
+                              if (a.isSpecial !== b.isSpecial) return a.isSpecial ? -1 : 1;
+                              return a.pretty.localeCompare(b.pretty);
+                            });
+
+                            return (
+                              <div className="pb-1">
+                                {allCommands.map(({ cmd, isGlobal, isSpecial, pretty }) => (
                                   <div
-                                    className="text-[10px] text-copilot-text-muted truncate"
-                                    title={skill.description}
+                                    key={`${isGlobal ? 'global' : 'session'}-${cmd}`}
+                                    className="flex items-center gap-2 px-3 py-1 text-[10px] hover:bg-copilot-surface-hover transition-colors"
                                   >
-                                    {skill.description}
+                                    {isGlobal && (
+                                      <GlobeIcon
+                                        size={10}
+                                        className="shrink-0 text-copilot-accent"
+                                      />
+                                    )}
+                                    <span
+                                      className={`flex-1 truncate font-mono ${
+                                        isSpecial
+                                          ? 'text-copilot-accent'
+                                          : 'text-copilot-text-muted'
+                                      }`}
+                                      title={pretty}
+                                    >
+                                      {pretty}
+                                    </span>
+                                    <button
+                                      onClick={() =>
+                                        isGlobal
+                                          ? handleRemoveGlobalSafeCommand(cmd)
+                                          : handleRemoveAlwaysAllowed(cmd)
+                                      }
+                                      className="shrink-0 text-copilot-error hover:brightness-110"
+                                      title="Remove"
+                                    >
+                                      <CloseIcon size={10} />
+                                    </button>
                                   </div>
-                                  <div className="text-[9px] text-copilot-accent">
-                                    {skill.type === 'personal' ? '~/' : '.'}/
-                                    {skill.source === 'copilot' ? '.copilot' : '.claude'}/skills
-                                  </div>
-                                </div>
+                                ))}
                               </div>
-                            </div>
-                          ))
+                            );
+                          })()
                         )}
                       </div>
                     )}
                   </div>
+
+                  {/* MCP Servers & Skills Section */}
+                  <div data-tour="mcp-skills">
+                    {/* MCP Servers */}
+                    <div>
+                      <div className="flex items-center">
+                        <button
+                          onClick={() => setShowMcpServers(!showMcpServers)}
+                          className="flex-1 flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                        >
+                          <ChevronRightIcon
+                            size={8}
+                            className={`transition-transform ${showMcpServers ? 'rotate-90' : ''}`}
+                          />
+                          <span>MCP Servers</span>
+                          {Object.keys(mcpServers).length > 0 && (
+                            <span className="text-copilot-accent">
+                              ({Object.keys(mcpServers).length})
+                            </span>
+                          )}
+                        </button>
+                        <IconButton
+                          icon={<FileIcon size={12} />}
+                          onClick={() => setShowMcpJsonModal(true)}
+                          variant="accent"
+                          size="sm"
+                          title="View JSON config"
+                          className="mr-1"
+                        />
+                        <IconButton
+                          icon={<RepeatIcon size={12} />}
+                          onClick={handleRefreshMcpServers}
+                          variant="accent"
+                          size="sm"
+                          title="Refresh MCP servers"
+                          className="mr-1"
+                        />
+                        <IconButton
+                          icon={<PlusIcon size={12} />}
+                          onClick={openAddMcpModal}
+                          variant="success"
+                          size="sm"
+                          title="Add MCP server"
+                          className="mr-1"
+                        />
+                      </div>
+                      {showMcpServers && (
+                        <div className="max-h-48 overflow-y-auto">
+                          {Object.keys(mcpServers).length === 0 ? (
+                            <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
+                              No MCP servers configured
+                            </div>
+                          ) : (
+                            Object.entries(mcpServers).map(([name, server]) => {
+                              const isLocal =
+                                !server.type || server.type === 'local' || server.type === 'stdio';
+                              const toolCount =
+                                server.tools[0] === '*' ? 'all' : `${server.tools.length}`;
+                              return (
+                                <div
+                                  key={name}
+                                  className="group px-3 py-1.5 hover:bg-copilot-surface border-b border-copilot-border last:border-b-0"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    {isLocal ? (
+                                      <MonitorIcon
+                                        size={10}
+                                        className="shrink-0 text-copilot-accent"
+                                      />
+                                    ) : (
+                                      <GlobeIcon
+                                        size={10}
+                                        className="shrink-0 text-copilot-accent"
+                                      />
+                                    )}
+                                    <div className="flex-1 min-w-0">
+                                      <div className="text-xs text-copilot-text truncate">
+                                        {name}
+                                      </div>
+                                      <div className="text-[10px] text-copilot-accent">
+                                        {toolCount} tools
+                                      </div>
+                                    </div>
+                                    <div className="shrink-0 opacity-0 group-hover:opacity-100 flex gap-1">
+                                      <IconButton
+                                        icon={<EditIcon size={10} />}
+                                        onClick={() => openEditMcpModal(name, server)}
+                                        variant="accent"
+                                        size="xs"
+                                        title="Edit"
+                                      />
+                                      <IconButton
+                                        icon={<CloseIcon size={10} />}
+                                        onClick={() => handleDeleteMcpServer(name)}
+                                        variant="error"
+                                        size="xs"
+                                        title="Delete"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Separator */}
+                    <div className="border-t border-copilot-border" />
+
+                    {/* Agent Skills */}
+                    <div>
+                      <div className="flex items-center">
+                        <button
+                          onClick={() => setShowSkills(!showSkills)}
+                          className="flex-1 flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                        >
+                          <ChevronRightIcon
+                            size={8}
+                            className={`transition-transform ${showSkills ? 'rotate-90' : ''}`}
+                          />
+                          <span>Agent Skills</span>
+                          {skills.length > 0 && (
+                            <span className="text-copilot-accent">({skills.length})</span>
+                          )}
+                        </button>
+                      </div>
+                      {showSkills && (
+                        <div className="max-h-48 overflow-y-auto">
+                          {skills.length === 0 ? (
+                            <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
+                              No skills found
+                            </div>
+                          ) : (
+                            skills.map((skill) => (
+                              <div
+                                key={skill.path}
+                                className="group px-3 py-1.5 hover:bg-copilot-surface border-b border-copilot-border last:border-b-0"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <BookIcon size={10} className="shrink-0 text-copilot-accent" />
+                                  <div className="flex-1 min-w-0">
+                                    <div className="text-xs text-copilot-text truncate">
+                                      {skill.name}
+                                    </div>
+                                    <div
+                                      className="text-[10px] text-copilot-text-muted truncate"
+                                      title={skill.description}
+                                    >
+                                      {skill.description}
+                                    </div>
+                                    <div className="text-[9px] text-copilot-accent">
+                                      {skill.type === 'personal' ? '~/' : '.'}/
+                                      {skill.source === 'copilot' ? '.copilot' : '.claude'}/skills
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {/* End MCP/Skills wrapper */}
                 </div>
-                {/* End MCP/Skills wrapper */}
               </div>
             </div>
-          </div>
+          ) : !isMobile ? (
+            /* Right Panel Toggle Button (when collapsed) */
+            <button
+              onClick={toggleRightPanel}
+              className="shrink-0 w-10 bg-copilot-bg border-l border-copilot-border flex flex-col items-center py-2 gap-2 hover:bg-copilot-surface transition-colors"
+              title="Show activity panel"
+            >
+              <ChevronDownIcon size={14} className="rotate-90 text-copilot-text-muted" />
+              <span
+                className="text-[10px] text-copilot-text-muted"
+                style={{ writingMode: 'vertical-rl', textOrientation: 'mixed' }}
+              >
+                Activity
+              </span>
+              {activeTab?.isProcessing && (
+                <span className="w-2 h-2 rounded-full bg-copilot-warning animate-pulse" />
+              )}
+            </button>
+          ) : null}
         </div>
 
         {/* Commit Modal */}
