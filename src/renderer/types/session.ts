@@ -65,6 +65,7 @@ export interface PendingConfirmation {
   toolCallId?: string;
   fullCommandText?: string;
   intention?: string;
+  description?: string; // Description of what the command does (from bash tool)
   path?: string;
   url?: string;
   serverName?: string;
