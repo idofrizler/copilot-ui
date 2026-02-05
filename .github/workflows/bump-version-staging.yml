@@ -27,6 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: staging
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions/setup-node@v4

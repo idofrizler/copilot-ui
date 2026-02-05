@@ -54,6 +54,9 @@ import {
   WarningIcon,
   ArchiveIcon,
   UnarchiveIcon,
+  SettingsModal,
+  SettingsIcon,
+  ToolActivitySection,
 } from './components';
 import {
   Status,
@@ -83,7 +86,7 @@ import {
   LISA_REVIEW_REJECT_PREFIX,
   Skill,
 } from './types';
-import { generateId, generateTabName, formatToolOutput, setTabCounter } from './utils/session';
+import { generateId, generateTabName, setTabCounter } from './utils/session';
 import { playNotificationSound } from './utils/sound';
 import { LONG_OUTPUT_LINE_THRESHOLD } from './utils/cliOutputCompression';
 import { isAsciiDiagram, extractTextContent } from './utils/isAsciiDiagram';
@@ -716,6 +719,13 @@ const App: React.FC = () => {
   } | null>(null);
   const [showReleaseNotesModal, setShowReleaseNotesModal] = useState(false);
 
+  // Settings modal state
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(() => {
+    const saved = localStorage.getItem('copilot-sound-enabled');
+    return saved !== null ? saved === 'true' : true; // Default to enabled
+  });
+
   // Welcome wizard state
   const [showWelcomeWizard, setShowWelcomeWizard] = useState(false);
   const [shouldShowWizardWhenReady, setShouldShowWizardWhenReady] = useState(false);
@@ -725,6 +735,12 @@ const App: React.FC = () => {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const activeTabIdRef = useRef<string | null>(null);
   const prevActiveTabIdRef = useRef<string | null>(null);
+  const soundEnabledRef = useRef(soundEnabled);
+
+  // Keep soundEnabledRef in sync with state
+  useEffect(() => {
+    soundEnabledRef.current = soundEnabled;
+  }, [soundEnabled]);
 
   // Keep ref in sync with state (update prevActiveTabIdRef BEFORE activeTabIdRef)
   useEffect(() => {
@@ -1445,7 +1461,9 @@ const App: React.FC = () => {
       lastIdleTimestampRef.current.set(sessionId, now);
 
       // Play notification sound when session completes
-      playNotificationSound();
+      if (soundEnabledRef.current) {
+        playNotificationSound();
+      }
 
       // Update tab state
       setTabs((prev) => {
@@ -1792,6 +1810,24 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
 
         return prev.map((tab) => {
           if (tab.id !== sessionId) return tab;
+          // Capture tools into the last assistant message before clearing
+          const toolsSnapshot = [...tab.activeTools];
+          const filteredMessages = tab.messages.filter(
+            (msg) => msg.content.trim() || msg.role === 'user'
+          );
+          // Find the last assistant message to attach tools
+          const lastAssistantIdx = filteredMessages.reduce(
+            (lastIdx, msg, idx) => (msg.role === 'assistant' ? idx : lastIdx),
+            -1
+          );
+          const updatedMessages = filteredMessages.map((msg, idx) => {
+            const withoutStreaming = msg.isStreaming ? { ...msg, isStreaming: false } : msg;
+            // Attach tools to the last assistant message
+            if (idx === lastAssistantIdx && toolsSnapshot.length > 0) {
+              return { ...withoutStreaming, tools: toolsSnapshot };
+            }
+            return withoutStreaming;
+          });
           return {
             ...tab,
             isProcessing: false,
@@ -1808,9 +1844,7 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
               : tab.lisaConfig,
             // Mark as unread if this tab is not currently active
             hasUnreadCompletion: tab.id !== activeTabIdRef.current,
-            messages: tab.messages
-              .filter((msg) => msg.content.trim() || msg.role === 'user')
-              .map((msg) => (msg.isStreaming ? { ...msg, isStreaming: false } : msg)),
+            messages: updatedMessages,
           };
         });
       });
@@ -1940,7 +1974,9 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       }
 
       // Play notification sound when permission is needed
-      playNotificationSound();
+      if (soundEnabledRef.current) {
+        playNotificationSound();
+      }
 
       // Spread all data to preserve any extra fields from SDK
       const confirmation: PendingConfirmation = {
@@ -3837,6 +3873,12 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     }
   };
 
+  // Handle sound enabled change
+  const handleSoundEnabledChange = (enabled: boolean) => {
+    setSoundEnabled(enabled);
+    localStorage.setItem('copilot-sound-enabled', String(enabled));
+  };
+
   const handleCloseTab = async (tabId: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
 
@@ -4244,57 +4286,14 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               />
             </div>
 
-            {/* Theme Selector */}
-            <Dropdown
-              value={themePreference}
-              options={[
-                {
-                  id: 'system',
-                  label: 'System',
-                  icon: <MonitorIcon size={12} />,
-                },
-                ...availableThemes.map((theme) => ({
-                  id: theme.id,
-                  label: theme.name,
-                  icon:
-                    theme.id === 'dark' ? (
-                      <MoonIcon size={12} />
-                    ) : theme.id === 'light' ? (
-                      <SunIcon size={12} />
-                    ) : (
-                      <PaletteIcon size={12} />
-                    ),
-                })),
-              ]}
-              onSelect={(id) => {
-                setTheme(id);
-                trackEvent(TelemetryEvents.FEATURE_THEME_CHANGED);
-              }}
-              trigger={
-                <>
-                  {activeTheme.type === 'dark' ? <MoonIcon size={12} /> : <SunIcon size={12} />}
-                  <span>{themePreference === 'system' ? 'System' : activeTheme.name}</span>
-                  <ChevronDownIcon size={10} />
-                </>
-              }
-              title="Theme"
-              minWidth="180px"
-              dividers={[0]}
-              footerActions={
-                <button
-                  onClick={async () => {
-                    const result = await importTheme();
-                    if (result.error) {
-                      console.error('Failed to import theme:', result.error);
-                    }
-                  }}
-                  className="w-full px-3 py-1.5 text-left text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover transition-colors flex items-center gap-2"
-                >
-                  <UploadIcon size={12} />
-                  <span>Import Theme...</span>
-                </button>
-              }
-            />
+            {/* Settings Button */}
+            <button
+              onClick={() => setShowSettingsModal(true)}
+              className="flex items-center gap-1.5 px-2 py-1 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover rounded transition-colors"
+              title="Settings"
+            >
+              <SettingsIcon size={14} />
+            </button>
           </div>
         </div>
 
@@ -4692,123 +4691,143 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                               </span>
                             )}
                           </>
-                        ) : message.content ? (
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            components={{
-                              p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                              strong: ({ children }) => (
-                                <strong className="font-semibold text-copilot-text">
-                                  {children}
-                                </strong>
-                              ),
-                              em: ({ children }) => <em className="italic">{children}</em>,
-                              ul: ({ children }) => (
-                                <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>
-                              ),
-                              ol: ({ children }) => (
-                                <ol className="list-decimal list-inside mb-2 space-y-1">
-                                  {children}
-                                </ol>
-                              ),
-                              li: ({ children }) => <li className="ml-2">{children}</li>,
-                              code: ({ children, className }) => {
-                                // Extract text content for analysis
-                                const textContent = extractTextContent(children);
+                        ) : (
+                          <>
+                            {/* Tool Activity Section for assistant messages */}
+                            {(() => {
+                              // Show live tools only if this message is actively streaming with content
+                              // (otherwise tools show in the thinking bubble)
+                              // For completed messages, show stored tools
+                              const isLive = message.isStreaming && message.content;
+                              const toolsToShow = isLive ? activeTab?.activeTools : message.tools;
+                              if (toolsToShow && toolsToShow.length > 0) {
+                                return (
+                                  <ToolActivitySection tools={toolsToShow} isLive={!!isLive} />
+                                );
+                              }
+                              return null;
+                            })()}
+                            {message.content ? (
+                              <ReactMarkdown
+                                remarkPlugins={[remarkGfm]}
+                                components={{
+                                  p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                                  strong: ({ children }) => (
+                                    <strong className="font-semibold text-copilot-text">
+                                      {children}
+                                    </strong>
+                                  ),
+                                  em: ({ children }) => <em className="italic">{children}</em>,
+                                  ul: ({ children }) => (
+                                    <ul className="list-disc list-inside mb-2 space-y-1">
+                                      {children}
+                                    </ul>
+                                  ),
+                                  ol: ({ children }) => (
+                                    <ol className="list-decimal list-inside mb-2 space-y-1">
+                                      {children}
+                                    </ol>
+                                  ),
+                                  li: ({ children }) => <li className="ml-2">{children}</li>,
+                                  code: ({ children, className }) => {
+                                    // Extract text content for analysis
+                                    const textContent = extractTextContent(children);
 
-                                // Fix block detection: treat as block if:
-                                // 1. Has language class (e.g., language-javascript)
-                                // 2. OR contains newlines (multi-line content)
-                                const hasLanguageClass = className?.includes('language-');
-                                const isMultiLine = textContent.includes('\n');
-                                const isBlock = hasLanguageClass || isMultiLine;
+                                    // Fix block detection: treat as block if:
+                                    // 1. Has language class (e.g., language-javascript)
+                                    // 2. OR contains newlines (multi-line content)
+                                    const hasLanguageClass = className?.includes('language-');
+                                    const isMultiLine = textContent.includes('\n');
+                                    const isBlock = hasLanguageClass || isMultiLine;
 
-                                // Check if content is an ASCII diagram
-                                const isDiagram = isAsciiDiagram(textContent);
+                                    // Check if content is an ASCII diagram
+                                    const isDiagram = isAsciiDiagram(textContent);
 
-                                // Check if this is a CLI command (should show run button)
-                                const isCliCmd = isCliCommand(className, textContent);
+                                    // Check if this is a CLI command (should show run button)
+                                    const isCliCmd = isCliCommand(className, textContent);
 
-                                if (isBlock) {
-                                  return (
-                                    <CodeBlockWithCopy
-                                      isDiagram={isDiagram}
-                                      textContent={textContent}
-                                      isCliCommand={isCliCmd}
+                                    if (isBlock) {
+                                      return (
+                                        <CodeBlockWithCopy
+                                          isDiagram={isDiagram}
+                                          textContent={textContent}
+                                          isCliCommand={isCliCmd}
+                                        >
+                                          {children}
+                                        </CodeBlockWithCopy>
+                                      );
+                                    } else {
+                                      return (
+                                        <code className="bg-copilot-bg px-1 py-0.5 rounded text-copilot-warning text-xs break-all">
+                                          {children}
+                                        </code>
+                                      );
+                                    }
+                                  },
+                                  pre: ({ children }) => (
+                                    <div className="overflow-x-auto max-w-full">{children}</div>
+                                  ),
+                                  a: ({ href, children }) => (
+                                    <a
+                                      href={href}
+                                      className="text-copilot-accent hover:underline"
+                                      target="_blank"
+                                      rel="noopener noreferrer"
                                     >
                                       {children}
-                                    </CodeBlockWithCopy>
-                                  );
-                                } else {
-                                  return (
-                                    <code className="bg-copilot-bg px-1 py-0.5 rounded text-copilot-warning text-xs break-all">
+                                    </a>
+                                  ),
+                                  h1: ({ children }) => (
+                                    <h1 className="text-lg font-bold mb-2 text-copilot-text">
                                       {children}
-                                    </code>
-                                  );
-                                }
-                              },
-                              pre: ({ children }) => (
-                                <div className="overflow-x-auto max-w-full">{children}</div>
-                              ),
-                              a: ({ href, children }) => (
-                                <a
-                                  href={href}
-                                  className="text-copilot-accent hover:underline"
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                >
-                                  {children}
-                                </a>
-                              ),
-                              h1: ({ children }) => (
-                                <h1 className="text-lg font-bold mb-2 text-copilot-text">
-                                  {children}
-                                </h1>
-                              ),
-                              h2: ({ children }) => (
-                                <h2 className="text-base font-bold mb-2 text-copilot-text">
-                                  {children}
-                                </h2>
-                              ),
-                              h3: ({ children }) => (
-                                <h3 className="text-sm font-bold mb-1 text-copilot-text">
-                                  {children}
-                                </h3>
-                              ),
-                              blockquote: ({ children }) => (
-                                <blockquote className="border-l-2 border-copilot-border pl-3 my-2 text-copilot-text-muted italic">
-                                  {children}
-                                </blockquote>
-                              ),
-                              table: ({ children }) => (
-                                <div className="overflow-x-auto my-2">
-                                  <table className="min-w-full border-collapse border border-copilot-border text-sm">
-                                    {children}
-                                  </table>
-                                </div>
-                              ),
-                              thead: ({ children }) => (
-                                <thead className="bg-copilot-bg">{children}</thead>
-                              ),
-                              tbody: ({ children }) => <tbody>{children}</tbody>,
-                              tr: ({ children }) => (
-                                <tr className="border-b border-copilot-border">{children}</tr>
-                              ),
-                              th: ({ children }) => (
-                                <th className="px-3 py-2 text-left font-semibold text-copilot-text border border-copilot-border">
-                                  {children}
-                                </th>
-                              ),
-                              td: ({ children }) => (
-                                <td className="px-3 py-2 text-copilot-text border border-copilot-border">
-                                  {children}
-                                </td>
-                              ),
-                            }}
-                          >
-                            {message.content}
-                          </ReactMarkdown>
-                        ) : null}
+                                    </h1>
+                                  ),
+                                  h2: ({ children }) => (
+                                    <h2 className="text-base font-bold mb-2 text-copilot-text">
+                                      {children}
+                                    </h2>
+                                  ),
+                                  h3: ({ children }) => (
+                                    <h3 className="text-sm font-bold mb-1 text-copilot-text">
+                                      {children}
+                                    </h3>
+                                  ),
+                                  blockquote: ({ children }) => (
+                                    <blockquote className="border-l-2 border-copilot-border pl-3 my-2 text-copilot-text-muted italic">
+                                      {children}
+                                    </blockquote>
+                                  ),
+                                  table: ({ children }) => (
+                                    <div className="overflow-x-auto my-2">
+                                      <table className="min-w-full border-collapse border border-copilot-border text-sm">
+                                        {children}
+                                      </table>
+                                    </div>
+                                  ),
+                                  thead: ({ children }) => (
+                                    <thead className="bg-copilot-bg">{children}</thead>
+                                  ),
+                                  tbody: ({ children }) => <tbody>{children}</tbody>,
+                                  tr: ({ children }) => (
+                                    <tr className="border-b border-copilot-border">{children}</tr>
+                                  ),
+                                  th: ({ children }) => (
+                                    <th className="px-3 py-2 text-left font-semibold text-copilot-text border border-copilot-border">
+                                      {children}
+                                    </th>
+                                  ),
+                                  td: ({ children }) => (
+                                    <td className="px-3 py-2 text-copilot-text border border-copilot-border">
+                                      {children}
+                                    </td>
+                                  ),
+                                }}
+                              >
+                                {message.content}
+                              </ReactMarkdown>
+                            ) : null}
+                          </>
+                        )}
                         {message.isStreaming && message.content && (
                           <span className="inline-block w-2 h-4 ml-1 bg-copilot-accent animate-pulse rounded-sm" />
                         )}
@@ -4844,6 +4863,10 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 !activeTab?.messages.some((m) => m.isStreaming && m.content) && (
                   <div className="flex flex-col items-start">
                     <div className="bg-copilot-surface text-copilot-text rounded-lg px-4 py-2.5">
+                      {/* Show live tools in the thinking bubble */}
+                      {activeTab?.activeTools && activeTab.activeTools.length > 0 && (
+                        <ToolActivitySection tools={activeTab.activeTools} isLive={true} />
+                      )}
                       <div className="flex items-center gap-2 text-sm">
                         <Spinner size="sm" />
                         <span className="text-copilot-text-muted">
@@ -5811,166 +5834,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               </div>
             </div>
 
-            {/* Tool Activity Log */}
+            {/* Session Info Section */}
             <div className="flex-1 overflow-y-auto">
-              {/* Tools List */}
-              {(activeTab?.activeTools?.length || 0) > 0 && (
-                <div className="border-b border-copilot-surface">
-                  {(() => {
-                    type GroupedTool = { tool: ActiveTool; count: number };
-
-                    const tools = activeTab?.activeTools || [];
-                    const groups: GroupedTool[] = [];
-
-                    const getDescription = (tool: ActiveTool): string => {
-                      const input = tool.input || {};
-                      const path = input.path as string | undefined;
-                      const shortPath = path ? path.split('/').slice(-2).join('/') : '';
-
-                      if (tool.toolName === 'grep') {
-                        const pattern = (input.pattern as string) || '';
-                        return pattern ? `"${pattern}"` : '';
-                      }
-
-                      if (tool.toolName === 'glob') {
-                        return (input.pattern as string) || '';
-                      }
-
-                      if (tool.toolName === 'view') {
-                        return shortPath || path || '';
-                      }
-
-                      if (tool.toolName === 'edit' || tool.toolName === 'create') {
-                        return shortPath || path || '';
-                      }
-
-                      if (tool.toolName === 'bash') {
-                        const desc = (input.description as string) || '';
-                        const cmd = ((input.command as string) || '').slice(0, 40);
-                        return desc || (cmd ? `$ ${cmd}...` : '');
-                      }
-
-                      if (tool.toolName === 'read_bash' || tool.toolName === 'write_bash') {
-                        return 'session';
-                      }
-
-                      if (tool.toolName === 'web_fetch') {
-                        return ((input.url as string) || '').slice(0, 30);
-                      }
-
-                      return '';
-                    };
-
-                    const getGroupKey = (tool: ActiveTool): string => {
-                      const input = tool.input || {};
-                      const description = getDescription(tool);
-                      const summary =
-                        tool.status === 'done'
-                          ? formatToolOutput(tool.toolName, input, tool.output)
-                          : '';
-                      let key = `${tool.toolName}|${description}|${summary}`;
-
-                      // For edits, include first-line diff so unrelated edits don't collapse.
-                      if (tool.toolName === 'edit' && tool.status === 'done' && input.old_str) {
-                        const oldLine = String(input.old_str).split('\n')[0];
-                        const newLine =
-                          input.new_str !== undefined ? String(input.new_str).split('\n')[0] : '';
-                        key += `|${oldLine}|${newLine}`;
-                      }
-
-                      return key;
-                    };
-
-                    const groupMap = new Map<string, GroupedTool>();
-
-                    // Group all completed tools by identical rendered label/summary.
-                    for (const tool of tools) {
-                      if (tool.status !== 'done') {
-                        groups.push({ tool, count: 1 });
-                        continue;
-                      }
-
-                      const key = getGroupKey(tool);
-                      const existing = groupMap.get(key);
-                      if (existing) {
-                        existing.count += 1;
-                        continue;
-                      }
-
-                      const entry = { tool, count: 1 };
-                      groupMap.set(key, entry);
-                      groups.push(entry);
-                    }
-
-                    return groups.map(({ tool, count }) => {
-                      const input = tool.input || {};
-                      const isEdit = tool.toolName === 'edit';
-                      const description = getDescription(tool);
-
-                      return (
-                        <div
-                          key={`${tool.toolCallId}-g`}
-                          className="px-3 py-1.5 border-b border-copilot-bg last:border-b-0"
-                        >
-                          <div className="flex items-start gap-2 text-xs">
-                            {tool.status === 'running' ? (
-                              <span className="text-copilot-warning shrink-0 mt-0.5">○</span>
-                            ) : (
-                              <span className="text-copilot-success shrink-0">✓</span>
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span
-                                  className={`font-medium ${tool.status === 'done' ? 'text-copilot-text' : 'text-copilot-text-muted'}`}
-                                >
-                                  {tool.toolName.charAt(0).toUpperCase() + tool.toolName.slice(1)}
-                                </span>
-                                {tool.status === 'done' && count > 1 && (
-                                  <span className="text-[10px] text-copilot-text-muted">
-                                    ×{count}
-                                  </span>
-                                )}
-                              </div>
-                              {description && (
-                                <span className="text-copilot-text-muted font-mono ml-1 text-[10px] truncate block">
-                                  {description}
-                                </span>
-                              )}
-                              {tool.status === 'done' && (
-                                <div className="text-copilot-text-muted text-[10px] mt-0.5">
-                                  {formatToolOutput(tool.toolName, input, tool.output)}
-                                </div>
-                              )}
-                              {isEdit && tool.status === 'done' && !!input.old_str && (
-                                <div className="mt-1 text-[10px] font-mono pl-2 border-l border-copilot-border">
-                                  <div className="text-copilot-error truncate">
-                                    − {(input.old_str as string).split('\n')[0].slice(0, 35)}
-                                  </div>
-                                  {input.new_str !== undefined && (
-                                    <div className="text-copilot-success truncate">
-                                      + {(input.new_str as string).split('\n')[0].slice(0, 35)}
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    });
-                  })()}
-                </div>
-              )}
-
-              {/* Processing indicator when no tools visible */}
-              {activeTab?.isProcessing && (activeTab?.activeTools?.length || 0) === 0 && (
-                <div className="px-3 py-3 flex items-center gap-2 border-b border-copilot-surface">
-                  <Spinner size="sm" />
-                  <span className="text-xs text-copilot-text-muted">Thinking...</span>
-                </div>
-              )}
-
-              {/* Session Info Section */}
               <div className="border-t border-copilot-border mt-auto">
                 {/* Working Directory */}
                 <div className="px-3 py-2 border-b border-copilot-surface">
@@ -7179,6 +7044,14 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           }}
           version={buildInfo.baseVersion}
           releaseNotes={buildInfo.releaseNotes || ''}
+        />
+
+        {/* Settings Modal */}
+        <SettingsModal
+          isOpen={showSettingsModal}
+          onClose={() => setShowSettingsModal(false)}
+          soundEnabled={soundEnabled}
+          onSoundEnabledChange={handleSoundEnabledChange}
         />
 
         {/* Welcome Wizard - Spotlight Tour */}

@@ -5,6 +5,21 @@ All notable changes to Copilot Skins will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 1.5.5
+
+### Added
+
+- **File Preview Revamp**: View changed files in tree or flat view with full diffs, and untrack temporary files you don't want to commit
+- **Mark as Unread**: Flag sessions you want to revisit and add notes for context
+- **Copy Last Run**: New terminal option to quickly copy the output of the last command
+- **Run in Terminal**: Execute command blocks from the conversation directly in the integrated terminal
+
+### Fixed
+
+- Improved startup latency and faster loading of the session history pane
+
+---
+
 ## 1.1.0
 
 ### Added
