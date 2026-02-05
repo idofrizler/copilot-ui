@@ -62,6 +62,7 @@ import {
   ZapIcon,
   SettingsModal,
   SettingsIcon,
+  HelpCircleIcon,
   ToolActivitySection,
   VoiceKeywordsPanel,
 } from './components';
@@ -2158,6 +2159,7 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
         toolCallId: data.toolCallId as string | undefined,
         fullCommandText: data.fullCommandText as string | undefined,
         intention: data.intention as string | undefined,
+        description: data.description as string | undefined,
         path: data.path as string | undefined,
         url: data.url as string | undefined,
         serverName: data.serverName as string | undefined,
@@ -5693,6 +5695,23 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                         <code>{pendingConfirmation.fullCommandText}</code>
                       </pre>
                     )}
+                    {/* Issue #203: Show description/intention with help icon tooltip */}
+                    {(pendingConfirmation.description || pendingConfirmation.intention) &&
+                      pendingConfirmation.fullCommandText && (
+                        <div className="flex items-center gap-1.5 text-xs text-copilot-text-muted mb-2">
+                          <span
+                            className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-copilot-accent/20 text-copilot-accent cursor-help"
+                            title={
+                              pendingConfirmation.description || pendingConfirmation.intention || ''
+                            }
+                          >
+                            <HelpCircleIcon size={12} strokeWidth={2.5} />
+                          </span>
+                          <span className="truncate">
+                            {pendingConfirmation.description || pendingConfirmation.intention}
+                          </span>
+                        </div>
+                      )}
                     {/* Issue #101: Show files to be deleted for destructive commands */}
                     {pendingConfirmation.isDestructive &&
                       pendingConfirmation.filesToDelete &&
