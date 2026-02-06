@@ -851,6 +851,21 @@ const App: React.FC = () => {
   const [voiceModelLoading, setVoiceModelLoading] = useState(false);
   const [voiceModelLoaded, setVoiceModelLoaded] = useState(false);
   const [voiceInitError, setVoiceInitError] = useState<string | null>(null);
+  const [voiceDownloadProgress, setVoiceDownloadProgress] = useState<{
+    progress: number;
+    status: string;
+  } | null>(null);
+
+  // Listen for download progress updates
+  useEffect(() => {
+    if (!window.electronAPI?.voiceServer?.onDownloadProgress) return;
+    const cleanup = window.electronAPI.voiceServer.onDownloadProgress(
+      (data: { progress: number; status: string }) => {
+        setVoiceDownloadProgress(data);
+      }
+    );
+    return cleanup;
+  }, []);
 
   // Check if voice model is already loaded on mount
   useEffect(() => {
@@ -7192,16 +7207,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                         </div>
                       )}
                     </div>
-
-                    {/* Voice Control Status (minimal) */}
-                    <VoiceKeywordsPanel
-                      isRecording={voiceSpeech.isRecording}
-                      isSpeaking={voiceSpeech.isSpeaking}
-                      isSupported={voiceSpeech.isSupported}
-                      isModelLoading={voiceModelLoading}
-                      modelLoaded={voiceModelLoaded}
-                      alwaysListening={alwaysListening}
-                    />
                   </div>
                   {/* End MCP/Skills wrapper */}
                 </div>
@@ -7968,6 +7973,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           modelLoaded={voiceModelLoaded}
           voiceError={voiceInitError}
           alwaysListeningError={alwaysListeningError}
+          voiceDownloadProgress={voiceDownloadProgress}
           onInitVoice={handleInitVoice}
           availableVoices={voiceSpeech.availableVoices}
           selectedVoiceURI={voiceSpeech.selectedVoiceURI}
