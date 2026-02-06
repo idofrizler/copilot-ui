@@ -64,14 +64,14 @@ describe('UpdateAvailableModal', () => {
     expect(defaultProps.onClose).toHaveBeenCalled();
   });
 
-  it('opens releases page when Open Releases button is clicked', async () => {
+  it('opens repository page when Open Repository button is clicked', async () => {
     render(<UpdateAvailableModal {...defaultProps} />);
 
     await waitFor(() => {
-      expect(screen.getByText('Open Releases')).toBeInTheDocument();
+      expect(screen.getByText('Open Repository')).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByText('Open Releases'));
+    fireEvent.click(screen.getByText('Open Repository'));
 
     await waitFor(() => {
       expect(mockOpenDownloadUrl).toHaveBeenCalled();

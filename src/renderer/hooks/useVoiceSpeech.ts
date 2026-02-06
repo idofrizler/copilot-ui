@@ -56,7 +56,15 @@ export function useVoiceSpeech(): UseVoiceSpeechReturn {
 
   // TTS state
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
+  const [isMuted, setIsMuted] = useState(() => {
+    try {
+      const stored = localStorage.getItem('tts-muted');
+      // Default to muted (true) unless user has explicitly unmuted
+      return stored === null ? true : stored === 'true';
+    } catch {
+      return true;
+    }
+  });
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [selectedVoiceURI, setSelectedVoiceURIState] = useState<string | null>(() => {
     try {
@@ -175,11 +183,17 @@ export function useVoiceSpeech(): UseVoiceSpeechReturn {
 
   const toggleMute = useCallback(() => {
     setIsMuted((prev) => {
-      if (!prev) {
+      const next = !prev;
+      if (next) {
         // Muting - stop any current speech
         stopSpeaking();
       }
-      return !prev;
+      try {
+        localStorage.setItem('tts-muted', String(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
     });
   }, [stopSpeaking]);
 

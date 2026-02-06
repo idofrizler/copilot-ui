@@ -8,7 +8,7 @@ A native desktop GUI for GitHub Copilot, wrapping the [Copilot SDK](https://gith
 
 Watch Cooper building itself in action!
 
-![Cooper Demo](https://github.com/idofrizler/copilot-ui/releases/download/assets/Copilot.Skins.2-4.gif)
+![Cooper Demo](https://github.com/idofrizler/cooper/releases/download/assets/Copilot.Skins.2-4.gif)
 
 ## Features
 
@@ -65,7 +65,7 @@ Windows requires additional build tools for native modules:
 
 ```powershell
 # In PowerShell (run as Administrator recommended)
-cd copilot-ui
+cd cooper
 pwsh -NoProfile -File .\scripts\setup-windows.ps1
 ```
 
@@ -108,7 +108,7 @@ If you're using an AI coding agent: **tell it to clone this repo, install deps, 
 
 Suggested prompt:
 
-> Clone `https://github.com/idofrizler/copilot-ui.git`, install dependencies, and build a signed/unsigned installer for my OS.
+> Clone `https://github.com/idofrizler/cooper.git`, install dependencies, and build a signed/unsigned installer for my OS.
 >
 > - macOS: output a `.dmg`
 > - Windows: output an `.exe`
@@ -116,8 +116,8 @@ Suggested prompt:
 ### macOS (build a DMG)
 
 ```bash
-git clone https://github.com/idofrizler/copilot-ui.git
-cd copilot-ui
+git clone https://github.com/idofrizler/cooper.git
+cd cooper
 npm install
 npm run dist
 open release/Cooper-*-arm64.dmg
@@ -126,8 +126,8 @@ open release/Cooper-*-arm64.dmg
 ### Windows (build an EXE)
 
 ```powershell
-git clone https://github.com/idofrizler/copilot-ui.git
-cd copilot-ui
+git clone https://github.com/idofrizler/cooper.git
+cd cooper
 pwsh -NoProfile -File .\scripts\setup-windows.ps1
 npm run dist:win
 ```
@@ -141,20 +141,25 @@ npm run dev
 
 ## Upgrading
 
-Cooper is distributed via GitHub Releases. To upgrade via command line, download the latest release asset and install it.
+To upgrade, pull the latest changes and rebuild the app.
 
 ### macOS
 
 ```bash
-gh release download --repo idofrizler/copilot-ui --pattern "Cooper-*.dmg" --dir ~/Downloads --clobber
-open ~/Downloads/Cooper-*.dmg
+cd cooper
+git pull
+npm install
+npm run dist
+open release/Cooper-*-arm64.dmg
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
-gh release download --repo idofrizler/copilot-ui --pattern "Cooper-*.exe" --dir $env:TEMP --clobber
-Start-Process (Get-ChildItem $env:TEMP\Cooper-*.exe | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName
+cd cooper
+git pull
+pwsh -NoProfile -File .\scripts\setup-windows.ps1
+npm run dist:win
 ```
 
 ## Build
