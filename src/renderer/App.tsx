@@ -7867,7 +7867,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         {/* Image Lightbox Modal */}
         {lightboxImage && (
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm cursor-pointer"
+            className="fixed top-[var(--titlebar-height)] left-0 right-0 bottom-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm cursor-pointer"
             onClick={() => setLightboxImage(null)}
           >
             <div className="relative max-w-[90vw] max-h-[90vh]">
@@ -8046,7 +8046,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
         {/* Note Input Modal */}
         {noteInputModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="fixed top-[var(--titlebar-height)] left-0 right-0 bottom-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
             <div className="bg-copilot-surface border border-copilot-border rounded-lg shadow-xl w-full max-w-md mx-4 p-4">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-medium text-copilot-text">

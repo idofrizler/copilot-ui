@@ -42,6 +42,9 @@
   --copilot-shadow: rgba(0, 0, 0, 0.2);
   --copilot-shadow-strong: rgba(0, 0, 0, 0.4);
 
+  /* Layout */
+  --titlebar-height: 41px;
+
   /* Terminal */
   --copilot-terminal-bg: transparent;
   --copilot-terminal-text: #e6edf3;
