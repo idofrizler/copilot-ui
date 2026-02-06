@@ -22,6 +22,8 @@ import {
   UploadIcon,
   ClockIcon,
   FolderIcon,
+  CopyIcon,
+  CheckIcon,
   FolderOpenIcon,
   CommitIcon,
   FileIcon,
@@ -584,6 +586,7 @@ const App: React.FC = () => {
   const [addCommandScope, setAddCommandScope] = useState<'session' | 'global'>('session');
   const [addCommandValue, setAddCommandValue] = useState('');
   const [showEditedFiles, setShowEditedFiles] = useState(false);
+  const [cwdCopied, setCwdCopied] = useState(false);
   const [filePreviewPath, setFilePreviewPath] = useState<string | null>(null);
   const [isGitRepo, setIsGitRepo] = useState<boolean>(true);
   const [showCommitModal, setShowCommitModal] = useState(false);
@@ -6715,6 +6718,28 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       <span className="text-copilot-text font-mono truncate" title={activeTab?.cwd}>
                         {activeTab?.cwd || 'Unknown'}
                       </span>
+                      {activeTab?.cwd && (
+                        <button
+                          className="shrink-0 p-0.5 rounded hover:bg-copilot-surface text-copilot-text-muted hover:text-copilot-text transition-colors"
+                          title={cwdCopied ? 'Copied!' : 'Copy path'}
+                          aria-label={cwdCopied ? 'Copied!' : 'Copy path'}
+                          onClick={() => {
+                            navigator.clipboard
+                              .writeText(activeTab.cwd)
+                              .then(() => {
+                                setCwdCopied(true);
+                                setTimeout(() => setCwdCopied(false), 2000);
+                              })
+                              .catch(() => {});
+                          }}
+                        >
+                          {cwdCopied ? (
+                            <CheckIcon size={12} className="text-copilot-success" />
+                          ) : (
+                            <CopyIcon size={12} />
+                          )}
+                        </button>
+                      )}
                     </div>
                   </div>
 
