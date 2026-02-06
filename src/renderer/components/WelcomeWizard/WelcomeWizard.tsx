@@ -190,7 +190,7 @@ export const WelcomeWizard: React.FC<WelcomeWizardProps> = ({ isOpen, onClose, o
     <Modal
       isOpen={isOpen}
       onClose={handleSkip}
-      title="Welcome to Copilot Skins! 🎉"
+      title="Welcome to Cooper! 🎉"
       width="600px"
       testId="welcome-wizard"
     >

@@ -61,7 +61,7 @@ const MOCK_MESSAGES = [
 
 \`\`\`
 ┌─────────────────────────────────────────────────────┐
-│                 Copilot Skins UI                    │
+│                 Cooper UI                            │
 │   ┌──────────┐ ┌──────────┐ ┌──────────┐           │
 │   │ Frontend │ │ Security │ │  DevOps  │  Agents   │
 │   │  Agent   │ │  Agent   │ │  Agent   │           │
@@ -308,9 +308,9 @@ const createTestHTML = () => `
     </div>
     <div class="message assistant">
       <div class="avatar">🤖 Assistant</div>
-      <p>Here's the multi-agent architecture for Copilot Skins:</p>
+      <p>Here's the multi-agent architecture for Cooper:</p>
       <pre class="ascii-diagram"><code>┌─────────────────────────────────────────────────────┐
-│                 Copilot Skins UI                    │
+│                 Cooper UI                            │
 │   ┌──────────┐ ┌──────────┐ ┌──────────┐           │
 │   │ Frontend │ │ Security │ │  DevOps  │  Agents   │
 │   │  Agent   │ │  Agent   │ │  Agent   │           │
