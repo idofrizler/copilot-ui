@@ -36,13 +36,13 @@ jobs:
         run: |
           set -euo pipefail
           dmg="$(ls -1 release/*.dmg | head -n 1)"
-          mv -f "$dmg" "release/Copilot-Skins-arm64.dmg"
+          mv -f "$dmg" "release/Cooper-arm64.dmg"
 
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Copilot-Skins-dmg
-          path: release/Copilot-Skins-arm64.dmg
+          name: Cooper-dmg
+          path: release/Cooper-arm64.dmg
           if-no-files-found: error
 
       - name: Publish "latest" release asset
@@ -53,6 +53,6 @@ jobs:
           prerelease: true
           allowUpdates: true
           replacesArtifacts: true
-          artifacts: release/Copilot-Skins-arm64.dmg
+          artifacts: release/Cooper-arm64.dmg
           body: |
             Automated build from `${{ github.sha }}`.

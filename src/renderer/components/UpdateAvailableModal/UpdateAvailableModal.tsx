@@ -125,7 +125,7 @@ export const UpdateAvailableModal: React.FC<UpdateAvailableModalProps> = ({
               </div>
 
               <p className="text-copilot-text text-center">
-                A new version of <span className="font-semibold">Copilot Skins</span> is available!
+                A new version of <span className="font-semibold">Cooper</span> is available!
               </p>
 
               <div className="bg-copilot-background rounded-lg p-3 text-center">

@@ -4486,7 +4486,7 @@ ipcMain.handle('updates:checkForUpdate', async () => {
       {
         headers: {
           Accept: 'application/vnd.github.v3+json',
-          'User-Agent': 'Copilot-Skins',
+          'User-Agent': 'Cooper',
         },
       }
     );

@@ -1,7 +1,7 @@
-# Windows Development Environment Setup Script for Copilot Skins
+# Windows Development Environment Setup Script for Cooper
 # This script installs all prerequisites needed to build and run the app on Windows
 
-Write-Host "=== Copilot Skins - Windows Setup ===" -ForegroundColor Cyan
+Write-Host "=== Cooper - Windows Setup ===" -ForegroundColor Cyan
 Write-Host ""
 
 # Check if running as Administrator (optional but recommended)
