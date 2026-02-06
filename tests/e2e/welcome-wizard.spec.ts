@@ -48,7 +48,7 @@ test.describe('Issue #128 - Welcome Wizard', () => {
     if (isVisible) {
       // If visible, verify it has the expected title
       const title = await wizardModal.locator('h3').first().textContent();
-      expect(title).toContain('Welcome to Copilot Skins');
+      expect(title).toContain('Welcome to Cooper');
     }
     expect(true).toBe(true);
   });

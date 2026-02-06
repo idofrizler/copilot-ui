@@ -5,7 +5,9 @@ import { resolve } from 'path';
 export default defineConfig({
   main: {
     plugins: [
-      externalizeDepsPlugin({ exclude: ['@github/copilot-sdk', 'electron-store', 'electron-log'] }),
+      externalizeDepsPlugin({
+        exclude: ['@github/copilot-sdk', 'electron-store', 'electron-log'],
+      }),
     ],
     build: {
       rollupOptions: {
@@ -28,6 +30,7 @@ export default defineConfig({
   },
   renderer: {
     root: resolve(__dirname, 'src/renderer'),
+    publicDir: resolve(__dirname, 'public'),
     build: {
       rollupOptions: {
         input: {

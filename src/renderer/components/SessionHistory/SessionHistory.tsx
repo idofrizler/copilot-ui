@@ -74,6 +74,13 @@ const categorizeByTime = (sessions: DisplaySession[]) => {
     }
   }
 
+  // Newest-first within each timeframe
+  for (const category of categories) {
+    category.sessions.sort(
+      (a, b) => new Date(b.modifiedTime).getTime() - new Date(a.modifiedTime).getTime()
+    );
+  }
+
   return categories.filter((c) => c.sessions.length > 0);
 };
 
@@ -550,11 +557,16 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
                           />
                         )}
 
-                        {/* Session Name/Branch */}
+                        {/* Session Name */}
                         <span className="flex-1 min-w-0 text-sm text-copilot-text truncate flex items-center gap-1.5">
-                          {session.worktree
-                            ? session.worktree.branch
-                            : session.name || `Session ${session.sessionId.slice(0, 8)}...`}
+                          <span className="min-w-0 truncate">
+                            {session.name || `Session ${session.sessionId.slice(0, 8)}...`}
+                          </span>
+                          {session.worktree?.branch && session.worktree.branch !== session.name && (
+                            <span className="min-w-0 truncate text-xs text-copilot-text-muted">
+                              {session.worktree.branch}
+                            </span>
+                          )}
                           {session.worktree && (
                             <GitBranchIcon
                               size={12}
@@ -564,15 +576,8 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
                           )}
                         </span>
 
-                        {/* Right side: size + badge/time - fixed widths for alignment */}
+                        {/* Right side: badge/time - fixed widths for alignment */}
                         <div className="flex items-center shrink-0">
-                          {/* Disk usage only shown when filtered to worktrees */}
-                          {filter === 'worktree' && (
-                            <span className="text-xs text-copilot-text-muted w-20 text-right">
-                              {session.worktree?.diskUsage || ''}
-                            </span>
-                          )}
-
                           {/* Time/badge column - fixed width, flex to align right */}
                           <div className="w-20 flex justify-end items-center">
                             {session.isActive ? (

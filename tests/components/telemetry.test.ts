@@ -9,12 +9,14 @@ vi.mock('@microsoft/clarity', () => ({
   },
 }));
 
-// Mock the electronAPI for isPackaged check
+// Mock the electronAPI for isPackaged and getInstallationId
 const mockIsPackaged = vi.fn().mockResolvedValue(false);
+const mockGetInstallationId = vi.fn().mockResolvedValue('test-installation-id');
 vi.stubGlobal('window', {
   electronAPI: {
     app: {
       isPackaged: mockIsPackaged,
+      getInstallationId: mockGetInstallationId,
     },
   },
 });

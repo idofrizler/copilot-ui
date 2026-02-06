@@ -42,6 +42,8 @@ import {
   CreateWorktreeSession,
   ChoiceSelector,
   PaperclipIcon,
+  MicrophoneIcon,
+  MicButton,
   SessionHistory,
   FilePreviewModal,
   UpdateAvailableModal,
@@ -54,6 +56,17 @@ import {
   WarningIcon,
   ArchiveIcon,
   UnarchiveIcon,
+  SidebarDrawer,
+  AccordionSelect,
+  MenuIcon,
+  ZapIcon,
+  SettingsModal,
+  SettingsIcon,
+  HelpCircleIcon,
+  ToolActivitySection,
+  VoiceKeywordsPanel,
+  VolumeMuteIcon,
+  TitleBar,
 } from './components';
 import {
   Status,
@@ -83,12 +96,12 @@ import {
   LISA_REVIEW_REJECT_PREFIX,
   Skill,
 } from './types';
-import { generateId, generateTabName, formatToolOutput, setTabCounter } from './utils/session';
+import { generateId, generateTabName, setTabCounter } from './utils/session';
 import { playNotificationSound } from './utils/sound';
 import { LONG_OUTPUT_LINE_THRESHOLD } from './utils/cliOutputCompression';
 import { isAsciiDiagram, extractTextContent } from './utils/isAsciiDiagram';
 import { isCliCommand } from './utils/isCliCommand';
-import { useClickOutside } from './hooks';
+import { useClickOutside, useResponsive, useVoiceSpeech } from './hooks';
 import buildInfo from './build-info.json';
 import { TerminalProvider } from './context/TerminalContext';
 
@@ -647,6 +660,86 @@ const App: React.FC = () => {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [showSkills, setShowSkills] = useState(false);
 
+  // Voice control settings
+  const [pushToTalk, setPushToTalk] = useState(() => {
+    // Load from localStorage, default to false (click-to-toggle mode)
+    const saved = localStorage.getItem('voice-push-to-talk');
+    return saved === 'true';
+  });
+
+  const [alwaysListening, setAlwaysListening] = useState(() => {
+    // Load from localStorage, default to false
+    const saved = localStorage.getItem('voice-always-listening');
+    return saved === 'true';
+  });
+
+  const [alwaysListeningError, setAlwaysListeningError] = useState<string | null>(null);
+
+  const handleTogglePushToTalk = (enabled: boolean) => {
+    setPushToTalk(enabled);
+    localStorage.setItem('voice-push-to-talk', String(enabled));
+  };
+
+  const handleToggleAlwaysListening = (enabled: boolean) => {
+    setAlwaysListening(enabled);
+    localStorage.setItem('voice-always-listening', String(enabled));
+    if (!enabled) {
+      setAlwaysListeningError(null); // Clear error when disabled
+    }
+  };
+
+  // Voice auto-send countdown state
+  const [voiceAutoSendCountdown, setVoiceAutoSendCountdown] = useState<number | null>(null);
+  const voiceAutoSendTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const handleSendMessageRef = useRef<() => void>(() => {});
+
+  const startVoiceAutoSend = useCallback(() => {
+    // Only start if always listening is enabled
+    if (!alwaysListening) return;
+
+    // Clear any existing timer
+    if (voiceAutoSendTimerRef.current) {
+      clearInterval(voiceAutoSendTimerRef.current);
+    }
+
+    setVoiceAutoSendCountdown(5);
+
+    voiceAutoSendTimerRef.current = setInterval(() => {
+      setVoiceAutoSendCountdown((prev) => {
+        if (prev === null || prev <= 1) {
+          // Time's up - send the message
+          if (voiceAutoSendTimerRef.current) {
+            clearInterval(voiceAutoSendTimerRef.current);
+            voiceAutoSendTimerRef.current = null;
+          }
+          // Trigger send on next tick to avoid state issues
+          setTimeout(() => {
+            handleSendMessageRef.current();
+          }, 0);
+          return null;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }, [alwaysListening]);
+
+  const cancelVoiceAutoSend = useCallback(() => {
+    if (voiceAutoSendTimerRef.current) {
+      clearInterval(voiceAutoSendTimerRef.current);
+      voiceAutoSendTimerRef.current = null;
+    }
+    setVoiceAutoSendCountdown(null);
+  }, []);
+
+  // Clean up timer on unmount
+  useEffect(() => {
+    return () => {
+      if (voiceAutoSendTimerRef.current) {
+        clearInterval(voiceAutoSendTimerRef.current);
+      }
+    };
+  }, []);
+
   // Ralph Wiggum loop state
   const [showRalphSettings, setShowRalphSettings] = useState(false);
   const [ralphEnabled, setRalphEnabled] = useState(false);
@@ -701,11 +794,24 @@ const App: React.FC = () => {
   const lastIdleTimestampRef = useRef<Map<string, number>>(new Map());
 
   // Resizable panel state
-  const [leftPanelWidth, setLeftPanelWidth] = useState(192); // default w-48
+  const [leftPanelWidth, setLeftPanelWidth] = useState(288); // default w-72
   const [rightPanelWidth, setRightPanelWidth] = useState(288); // default w-72
   const resizingPanel = useRef<'left' | 'right' | null>(null);
   const resizeStartX = useRef(0);
   const resizeStartWidth = useRef(0);
+
+  // Responsive state from hook
+  const { isMobile, isTablet, isDesktop, isMobileOrTablet, width: windowWidth } = useResponsive();
+
+  // Panel collapse state (for tablet/desktop) and drawer state (for mobile)
+  const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false);
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
+  const [leftDrawerOpen, setLeftDrawerOpen] = useState(false);
+  const [rightDrawerOpen, setRightDrawerOpen] = useState(false);
+
+  // Track if user manually toggled panels (prevents auto-collapse override)
+  const userToggledLeftRef = useRef(false);
+  const userToggledRightRef = useRef(false);
 
   // Update and Release Notes state
   const [showUpdateModal, setShowUpdateModal] = useState(false);
@@ -716,6 +822,16 @@ const App: React.FC = () => {
   } | null>(null);
   const [showReleaseNotesModal, setShowReleaseNotesModal] = useState(false);
 
+  // Settings modal state
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [settingsDefaultSection, setSettingsDefaultSection] = useState<
+    'themes' | 'voice' | 'sounds' | undefined
+  >(undefined);
+  const [soundEnabled, setSoundEnabled] = useState(() => {
+    const saved = localStorage.getItem('copilot-sound-enabled');
+    return saved !== null ? saved === 'true' : true; // Default to enabled
+  });
+
   // Welcome wizard state
   const [showWelcomeWizard, setShowWelcomeWizard] = useState(false);
   const [shouldShowWizardWhenReady, setShouldShowWizardWhenReady] = useState(false);
@@ -724,7 +840,93 @@ const App: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const activeTabIdRef = useRef<string | null>(null);
+
+  // Voice speech hook for STT/TTS
+  const voiceSpeech = useVoiceSpeech();
+  const { isRecording } = voiceSpeech;
+  const voiceSpeakRef = useRef(voiceSpeech.speak);
+  voiceSpeakRef.current = voiceSpeech.speak; // Keep ref updated
+
+  // Voice model initialization state
+  const [voiceModelLoading, setVoiceModelLoading] = useState(false);
+  const [voiceModelLoaded, setVoiceModelLoaded] = useState(false);
+  const [voiceInitError, setVoiceInitError] = useState<string | null>(null);
+  const [voiceDownloadProgress, setVoiceDownloadProgress] = useState<{
+    progress: number;
+    status: string;
+  } | null>(null);
+
+  // Listen for download progress updates
+  useEffect(() => {
+    if (!window.electronAPI?.voiceServer?.onDownloadProgress) return;
+    const cleanup = window.electronAPI.voiceServer.onDownloadProgress(
+      (data: { progress: number; status: string }) => {
+        setVoiceDownloadProgress(data);
+      }
+    );
+    return cleanup;
+  }, []);
+
+  // Check if voice model is already loaded on mount
+  useEffect(() => {
+    if (!window.electronAPI?.voiceServer) return;
+    window.electronAPI.voiceServer.checkModel().then((check) => {
+      if (check.exists && check.binaryExists) {
+        window.electronAPI.voice.loadModel().then((result) => {
+          if (result.success) setVoiceModelLoaded(true);
+        });
+      }
+    });
+  }, []);
+
+  // Voice initialization handler for settings page
+  const handleInitVoice = useCallback(async () => {
+    if (!window.electronAPI?.voiceServer) return;
+    setVoiceModelLoading(true);
+    setVoiceInitError(null);
+    try {
+      const check = await window.electronAPI.voiceServer.checkModel();
+      if (!check.exists || !check.binaryExists) {
+        const dlResult = await window.electronAPI.voiceServer.downloadModel();
+        if (!dlResult.success) {
+          setVoiceInitError(dlResult.error || 'Download failed');
+          setVoiceModelLoading(false);
+          return;
+        }
+      }
+      const loadResult = await window.electronAPI.voice.loadModel();
+      if (loadResult.success) {
+        setVoiceModelLoaded(true);
+      } else {
+        setVoiceInitError(loadResult.error || 'Failed to load model');
+      }
+    } catch (e: any) {
+      setVoiceInitError(e.message || 'Initialization failed');
+    } finally {
+      setVoiceModelLoading(false);
+    }
+  }, []);
+
+  // Open settings modal on voice tab (optionally auto-init)
+  const openSettingsVoice = useCallback(
+    (autoInit = false) => {
+      setSettingsDefaultSection('voice');
+      setShowSettingsModal(true);
+      if (autoInit && !voiceModelLoaded && !voiceModelLoading) {
+        // Trigger init after a short delay so modal renders first
+        setTimeout(() => handleInitVoice(), 100);
+      }
+    },
+    [voiceModelLoaded, voiceModelLoading, handleInitVoice]
+  );
+
   const prevActiveTabIdRef = useRef<string | null>(null);
+  const soundEnabledRef = useRef(soundEnabled);
+
+  // Keep soundEnabledRef in sync with state
+  useEffect(() => {
+    soundEnabledRef.current = soundEnabled;
+  }, [soundEnabled]);
 
   // Keep ref in sync with state (update prevActiveTabIdRef BEFORE activeTabIdRef)
   useEffect(() => {
@@ -1038,10 +1240,66 @@ const App: React.FC = () => {
     };
   }, []);
 
-  // Reset textarea height when input is cleared
+  // Auto-collapse panels based on responsive breakpoints
   useEffect(() => {
-    if (!inputValue && inputRef.current) {
+    // Auto-collapse logic for tablet (only if user hasn't manually toggled)
+    if (isTablet) {
+      // On tablet, collapse right panel by default
+      if (!userToggledRightRef.current && !rightPanelCollapsed) {
+        setRightPanelCollapsed(true);
+      }
+    } else if (isDesktop) {
+      // On desktop, expand panels if user hasn't toggled
+      if (!userToggledLeftRef.current && leftPanelCollapsed) {
+        setLeftPanelCollapsed(false);
+      }
+      if (!userToggledRightRef.current && rightPanelCollapsed) {
+        setRightPanelCollapsed(false);
+      }
+    }
+
+    // Close drawers when switching to desktop
+    if (isDesktop) {
+      setLeftDrawerOpen(false);
+      setRightDrawerOpen(false);
+    }
+  }, [isMobile, isTablet, isDesktop, leftPanelCollapsed, rightPanelCollapsed]);
+
+  // Reset user toggle flags when switching to desktop
+  useEffect(() => {
+    if (isDesktop) {
+      userToggledRightRef.current = false;
+      userToggledLeftRef.current = false;
+    }
+  }, [isDesktop]);
+
+  // Toggle handlers for manual panel collapse (tablet/desktop)
+  const toggleLeftPanel = useCallback(() => {
+    if (isMobileOrTablet) {
+      setLeftDrawerOpen((prev) => !prev);
+    } else {
+      userToggledLeftRef.current = true;
+      setLeftPanelCollapsed((prev) => !prev);
+    }
+  }, [isMobileOrTablet]);
+
+  const toggleRightPanel = useCallback(() => {
+    if (isMobileOrTablet) {
+      setRightDrawerOpen((prev) => !prev);
+    } else {
+      userToggledRightRef.current = true;
+      setRightPanelCollapsed((prev) => !prev);
+    }
+  }, [isMobileOrTablet]);
+
+  // Reset textarea height when input is cleared, grow when content is set programmatically
+  useEffect(() => {
+    if (!inputRef.current) return;
+    if (!inputValue) {
       inputRef.current.style.height = 'auto';
+    } else {
+      inputRef.current.style.height = 'auto';
+      inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 200) + 'px';
     }
   }, [inputValue]);
 
@@ -1445,7 +1703,21 @@ const App: React.FC = () => {
       lastIdleTimestampRef.current.set(sessionId, now);
 
       // Play notification sound when session completes
-      playNotificationSound();
+      if (soundEnabledRef.current) {
+        playNotificationSound();
+      }
+
+      // Speak the last assistant response (TTS) - only for active tab
+      setTabs((currentTabs) => {
+        const tab = currentTabs.find((t) => t.id === sessionId);
+        if (tab && sessionId === activeTabIdRef.current) {
+          const lastAssistant = [...tab.messages].reverse().find((m) => m.role === 'assistant');
+          if (lastAssistant?.content) {
+            voiceSpeakRef.current(lastAssistant.content);
+          }
+        }
+        return currentTabs; // No state change, just reading
+      });
 
       // Update tab state
       setTabs((prev) => {
@@ -1792,6 +2064,24 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
 
         return prev.map((tab) => {
           if (tab.id !== sessionId) return tab;
+          // Capture tools into the last assistant message before clearing
+          const toolsSnapshot = [...tab.activeTools];
+          const filteredMessages = tab.messages.filter(
+            (msg) => msg.content.trim() || msg.role === 'user'
+          );
+          // Find the last assistant message to attach tools
+          const lastAssistantIdx = filteredMessages.reduce(
+            (lastIdx, msg, idx) => (msg.role === 'assistant' ? idx : lastIdx),
+            -1
+          );
+          const updatedMessages = filteredMessages.map((msg, idx) => {
+            const withoutStreaming = msg.isStreaming ? { ...msg, isStreaming: false } : msg;
+            // Attach tools to the last assistant message
+            if (idx === lastAssistantIdx && toolsSnapshot.length > 0) {
+              return { ...withoutStreaming, tools: toolsSnapshot };
+            }
+            return withoutStreaming;
+          });
           return {
             ...tab,
             isProcessing: false,
@@ -1808,9 +2098,7 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
               : tab.lisaConfig,
             // Mark as unread if this tab is not currently active
             hasUnreadCompletion: tab.id !== activeTabIdRef.current,
-            messages: tab.messages
-              .filter((msg) => msg.content.trim() || msg.role === 'user')
-              .map((msg) => (msg.isStreaming ? { ...msg, isStreaming: false } : msg)),
+            messages: updatedMessages,
           };
         });
       });
@@ -1940,7 +2228,9 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       }
 
       // Play notification sound when permission is needed
-      playNotificationSound();
+      if (soundEnabledRef.current) {
+        playNotificationSound();
+      }
 
       // Spread all data to preserve any extra fields from SDK
       const confirmation: PendingConfirmation = {
@@ -1952,6 +2242,7 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
         toolCallId: data.toolCallId as string | undefined,
         fullCommandText: data.fullCommandText as string | undefined,
         intention: data.intention as string | undefined,
+        description: data.description as string | undefined,
         path: data.path as string | undefined,
         url: data.url as string | undefined,
         serverName: data.serverName as string | undefined,
@@ -2503,6 +2794,11 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     imageAttachments,
     fileAttachments,
   ]);
+
+  // Keep ref in sync for voice auto-send
+  useEffect(() => {
+    handleSendMessageRef.current = handleSendMessage;
+  }, [handleSendMessage]);
 
   // Handle sending terminal output to the agent
   const handleSendTerminalOutput = useCallback(
@@ -3837,6 +4133,12 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     }
   };
 
+  // Handle sound enabled change
+  const handleSoundEnabledChange = (enabled: boolean) => {
+    setSoundEnabled(enabled);
+    localStorage.setItem('copilot-sound-enabled', String(enabled));
+  };
+
   const handleCloseTab = async (tabId: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
 
@@ -4202,200 +4504,636 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       onInitializeTerminal={handleInitializeTerminal}
     >
       <div className="h-screen w-screen flex flex-col overflow-hidden bg-copilot-bg rounded-xl">
-        {/* Title Bar */}
-        <div className="drag-region flex items-center justify-between px-4 py-2.5 bg-copilot-surface border-b border-copilot-border shrink-0">
-          <div className="flex items-center gap-3">
-            <WindowControls />
+        <TitleBar />
 
-            <div className="flex items-center gap-2 ml-2">
-              <img src={logo} alt="Copilot Skins" className="w-4 h-4 rounded-sm" />
-              <span className="text-copilot-text text-sm font-medium">Copilot Skins</span>
+        {/* Mobile Header Bar */}
+        {isMobile && (
+          <div className="flex items-center justify-between px-3 py-2 border-b border-copilot-border bg-copilot-surface">
+            <button
+              onClick={() => setLeftDrawerOpen(true)}
+              className="p-2 text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-bg rounded transition-colors"
+              title="Open sessions"
+            >
+              <MenuIcon size={20} />
+            </button>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-copilot-text truncate max-w-[150px]">
+                {activeTab?.name || 'New Session'}
+              </span>
+              {activeTab?.isProcessing && (
+                <span className="w-2 h-2 rounded-full bg-copilot-warning animate-pulse" />
+              )}
             </div>
+            <button
+              onClick={() => setRightDrawerOpen(true)}
+              className="p-2 text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-bg rounded transition-colors"
+              title="Open activity"
+            >
+              <ZapIcon size={20} />
+            </button>
           </div>
+        )}
 
-          <div className="flex items-center gap-2 no-drag">
-            {/* Model Selector */}
-            <div data-tour="model-selector">
-              <Dropdown
-                value={activeTab?.model || null}
-                options={availableModels.map((model) => ({
-                  id: model.id,
-                  label: model.name,
-                  rightContent: (
-                    <span
-                      className={`ml-2 ${
-                        model.multiplier === 0
-                          ? 'text-copilot-success'
-                          : model.multiplier < 1
-                            ? 'text-copilot-success'
-                            : model.multiplier > 1
-                              ? 'text-copilot-warning'
-                              : 'text-copilot-text-muted'
-                      }`}
-                    >
-                      {model.multiplier === 0 ? 'free' : `${model.multiplier}×`}
-                    </span>
-                  ),
-                }))}
-                onSelect={handleModelChange}
-                placeholder="Loading..."
-                title="Model"
-                minWidth="240px"
-              />
-            </div>
-
-            {/* Theme Selector */}
-            <Dropdown
-              value={themePreference}
-              options={[
-                {
-                  id: 'system',
-                  label: 'System',
-                  icon: <MonitorIcon size={12} />,
-                },
-                ...availableThemes.map((theme) => ({
-                  id: theme.id,
-                  label: theme.name,
-                  icon:
-                    theme.id === 'dark' ? (
-                      <MoonIcon size={12} />
-                    ) : theme.id === 'light' ? (
-                      <SunIcon size={12} />
-                    ) : (
-                      <PaletteIcon size={12} />
-                    ),
-                })),
-              ]}
-              onSelect={(id) => {
-                setTheme(id);
-                trackEvent(TelemetryEvents.FEATURE_THEME_CHANGED);
-              }}
-              trigger={
-                <>
-                  {activeTheme.type === 'dark' ? <MoonIcon size={12} /> : <SunIcon size={12} />}
-                  <span>{themePreference === 'system' ? 'System' : activeTheme.name}</span>
-                  <ChevronDownIcon size={10} />
-                </>
-              }
-              title="Theme"
-              minWidth="180px"
-              dividers={[0]}
-              footerActions={
-                <button
-                  onClick={async () => {
-                    const result = await importTheme();
-                    if (result.error) {
-                      console.error('Failed to import theme:', result.error);
-                    }
-                  }}
-                  className="w-full px-3 py-1.5 text-left text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover transition-colors flex items-center gap-2"
-                >
-                  <UploadIcon size={12} />
-                  <span>Import Theme...</span>
-                </button>
-              }
-            />
-          </div>
-        </div>
-
-        {/* Tab Bar */}
-        <div className="flex flex-1 overflow-hidden">
-          {/* Left Sidebar - Vertical Tabs */}
-          <div
-            className="bg-copilot-bg border-r border-copilot-border flex flex-col shrink-0"
-            style={{ width: leftPanelWidth }}
-          >
-            {/* New Session Button with Dropdown */}
-            <div className="relative group border-b border-copilot-border">
+        {/* Mobile Left Drawer (Sessions) */}
+        <SidebarDrawer
+          isOpen={leftDrawerOpen}
+          onClose={() => setLeftDrawerOpen(false)}
+          side="left"
+          width={280}
+        >
+          <div className="flex flex-col h-full">
+            {/* Drawer Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-copilot-border">
+              <span className="text-sm font-medium text-copilot-text">Sessions</span>
               <button
-                onClick={() => handleNewTab()}
-                className="w-full flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setLeftDrawerOpen(false);
+                }}
+                className="p-2 text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface rounded transition-colors"
               >
-                <PlusIcon size={12} />
+                <CloseIcon size={20} />
+              </button>
+            </div>
+
+            {/* New Session Buttons */}
+            <div className="border-b border-copilot-border">
+              <button
+                onClick={() => {
+                  handleNewTab();
+                  setLeftDrawerOpen(false);
+                }}
+                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+              >
+                <PlusIcon size={16} />
                 New Session
               </button>
-              {/* Dropdown arrow / Worktree option on hover */}
-              <div className="absolute right-0 top-0 h-full flex items-center pr-2">
-                <div className="relative">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleNewWorktreeSession();
-                    }}
-                    className="p-1 text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover rounded opacity-0 group-hover:opacity-100 transition-opacity"
-                    title="New Worktree Session (isolated branch)"
-                    data-tour="new-worktree"
-                  >
-                    <GitBranchIcon size={12} />
-                  </button>
-                </div>
-              </div>
+              <button
+                onClick={() => {
+                  handleNewWorktreeSession();
+                  setLeftDrawerOpen(false);
+                }}
+                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+              >
+                <GitBranchIcon size={16} />
+                New Worktree Session
+              </button>
             </div>
 
-            {/* Open Tabs */}
-            <div className="flex-1 overflow-y-auto" data-tour="sidebar-tabs">
+            {/* Session List */}
+            <div className="flex-1 overflow-y-auto">
               {tabs.map((tab) => (
-                <div
+                <button
                   key={tab.id}
-                  onClick={() => handleSwitchTab(tab.id)}
-                  onContextMenu={(e) => handleTabContextMenu(e, tab.id)}
-                  className={`group w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors text-left cursor-pointer ${
+                  onClick={() => {
+                    handleSwitchTab(tab.id);
+                    setLeftDrawerOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-4 py-3 text-sm transition-colors text-left ${
                     tab.id === activeTabId
                       ? 'bg-copilot-surface text-copilot-text border-l-2 border-l-copilot-accent'
                       : 'text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface border-l-2 border-l-transparent'
                   }`}
                 >
-                  {/* Status indicator - priority: pending > processing > marked > unread > idle */}
+                  {/* Status indicator */}
                   {tab.pendingConfirmations.length > 0 ? (
                     <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-accent animate-pulse" />
                   ) : tab.isProcessing ? (
                     <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-warning animate-pulse" />
-                  ) : tab.markedForReview ? (
-                    <span
-                      className="shrink-0 w-2 h-2 rounded-full bg-cyan-500"
-                      title="Marked for review"
-                    />
                   ) : tab.hasUnreadCompletion ? (
                     <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-success" />
                   ) : (
                     <span className="shrink-0 w-2 h-2 rounded-full bg-transparent" />
                   )}
-                  {tab.isRenaming ? (
-                    <input
-                      autoFocus
-                      value={tab.renameDraft ?? tab.name}
-                      onChange={(e) =>
-                        setTabs((prev) =>
-                          prev.map((t) =>
-                            t.id === tab.id ? { ...t, renameDraft: e.target.value } : t
-                          )
-                        )
-                      }
-                      onClick={(e) => e.stopPropagation()}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === 'Escape') {
-                          e.preventDefault();
+                  <span className="truncate flex-1">{tab.name}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Session History */}
+            <div className="border-t border-copilot-border">
+              <button
+                onClick={() => {
+                  setShowSessionHistory(true);
+                  setLeftDrawerOpen(false);
+                }}
+                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+              >
+                <HistoryIcon size={16} />
+                Session History
+                {previousSessions.length > 0 && (
+                  <span className="ml-auto text-xs bg-copilot-bg px-2 py-0.5 rounded">
+                    {previousSessions.length}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {/* Settings Section - Model & Theme */}
+            <div className="border-t border-copilot-border">
+              {/* Model Selector */}
+              <div className="border-b border-copilot-border">
+                <AccordionSelect
+                  label="Model"
+                  icon={<MonitorIcon size={16} />}
+                  value={activeTab?.model || null}
+                  options={availableModels.map((m) => ({
+                    id: m.id,
+                    label: m.name || m.id,
+                    rightContent: (
+                      <span
+                        className={`text-xs ${
+                          m.multiplier === 0
+                            ? 'text-copilot-success'
+                            : m.multiplier < 1
+                              ? 'text-copilot-success'
+                              : m.multiplier > 1
+                                ? 'text-copilot-warning'
+                                : 'text-copilot-text-muted'
+                        }`}
+                      >
+                        {m.multiplier === 0 ? 'free' : `${m.multiplier}×`}
+                      </span>
+                    ),
+                  }))}
+                  onSelect={(modelId) => {
+                    handleModelChange(modelId);
+                  }}
+                  size="md"
+                  testId="mobile-drawer-model-select"
+                />
+              </div>
+
+              {/* Settings Button */}
+              <button
+                onClick={() => {
+                  setLeftDrawerOpen(false);
+                  setShowSettingsModal(true);
+                }}
+                className="flex items-center gap-3 w-full px-4 py-3 text-sm text-copilot-text hover:bg-copilot-surface-hover border-b border-copilot-border transition-colors"
+                data-testid="mobile-drawer-settings-button"
+              >
+                <SettingsIcon size={14} className="text-copilot-text-muted" />
+                <span>Settings</span>
+              </button>
+            </div>
+          </div>
+        </SidebarDrawer>
+
+        {/* Mobile Right Drawer (Activity) */}
+        <SidebarDrawer
+          isOpen={rightDrawerOpen}
+          onClose={() => setRightDrawerOpen(false)}
+          side="right"
+          width={300}
+        >
+          <div className="flex flex-col h-full">
+            {/* Drawer Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-copilot-border">
+              <span className="text-sm font-medium text-copilot-text">Activity</span>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setRightDrawerOpen(false);
+                }}
+                className="p-2 text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface rounded transition-colors"
+              >
+                <CloseIcon size={20} />
+              </button>
+            </div>
+
+            {/* Activity Content - Using AccordionSelect for mobile-friendly UI */}
+            <div className="flex-1 overflow-y-auto">
+              {/* Status */}
+              <div className="px-4 py-3 border-b border-copilot-border">
+                <div className="flex items-center gap-2">
+                  {activeTab?.isProcessing ? (
+                    <>
+                      <span className="w-2 h-2 rounded-full bg-copilot-warning animate-pulse" />
+                      <span className="text-sm text-copilot-text">
+                        {activeTab?.currentIntent || 'Working...'}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="w-2 h-2 rounded-full bg-copilot-success" />
+                      <span className="text-sm text-copilot-text-muted">Ready</span>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Working Directory */}
+              <div className="px-4 py-3 border-b border-copilot-border">
+                <div className="text-xs text-copilot-text-muted uppercase tracking-wide mb-2">
+                  Directory
+                </div>
+                <div className="flex items-center gap-1.5 text-xs min-w-0">
+                  <FolderIcon size={12} className="text-copilot-accent shrink-0" />
+                  <span className="text-copilot-text font-mono truncate" title={activeTab?.cwd}>
+                    {activeTab?.cwd || 'Unknown'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Git Branch */}
+              <div className="px-4 py-3 border-b border-copilot-border">
+                <div className="text-xs text-copilot-text-muted uppercase tracking-wide mb-2">
+                  Git Branch
+                </div>
+                <GitBranchWidget cwd={activeTab?.cwd} refreshKey={activeTab?.gitBranchRefresh} />
+              </div>
+
+              {/* Edited Files Count */}
+              {cleanedEditedFiles.length > 0 && (
+                <div className="px-4 py-3 border-b border-copilot-border">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <FileIcon size={14} className="text-copilot-success" />
+                      <span className="text-sm text-copilot-text">Edited Files</span>
+                    </div>
+                    <span className="text-sm text-copilot-accent">{cleanedEditedFiles.length}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Allowed Commands */}
+              <div className="border-b border-copilot-border">
+                <button
+                  onClick={() => {
+                    setShowAllowedCommands(!showAllowedCommands);
+                    if (!showAllowedCommands) {
+                      refreshAlwaysAllowed();
+                      refreshGlobalSafeCommands();
+                    }
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-sm text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                >
+                  <ChevronRightIcon
+                    size={14}
+                    className={`transition-transform ${showAllowedCommands ? 'rotate-90' : ''}`}
+                  />
+                  <span>Allowed Commands</span>
+                  {(activeTab?.alwaysAllowed.length || 0) + globalSafeCommands.length > 0 && (
+                    <span className="ml-auto text-copilot-accent">
+                      {(activeTab?.alwaysAllowed.length || 0) + globalSafeCommands.length}
+                    </span>
+                  )}
+                </button>
+                {showAllowedCommands && (
+                  <div className="px-4 pb-3">
+                    {/* Add command input */}
+                    <div className="flex flex-col gap-2 mb-2">
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={addCommandScope}
+                          onChange={(e) =>
+                            setAddCommandScope(e.target.value as 'session' | 'global')
+                          }
+                          className="px-2 py-1.5 text-xs bg-copilot-surface border border-copilot-border rounded text-copilot-text shrink-0"
+                        >
+                          <option value="session">Session</option>
+                          <option value="global">Global</option>
+                        </select>
+                        <input
+                          type="text"
+                          value={addCommandValue}
+                          onChange={(e) => setAddCommandValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleAddAllowedCommand();
+                          }}
+                          placeholder="npm, git..."
+                          className="flex-1 min-w-0 px-2 py-1.5 text-xs bg-copilot-surface border border-copilot-border rounded text-copilot-text placeholder:text-copilot-text-muted"
+                        />
+                        <button
+                          onClick={handleAddAllowedCommand}
+                          disabled={!addCommandValue.trim()}
+                          className="px-2 py-1.5 text-xs bg-copilot-accent text-copilot-text rounded disabled:opacity-50 shrink-0"
+                        >
+                          Add
+                        </button>
+                      </div>
+                    </div>
+                    {/* Commands list */}
+                    <div className="max-h-32 overflow-y-auto space-y-1">
+                      {(activeTab?.alwaysAllowed.length || 0) + globalSafeCommands.length === 0 ? (
+                        <div className="text-xs text-copilot-text-muted">No allowed commands</div>
+                      ) : (
+                        <>
+                          {globalSafeCommands.map((cmd) => (
+                            <div key={`global-${cmd}`} className="flex items-center gap-2 text-xs">
+                              <GlobeIcon size={12} className="text-copilot-accent" />
+                              <span className="flex-1 truncate font-mono text-copilot-text-muted">
+                                {cmd}
+                              </span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRemoveGlobalSafeCommand(cmd);
+                                }}
+                                className="p-1 text-copilot-error hover:bg-copilot-surface rounded"
+                              >
+                                <CloseIcon size={14} />
+                              </button>
+                            </div>
+                          ))}
+                          {activeTab?.alwaysAllowed.map((cmd) => (
+                            <div key={`session-${cmd}`} className="flex items-center gap-2 text-xs">
+                              <span className="flex-1 truncate font-mono text-copilot-text-muted">
+                                {cmd}
+                              </span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRemoveAlwaysAllowed(cmd);
+                                }}
+                                className="p-1 text-copilot-error hover:bg-copilot-surface rounded"
+                              >
+                                <CloseIcon size={14} />
+                              </button>
+                            </div>
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* MCP Servers */}
+              <div className="border-b border-copilot-border">
+                <div className="flex items-center">
+                  <button
+                    onClick={() => setShowMcpServers(!showMcpServers)}
+                    className="flex-1 flex items-center gap-3 px-4 py-3 text-sm text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                  >
+                    <ChevronRightIcon
+                      size={14}
+                      className={`transition-transform ${showMcpServers ? 'rotate-90' : ''}`}
+                    />
+                    <span>MCP Servers</span>
+                    {Object.keys(mcpServers).length > 0 && (
+                      <span className="ml-auto text-copilot-accent">
+                        {Object.keys(mcpServers).length}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openAddMcpModal();
+                    }}
+                    className="mr-3 p-1.5 text-copilot-success hover:bg-copilot-surface rounded transition-colors"
+                    title="Add MCP server"
+                  >
+                    <PlusIcon size={16} />
+                  </button>
+                </div>
+                {showMcpServers && (
+                  <div className="px-4 pb-3">
+                    {Object.keys(mcpServers).length === 0 ? (
+                      <div className="text-xs text-copilot-text-muted">
+                        No MCP servers configured
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {Object.entries(mcpServers).map(([name, server]) => {
+                          const isLocal =
+                            !server.type || server.type === 'local' || server.type === 'stdio';
+                          const toolCount =
+                            server.tools[0] === '*' ? 'all' : `${server.tools.length}`;
+                          return (
+                            <div key={name} className="flex items-center gap-2 text-xs">
+                              {isLocal ? (
+                                <MonitorIcon size={12} className="text-copilot-accent" />
+                              ) : (
+                                <GlobeIcon size={12} className="text-copilot-accent" />
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <div className="text-copilot-text truncate">{name}</div>
+                                <div className="text-[10px] text-copilot-text-muted">
+                                  {toolCount} tools
+                                </div>
+                              </div>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openEditMcpModal(name, server);
+                                }}
+                                className="p-1.5 text-copilot-accent hover:bg-copilot-surface rounded"
+                              >
+                                <EditIcon size={14} />
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteMcpServer(name);
+                                }}
+                                className="p-1.5 text-copilot-error hover:bg-copilot-surface rounded"
+                              >
+                                <CloseIcon size={14} />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Agent Skills */}
+              <div className="border-b border-copilot-border">
+                <button
+                  onClick={() => setShowSkills(!showSkills)}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-sm text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                >
+                  <ChevronRightIcon
+                    size={14}
+                    className={`transition-transform ${showSkills ? 'rotate-90' : ''}`}
+                  />
+                  <span>Agent Skills</span>
+                  {skills.length > 0 && (
+                    <span className="ml-auto text-copilot-accent">{skills.length}</span>
+                  )}
+                </button>
+                {showSkills && (
+                  <div className="px-4 pb-3">
+                    {skills.length === 0 ? (
+                      <div className="text-xs text-copilot-text-muted">No skills found</div>
+                    ) : (
+                      <div className="space-y-2 max-h-32 overflow-y-auto">
+                        {skills.map((skill) => (
+                          <div key={skill.path} className="text-xs">
+                            <div className="flex items-center gap-2">
+                              <BookIcon size={12} className="text-copilot-accent" />
+                              <span className="text-copilot-text">{skill.name}</span>
+                            </div>
+                            <div className="text-[10px] text-copilot-text-muted ml-5 truncate">
+                              {skill.description}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </SidebarDrawer>
+
+        {/* Tab Bar - Desktop/Tablet Layout */}
+        <div className="flex flex-1 overflow-hidden">
+          {/* Left Panel Toggle Button (when collapsed) */}
+          {leftPanelCollapsed && !isMobile && (
+            <button
+              onClick={toggleLeftPanel}
+              className="shrink-0 w-10 bg-copilot-bg border-r border-copilot-border flex flex-col items-center py-2 gap-2 hover:bg-copilot-surface transition-colors"
+              title="Show sessions panel"
+            >
+              <ChevronRightIcon size={14} className="text-copilot-text-muted" />
+              <span
+                className="text-[10px] text-copilot-text-muted writing-mode-vertical"
+                style={{ writingMode: 'vertical-rl', textOrientation: 'mixed' }}
+              >
+                Sessions
+              </span>
+              {tabs.filter((t) => t.hasUnreadCompletion || t.pendingConfirmations.length > 0)
+                .length > 0 && (
+                <span className="w-2 h-2 rounded-full bg-copilot-accent animate-pulse" />
+              )}
+            </button>
+          )}
+
+          {/* Left Sidebar - Vertical Tabs */}
+          {!leftPanelCollapsed && !isMobile && (
+            <div
+              className="bg-copilot-bg border-r border-copilot-border flex flex-col shrink-0"
+              style={{ width: leftPanelWidth }}
+            >
+              {/* Collapse button + New Session Button */}
+              <div className="flex items-center border-b border-copilot-border">
+                <button
+                  onClick={toggleLeftPanel}
+                  className="shrink-0 p-2 text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                  title="Collapse sessions panel"
+                >
+                  <ChevronDownIcon size={12} className="rotate-90" />
+                </button>
+                <div className="relative group flex-1">
+                  <button
+                    onClick={() => handleNewTab()}
+                    className="w-full flex items-center gap-2 px-2 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                  >
+                    New Session
+                  </button>
+                  {/* Dropdown arrow / Worktree option on hover */}
+                  <div className="absolute right-0 top-0 h-full flex items-center pr-2">
+                    <div className="relative">
+                      <button
+                        onClick={(e) => {
                           e.stopPropagation();
-                        }
-                      }}
-                      onKeyUp={async (e) => {
-                        if (e.key === 'Escape') {
-                          e.stopPropagation();
+                          handleNewWorktreeSession();
+                        }}
+                        className="p-1 text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="New Worktree Session (isolated branch)"
+                        data-tour="new-worktree"
+                      >
+                        <GitBranchIcon size={12} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Open Tabs */}
+              <div className="flex-1 overflow-y-auto" data-tour="sidebar-tabs">
+                {tabs.map((tab) => (
+                  <div
+                    key={tab.id}
+                    onClick={() => handleSwitchTab(tab.id)}
+                    onContextMenu={(e) => handleTabContextMenu(e, tab.id)}
+                    className={`group w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors text-left cursor-pointer ${
+                      tab.id === activeTabId
+                        ? 'bg-copilot-surface text-copilot-text border-l-2 border-l-copilot-accent'
+                        : 'text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface border-l-2 border-l-transparent'
+                    }`}
+                  >
+                    {/* Status indicator - priority: pending > processing > marked > unread > idle */}
+                    {tab.pendingConfirmations.length > 0 ? (
+                      <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-accent animate-pulse" />
+                    ) : tab.isProcessing ? (
+                      <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-warning animate-pulse" />
+                    ) : tab.markedForReview ? (
+                      <span
+                        className="shrink-0 w-2 h-2 rounded-full bg-cyan-500"
+                        title="Marked for review"
+                      />
+                    ) : tab.hasUnreadCompletion ? (
+                      <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-success" />
+                    ) : (
+                      <span className="shrink-0 w-2 h-2 rounded-full bg-transparent" />
+                    )}
+                    {tab.isRenaming ? (
+                      <input
+                        autoFocus
+                        value={tab.renameDraft ?? tab.name}
+                        onChange={(e) =>
                           setTabs((prev) =>
                             prev.map((t) =>
-                              t.id === tab.id
-                                ? {
-                                    ...t,
-                                    isRenaming: false,
-                                    renameDraft: undefined,
-                                  }
-                                : t
+                              t.id === tab.id ? { ...t, renameDraft: e.target.value } : t
                             )
-                          );
-                          return;
+                          )
                         }
-                        if (e.key === 'Enter') {
-                          e.stopPropagation();
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === 'Escape') {
+                            e.preventDefault();
+                            e.stopPropagation();
+                          }
+                        }}
+                        onKeyUp={async (e) => {
+                          if (e.key === 'Escape') {
+                            e.stopPropagation();
+                            setTabs((prev) =>
+                              prev.map((t) =>
+                                t.id === tab.id
+                                  ? {
+                                      ...t,
+                                      isRenaming: false,
+                                      renameDraft: undefined,
+                                    }
+                                  : t
+                              )
+                            );
+                            return;
+                          }
+                          if (e.key === 'Enter') {
+                            e.stopPropagation();
+                            const nextName = (tab.renameDraft ?? tab.name).trim();
+                            const finalName = nextName || tab.name;
+                            setTabs((prev) =>
+                              prev.map((t) =>
+                                t.id === tab.id
+                                  ? {
+                                      ...t,
+                                      name: finalName,
+                                      isRenaming: false,
+                                      renameDraft: undefined,
+                                      needsTitle: false,
+                                    }
+                                  : t
+                              )
+                            );
+                            try {
+                              await window.electronAPI.copilot.renameSession(tab.id, finalName);
+                            } catch (err) {
+                              console.error('Failed to rename session:', err);
+                            }
+                          }
+                        }}
+                        onBlur={async () => {
                           const nextName = (tab.renameDraft ?? tab.name).trim();
                           const finalName = nextName || tab.name;
                           setTabs((prev) =>
@@ -4416,100 +5154,125 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                           } catch (err) {
                             console.error('Failed to rename session:', err);
                           }
-                        }
-                      }}
-                      onBlur={async () => {
-                        const nextName = (tab.renameDraft ?? tab.name).trim();
-                        const finalName = nextName || tab.name;
-                        setTabs((prev) =>
-                          prev.map((t) =>
-                            t.id === tab.id
-                              ? {
-                                  ...t,
-                                  name: finalName,
-                                  isRenaming: false,
-                                  renameDraft: undefined,
-                                  needsTitle: false,
-                                }
-                              : t
-                          )
-                        );
-                        try {
-                          await window.electronAPI.copilot.renameSession(tab.id, finalName);
-                        } catch (err) {
-                          console.error('Failed to rename session:', err);
-                        }
-                      }}
-                      className="flex-1 min-w-0 bg-copilot-bg border border-copilot-border rounded px-1 py-0.5 text-xs text-copilot-text outline-none focus:border-copilot-accent"
-                    />
-                  ) : (
-                    <span
-                      className="flex-1 truncate"
-                      onDoubleClick={(e) => {
-                        e.stopPropagation();
-                        setTabs((prev) =>
-                          prev.map((t) =>
-                            t.id === tab.id ? { ...t, isRenaming: true, renameDraft: t.name } : t
-                          )
-                        );
-                      }}
-                      title="Double-click to rename"
+                        }}
+                        className="flex-1 min-w-0 bg-copilot-bg border border-copilot-border rounded px-1 py-0.5 text-xs text-copilot-text outline-none focus:border-copilot-accent"
+                      />
+                    ) : (
+                      <span
+                        className="flex-1 truncate"
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          setTabs((prev) =>
+                            prev.map((t) =>
+                              t.id === tab.id ? { ...t, isRenaming: true, renameDraft: t.name } : t
+                            )
+                          );
+                        }}
+                        title="Double-click to rename"
+                      >
+                        {tab.name}
+                      </span>
+                    )}
+                    <button
+                      onClick={(e) => handleCloseTab(tab.id, e)}
+                      className="shrink-0 p-0.5 rounded hover:bg-copilot-border opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="Close tab"
                     >
-                      {tab.name}
-                    </span>
-                  )}
+                      <CloseIcon size={10} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {/* Bottom section - aligned with input area */}
+              <div className="mt-auto">
+                {/* Session History Button */}
+                <div className="border-t border-copilot-border h-[32px] flex items-center">
                   <button
-                    onClick={(e) => handleCloseTab(tab.id, e)}
-                    className="shrink-0 p-0.5 rounded hover:bg-copilot-border opacity-0 group-hover:opacity-100 transition-opacity"
-                    title="Close tab"
+                    onClick={() => setShowSessionHistory(true)}
+                    className="w-full h-full flex items-center gap-2 px-3 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
                   >
-                    <CloseIcon size={10} />
+                    <HistoryIcon size={14} strokeWidth={1.5} />
+                    <span>Session History</span>
+                    {tabs.length + previousSessions.length > 0 && (
+                      <span className="ml-auto text-[10px] bg-copilot-bg px-1.5 py-0.5 rounded">
+                        {tabs.length + previousSessions.length}
+                      </span>
+                    )}
                   </button>
                 </div>
-              ))}
-            </div>
 
-            {/* Bottom section - aligned with input area */}
-            <div className="mt-auto">
-              {/* Session History Button */}
-              <div className="border-t border-copilot-border h-[32px] flex items-center">
-                <button
-                  onClick={() => setShowSessionHistory(true)}
-                  className="w-full h-full flex items-center gap-2 px-3 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                {/* Model Selector */}
+                <div className="border-t border-copilot-border" data-tour="model-selector">
+                  <AccordionSelect
+                    label="Model"
+                    icon={<MonitorIcon size={14} />}
+                    value={activeTab?.model || null}
+                    options={availableModels.map((m) => ({
+                      id: m.id,
+                      label: m.name || m.id,
+                      rightContent: (
+                        <span
+                          className={`text-xs ${
+                            m.multiplier === 0
+                              ? 'text-copilot-success'
+                              : m.multiplier < 1
+                                ? 'text-copilot-success'
+                                : m.multiplier > 1
+                                  ? 'text-copilot-warning'
+                                  : 'text-copilot-text-muted'
+                          }`}
+                        >
+                          {m.multiplier === 0 ? 'free' : `${m.multiplier}×`}
+                        </span>
+                      ),
+                    }))}
+                    onSelect={(modelId) => {
+                      handleModelChange(modelId);
+                    }}
+                    testId="sidebar-model-select"
+                  />
+                </div>
+
+                {/* Settings Button */}
+                <div className="border-t border-copilot-border h-[32px] flex items-center">
+                  <button
+                    onClick={() => setShowSettingsModal(true)}
+                    className="w-full h-full flex items-center gap-2 px-3 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                    title="Settings"
+                    data-testid="sidebar-settings-button"
+                  >
+                    <SettingsIcon size={14} />
+                    <span>Settings</span>
+                  </button>
+                </div>
+
+                {/* Build Info */}
+                <div
+                  className="border-t border-copilot-border h-[24px] flex items-center px-3 text-[10px] text-copilot-text-muted"
+                  title={`Build: ${buildInfo.version}\nBranch: ${buildInfo.gitBranch}\nCommit: ${buildInfo.gitSha}\nBuilt: ${buildInfo.buildDate} ${buildInfo.buildTime}`}
                 >
-                  <HistoryIcon size={14} strokeWidth={1.5} />
-                  <span>Session History</span>
-                  {tabs.length + previousSessions.length > 0 && (
-                    <span className="ml-auto text-[10px] bg-copilot-bg px-1.5 py-0.5 rounded">
-                      {tabs.length + previousSessions.length}
-                    </span>
-                  )}
-                </button>
-              </div>
-
-              {/* Build Info */}
-              <div
-                className="border-t border-copilot-border h-[24px] flex items-center px-3 text-[10px] text-copilot-text-muted"
-                title={`Build: ${buildInfo.version}\nBranch: ${buildInfo.gitBranch}\nCommit: ${buildInfo.gitSha}\nBuilt: ${buildInfo.buildDate} ${buildInfo.buildTime}`}
-              >
-                <span className="opacity-60">v{buildInfo.baseVersion}</span>
-                <span className="opacity-40 mx-1">•</span>
-                <span className="opacity-60 truncate">
-                  {buildInfo.gitBranch === 'main' || buildInfo.gitBranch === 'master'
-                    ? buildInfo.gitSha
-                    : buildInfo.gitBranch}
-                </span>
+                  <span className="opacity-60">v{buildInfo.baseVersion}</span>
+                  <span className="opacity-40 mx-1">•</span>
+                  <span className="opacity-60 truncate">
+                    {buildInfo.gitBranch === 'main' || buildInfo.gitBranch === 'master'
+                      ? buildInfo.gitSha
+                      : buildInfo.gitBranch}
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* Left Resize Handle */}
-          <div
-            className="w-0 cursor-col-resize shrink-0 relative z-10"
-            onMouseDown={(e) => handleResizeMouseDown(e, 'left')}
-          >
-            <div className="absolute inset-y-0 -left-1 w-2 hover:bg-copilot-accent/50 transition-colors" />
-          </div>
+          {!leftPanelCollapsed && !isMobile && (
+            <div
+              className="w-0 cursor-col-resize shrink-0 relative z-10"
+              onMouseDown={(e) => handleResizeMouseDown(e, 'left')}
+            >
+              <div className="absolute inset-y-0 -left-1 w-2 hover:bg-copilot-accent/50 transition-colors" />
+            </div>
+          )}
 
           {/* Main Content Area */}
           <div className="flex-1 flex flex-col min-h-0 min-w-0">
@@ -4560,7 +5323,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
             <div className="flex-1 overflow-y-auto p-4 space-y-2 min-h-0" data-clarity-mask="true">
               {activeTab?.messages.length === 0 && (
                 <div className="flex flex-col items-center justify-center min-h-full text-center -m-4 p-4">
-                  <img src={logo} alt="Copilot Skins" className="w-16 h-16 mb-4" />
+                  <img src={logo} alt="Cooper" className="w-16 h-16 mb-4" />
                   <h2 className="text-copilot-text text-lg font-medium mb-1">
                     How can I help you today?
                   </h2>
@@ -4590,7 +5353,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}
                   >
                     <div
-                      className={`max-w-[85%] rounded-lg px-4 py-2.5 overflow-hidden ${
+                      className={`max-w-[85%] rounded-lg px-4 py-2.5 overflow-hidden relative ${
                         message.role === 'user'
                           ? message.isPendingInjection
                             ? 'bg-copilot-warning text-white border border-dashed border-copilot-warning/50'
@@ -4598,6 +5361,19 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                           : 'bg-copilot-surface text-copilot-text'
                       }`}
                     >
+                      {/* Stop speaking overlay on last assistant message */}
+                      {message.role === 'assistant' &&
+                        index === lastAssistantIndex &&
+                        voiceSpeech.isSpeaking && (
+                          <button
+                            onClick={() => voiceSpeech.stopSpeaking()}
+                            className="absolute top-1.5 right-1.5 flex items-center gap-1 px-2 py-1 text-[10px] font-medium bg-copilot-warning text-white rounded-md hover:bg-copilot-warning/80 transition-colors z-10"
+                            title="Stop reading aloud"
+                          >
+                            <VolumeMuteIcon size={12} />
+                            Stop
+                          </button>
+                        )}
                       {/* Pending injection indicator */}
                       {message.isPendingInjection && (
                         <div className="flex items-center gap-1.5 text-[10px] opacity-80 mb-1.5">
@@ -4692,123 +5468,143 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                               </span>
                             )}
                           </>
-                        ) : message.content ? (
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            components={{
-                              p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                              strong: ({ children }) => (
-                                <strong className="font-semibold text-copilot-text">
-                                  {children}
-                                </strong>
-                              ),
-                              em: ({ children }) => <em className="italic">{children}</em>,
-                              ul: ({ children }) => (
-                                <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>
-                              ),
-                              ol: ({ children }) => (
-                                <ol className="list-decimal list-inside mb-2 space-y-1">
-                                  {children}
-                                </ol>
-                              ),
-                              li: ({ children }) => <li className="ml-2">{children}</li>,
-                              code: ({ children, className }) => {
-                                // Extract text content for analysis
-                                const textContent = extractTextContent(children);
+                        ) : (
+                          <>
+                            {/* Tool Activity Section for assistant messages */}
+                            {(() => {
+                              // Show live tools only if this message is actively streaming with content
+                              // (otherwise tools show in the thinking bubble)
+                              // For completed messages, show stored tools
+                              const isLive = message.isStreaming && message.content;
+                              const toolsToShow = isLive ? activeTab?.activeTools : message.tools;
+                              if (toolsToShow && toolsToShow.length > 0) {
+                                return (
+                                  <ToolActivitySection tools={toolsToShow} isLive={!!isLive} />
+                                );
+                              }
+                              return null;
+                            })()}
+                            {message.content ? (
+                              <ReactMarkdown
+                                remarkPlugins={[remarkGfm]}
+                                components={{
+                                  p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                                  strong: ({ children }) => (
+                                    <strong className="font-semibold text-copilot-text">
+                                      {children}
+                                    </strong>
+                                  ),
+                                  em: ({ children }) => <em className="italic">{children}</em>,
+                                  ul: ({ children }) => (
+                                    <ul className="list-disc list-inside mb-2 space-y-1">
+                                      {children}
+                                    </ul>
+                                  ),
+                                  ol: ({ children }) => (
+                                    <ol className="list-decimal list-inside mb-2 space-y-1">
+                                      {children}
+                                    </ol>
+                                  ),
+                                  li: ({ children }) => <li className="ml-2">{children}</li>,
+                                  code: ({ children, className }) => {
+                                    // Extract text content for analysis
+                                    const textContent = extractTextContent(children);
 
-                                // Fix block detection: treat as block if:
-                                // 1. Has language class (e.g., language-javascript)
-                                // 2. OR contains newlines (multi-line content)
-                                const hasLanguageClass = className?.includes('language-');
-                                const isMultiLine = textContent.includes('\n');
-                                const isBlock = hasLanguageClass || isMultiLine;
+                                    // Fix block detection: treat as block if:
+                                    // 1. Has language class (e.g., language-javascript)
+                                    // 2. OR contains newlines (multi-line content)
+                                    const hasLanguageClass = className?.includes('language-');
+                                    const isMultiLine = textContent.includes('\n');
+                                    const isBlock = hasLanguageClass || isMultiLine;
 
-                                // Check if content is an ASCII diagram
-                                const isDiagram = isAsciiDiagram(textContent);
+                                    // Check if content is an ASCII diagram
+                                    const isDiagram = isAsciiDiagram(textContent);
 
-                                // Check if this is a CLI command (should show run button)
-                                const isCliCmd = isCliCommand(className, textContent);
+                                    // Check if this is a CLI command (should show run button)
+                                    const isCliCmd = isCliCommand(className, textContent);
 
-                                if (isBlock) {
-                                  return (
-                                    <CodeBlockWithCopy
-                                      isDiagram={isDiagram}
-                                      textContent={textContent}
-                                      isCliCommand={isCliCmd}
+                                    if (isBlock) {
+                                      return (
+                                        <CodeBlockWithCopy
+                                          isDiagram={isDiagram}
+                                          textContent={textContent}
+                                          isCliCommand={isCliCmd}
+                                        >
+                                          {children}
+                                        </CodeBlockWithCopy>
+                                      );
+                                    } else {
+                                      return (
+                                        <code className="bg-copilot-bg px-1 py-0.5 rounded text-copilot-warning text-xs break-all">
+                                          {children}
+                                        </code>
+                                      );
+                                    }
+                                  },
+                                  pre: ({ children }) => (
+                                    <div className="overflow-x-auto max-w-full">{children}</div>
+                                  ),
+                                  a: ({ href, children }) => (
+                                    <a
+                                      href={href}
+                                      className="text-copilot-accent hover:underline"
+                                      target="_blank"
+                                      rel="noopener noreferrer"
                                     >
                                       {children}
-                                    </CodeBlockWithCopy>
-                                  );
-                                } else {
-                                  return (
-                                    <code className="bg-copilot-bg px-1 py-0.5 rounded text-copilot-warning text-xs break-all">
+                                    </a>
+                                  ),
+                                  h1: ({ children }) => (
+                                    <h1 className="text-lg font-bold mb-2 text-copilot-text">
                                       {children}
-                                    </code>
-                                  );
-                                }
-                              },
-                              pre: ({ children }) => (
-                                <div className="overflow-x-auto max-w-full">{children}</div>
-                              ),
-                              a: ({ href, children }) => (
-                                <a
-                                  href={href}
-                                  className="text-copilot-accent hover:underline"
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                >
-                                  {children}
-                                </a>
-                              ),
-                              h1: ({ children }) => (
-                                <h1 className="text-lg font-bold mb-2 text-copilot-text">
-                                  {children}
-                                </h1>
-                              ),
-                              h2: ({ children }) => (
-                                <h2 className="text-base font-bold mb-2 text-copilot-text">
-                                  {children}
-                                </h2>
-                              ),
-                              h3: ({ children }) => (
-                                <h3 className="text-sm font-bold mb-1 text-copilot-text">
-                                  {children}
-                                </h3>
-                              ),
-                              blockquote: ({ children }) => (
-                                <blockquote className="border-l-2 border-copilot-border pl-3 my-2 text-copilot-text-muted italic">
-                                  {children}
-                                </blockquote>
-                              ),
-                              table: ({ children }) => (
-                                <div className="overflow-x-auto my-2">
-                                  <table className="min-w-full border-collapse border border-copilot-border text-sm">
-                                    {children}
-                                  </table>
-                                </div>
-                              ),
-                              thead: ({ children }) => (
-                                <thead className="bg-copilot-bg">{children}</thead>
-                              ),
-                              tbody: ({ children }) => <tbody>{children}</tbody>,
-                              tr: ({ children }) => (
-                                <tr className="border-b border-copilot-border">{children}</tr>
-                              ),
-                              th: ({ children }) => (
-                                <th className="px-3 py-2 text-left font-semibold text-copilot-text border border-copilot-border">
-                                  {children}
-                                </th>
-                              ),
-                              td: ({ children }) => (
-                                <td className="px-3 py-2 text-copilot-text border border-copilot-border">
-                                  {children}
-                                </td>
-                              ),
-                            }}
-                          >
-                            {message.content}
-                          </ReactMarkdown>
-                        ) : null}
+                                    </h1>
+                                  ),
+                                  h2: ({ children }) => (
+                                    <h2 className="text-base font-bold mb-2 text-copilot-text">
+                                      {children}
+                                    </h2>
+                                  ),
+                                  h3: ({ children }) => (
+                                    <h3 className="text-sm font-bold mb-1 text-copilot-text">
+                                      {children}
+                                    </h3>
+                                  ),
+                                  blockquote: ({ children }) => (
+                                    <blockquote className="border-l-2 border-copilot-border pl-3 my-2 text-copilot-text-muted italic">
+                                      {children}
+                                    </blockquote>
+                                  ),
+                                  table: ({ children }) => (
+                                    <div className="overflow-x-auto my-2">
+                                      <table className="min-w-full border-collapse border border-copilot-border text-sm">
+                                        {children}
+                                      </table>
+                                    </div>
+                                  ),
+                                  thead: ({ children }) => (
+                                    <thead className="bg-copilot-bg">{children}</thead>
+                                  ),
+                                  tbody: ({ children }) => <tbody>{children}</tbody>,
+                                  tr: ({ children }) => (
+                                    <tr className="border-b border-copilot-border">{children}</tr>
+                                  ),
+                                  th: ({ children }) => (
+                                    <th className="px-3 py-2 text-left font-semibold text-copilot-text border border-copilot-border">
+                                      {children}
+                                    </th>
+                                  ),
+                                  td: ({ children }) => (
+                                    <td className="px-3 py-2 text-copilot-text border border-copilot-border">
+                                      {children}
+                                    </td>
+                                  ),
+                                }}
+                              >
+                                {message.content}
+                              </ReactMarkdown>
+                            ) : null}
+                          </>
+                        )}
                         {message.isStreaming && message.content && (
                           <span className="inline-block w-2 h-4 ml-1 bg-copilot-accent animate-pulse rounded-sm" />
                         )}
@@ -4844,6 +5640,10 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 !activeTab?.messages.some((m) => m.isStreaming && m.content) && (
                   <div className="flex flex-col items-start">
                     <div className="bg-copilot-surface text-copilot-text rounded-lg px-4 py-2.5">
+                      {/* Show live tools in the thinking bubble */}
+                      {activeTab?.activeTools && activeTab.activeTools.length > 0 && (
+                        <ToolActivitySection tools={activeTab.activeTools} isLive={true} />
+                      )}
                       <div className="flex items-center gap-2 text-sm">
                         <Spinner size="sm" />
                         <span className="text-copilot-text-muted">
@@ -4988,6 +5788,23 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                         <code>{pendingConfirmation.fullCommandText}</code>
                       </pre>
                     )}
+                    {/* Issue #203: Show description/intention with help icon tooltip */}
+                    {(pendingConfirmation.description || pendingConfirmation.intention) &&
+                      pendingConfirmation.fullCommandText && (
+                        <div className="flex items-center gap-1.5 text-xs text-copilot-text-muted mb-2">
+                          <span
+                            className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-copilot-accent/20 text-copilot-accent cursor-help"
+                            title={
+                              pendingConfirmation.description || pendingConfirmation.intention || ''
+                            }
+                          >
+                            <HelpCircleIcon size={12} strokeWidth={2.5} />
+                          </span>
+                          <span className="truncate">
+                            {pendingConfirmation.description || pendingConfirmation.intention}
+                          </span>
+                        </div>
+                      )}
                     {/* Issue #101: Show files to be deleted for destructive commands */}
                     {pendingConfirmation.isDestructive &&
                       pendingConfirmation.filesToDelete &&
@@ -5637,19 +6454,33 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 <textarea
                   ref={inputRef}
                   value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
+                  onChange={(e) => {
+                    setInputValue(e.target.value);
+                    // Cancel auto-send if user starts typing
+                    if (voiceAutoSendCountdown !== null) {
+                      cancelVoiceAutoSend();
+                    }
+                  }}
                   onKeyDown={handleKeyPress}
                   onPaste={handlePaste}
                   placeholder={
                     isDraggingImage || isDraggingFile
                       ? 'Drop files here...'
                       : activeTab?.isProcessing
-                        ? 'Type to inject message to agent...'
+                        ? isMobile
+                          ? 'Inject message...'
+                          : 'Type to inject message to agent...'
                         : lisaEnabled
-                          ? 'Describe task for multi-phase analysis (Plan → Execute → Validate → Review)...'
+                          ? isMobile
+                            ? 'Describe task...'
+                            : 'Describe task for multi-phase analysis (Plan → Execute → Validate → Review)...'
                           : ralphEnabled
-                            ? 'Describe task with clear completion criteria...'
-                            : 'Ask Copilot... (Shift+Enter for new line)'
+                            ? isMobile
+                              ? 'Describe task...'
+                              : 'Describe task with clear completion criteria...'
+                            : isMobile
+                              ? 'Ask Copilot...'
+                              : 'Ask Copilot... (Shift+Enter for new line)'
                   }
                   className="flex-1 bg-transparent py-2.5 pl-3 pr-2 text-copilot-text placeholder-copilot-text-muted outline-none text-sm resize-none min-h-[40px] max-h-[200px]"
                   disabled={status !== 'connected'}
@@ -5663,6 +6494,26 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     target.style.height = Math.min(target.scrollHeight, 200) + 'px';
                   }}
                 />
+                {/* Audio Input (Mic) Button - uses whisper.cpp for STT */}
+                {!activeTab?.isProcessing && (
+                  <MicButton
+                    onTranscript={(text) => {
+                      if (text.trim()) {
+                        setInputValue((prev) => (prev ? prev + ' ' + text : text));
+                        // Start auto-send countdown if always listening is enabled
+                        if (alwaysListening) {
+                          startVoiceAutoSend();
+                        }
+                      }
+                    }}
+                    className="shrink-0"
+                    pushToTalk={pushToTalk}
+                    alwaysListening={alwaysListening}
+                    onAlwaysListeningError={setAlwaysListeningError}
+                    onAbortDetected={cancelVoiceAutoSend}
+                    onOpenSettings={() => openSettingsVoice(true)}
+                  />
+                )}
                 {/* File Attach Button */}
                 {!activeTab?.isProcessing && (
                   <button
@@ -5726,676 +6577,265 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     </button>
                   </>
                 ) : (
-                  <button
-                    onClick={handleSendMessage}
-                    disabled={
-                      (!inputValue.trim() &&
-                        !terminalAttachment &&
-                        imageAttachments.length === 0 &&
-                        fileAttachments.length === 0) ||
-                      status !== 'connected'
-                    }
-                    className="shrink-0 px-4 py-2.5 text-copilot-accent hover:brightness-110 disabled:opacity-30 disabled:cursor-not-allowed text-xs font-medium transition-colors"
-                  >
-                    {lisaEnabled ? 'Start Lisa Loop' : ralphEnabled ? 'Start Loop' : 'Send'}
-                  </button>
+                  <div className="relative">
+                    <button
+                      onClick={() => {
+                        cancelVoiceAutoSend();
+                        handleSendMessage();
+                      }}
+                      disabled={
+                        (!inputValue.trim() &&
+                          !terminalAttachment &&
+                          imageAttachments.length === 0 &&
+                          fileAttachments.length === 0) ||
+                        status !== 'connected'
+                      }
+                      className={`shrink-0 px-4 py-2.5 hover:brightness-110 disabled:opacity-30 disabled:cursor-not-allowed text-xs font-medium transition-colors ${
+                        voiceAutoSendCountdown !== null
+                          ? 'text-copilot-success'
+                          : 'text-copilot-accent'
+                      }`}
+                    >
+                      {lisaEnabled ? 'Start Lisa Loop' : ralphEnabled ? 'Start Loop' : 'Send'}
+                    </button>
+                    {/* Auto-send countdown tooltip */}
+                    {voiceAutoSendCountdown !== null && (
+                      <div
+                        className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-copilot-success text-white rounded-lg shadow-lg cursor-pointer animate-pulse text-center"
+                        onClick={cancelVoiceAutoSend}
+                        title="Click to cancel auto-send"
+                      >
+                        <div className="text-xs font-bold whitespace-nowrap">
+                          Sending in {voiceAutoSendCountdown}s
+                        </div>
+                        <div className="text-[10px] opacity-80 mt-0.5">Say "abort" to cancel</div>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
           </div>
 
           {/* Right Resize Handle */}
-          <div
-            className="w-0 cursor-col-resize shrink-0 relative z-10"
-            onMouseDown={(e) => handleResizeMouseDown(e, 'right')}
-          >
-            <div className="absolute inset-y-0 -right-1 w-2 hover:bg-copilot-accent/50 transition-colors" />
-          </div>
+          {!rightPanelCollapsed && !isMobile && (
+            <div
+              className="w-0 cursor-col-resize shrink-0 relative z-10"
+              onMouseDown={(e) => handleResizeMouseDown(e, 'right')}
+            >
+              <div className="absolute inset-y-0 -right-1 w-2 hover:bg-copilot-accent/50 transition-colors" />
+            </div>
+          )}
 
           {/* Right Panel - Activity & Session Info */}
-          <div
-            className="border-l border-copilot-border flex flex-col shrink-0 bg-copilot-bg"
-            style={{ width: rightPanelWidth }}
-          >
-            {/* Activity Header with Intent */}
-            <div className="px-3 py-2 border-b border-copilot-border bg-copilot-surface">
-              <div className="flex items-center gap-2">
-                {activeTab?.isProcessing ? (
-                  <>
-                    {activeTab?.lisaConfig?.active ? (
-                      <LisaIcon size={12} className="animate-pulse" />
-                    ) : activeTab?.ralphConfig?.active ? (
-                      <RalphIcon size={12} className="text-copilot-warning animate-pulse" />
-                    ) : (
-                      <span className="w-2 h-2 rounded-full bg-copilot-warning animate-pulse" />
-                    )}
-                    <span className="text-xs font-medium text-copilot-text truncate">
-                      {activeTab?.lisaConfig?.active
-                        ? (() => {
-                            const phase = activeTab.lisaConfig.currentPhase;
-                            const emoji: Record<LisaPhase, string> = {
-                              plan: '📋',
-                              'plan-review': '👀',
-                              execute: '💻',
-                              'code-review': '👀',
-                              validate: '🧪',
-                              'final-review': '👀',
-                            };
-                            const shortName: Record<LisaPhase, string> = {
-                              plan: 'Plan',
-                              'plan-review': 'Review',
-                              execute: 'Code',
-                              'code-review': 'Review',
-                              validate: 'Test',
-                              'final-review': 'Final',
-                            };
-                            return `Lisa ${emoji[phase]} ${shortName[phase]} ${activeTab.lisaConfig.phaseIterations[phase] || 1}`;
-                          })()
-                        : activeTab?.ralphConfig?.active
-                          ? `Ralph ${activeTab.ralphConfig.currentIteration}/${activeTab.ralphConfig.maxIterations}`
-                          : activeTab?.currentIntent || 'Working...'}
-                    </span>
-                    {(activeTab?.ralphConfig?.active || activeTab?.lisaConfig?.active) &&
-                      activeTab?.currentIntent && (
-                        <span className="text-[10px] text-copilot-text-muted truncate">
-                          — {activeTab.currentIntent}
-                        </span>
+          {!rightPanelCollapsed && !isMobile ? (
+            <div
+              className="border-l border-copilot-border flex flex-col shrink-0 bg-copilot-bg"
+              style={{ width: rightPanelWidth }}
+            >
+              {/* Collapse button in header */}
+              <div className="px-2 py-1.5 border-b border-copilot-border bg-copilot-surface flex items-center gap-2">
+                <button
+                  onClick={toggleRightPanel}
+                  className="shrink-0 p-1 text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover rounded transition-colors"
+                  title="Collapse activity panel"
+                >
+                  <ChevronDownIcon size={12} className="-rotate-90" />
+                </button>
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                  {activeTab?.isProcessing ? (
+                    <>
+                      {activeTab?.lisaConfig?.active ? (
+                        <LisaIcon size={12} className="animate-pulse" />
+                      ) : activeTab?.ralphConfig?.active ? (
+                        <RalphIcon size={12} className="text-copilot-warning animate-pulse" />
+                      ) : (
+                        <span className="w-2 h-2 rounded-full bg-copilot-warning animate-pulse" />
                       )}
-                  </>
-                ) : (
-                  <>
-                    <span className="w-2 h-2 rounded-full bg-copilot-success" />
-                    <span className="text-xs font-medium text-copilot-text-muted">Ready</span>
-                  </>
-                )}
+                      <span className="text-xs font-medium text-copilot-text truncate">
+                        {activeTab?.lisaConfig?.active
+                          ? (() => {
+                              const phase = activeTab.lisaConfig.currentPhase;
+                              const emoji: Record<LisaPhase, string> = {
+                                plan: '📋',
+                                'plan-review': '👀',
+                                execute: '💻',
+                                'code-review': '👀',
+                                validate: '🧪',
+                                'final-review': '👀',
+                              };
+                              const shortName: Record<LisaPhase, string> = {
+                                plan: 'Plan',
+                                'plan-review': 'Review',
+                                execute: 'Code',
+                                'code-review': 'Review',
+                                validate: 'Test',
+                                'final-review': 'Final',
+                              };
+                              return `Lisa ${emoji[phase]} ${shortName[phase]} ${activeTab.lisaConfig.phaseIterations[phase] || 1}`;
+                            })()
+                          : activeTab?.ralphConfig?.active
+                            ? `Ralph ${activeTab.ralphConfig.currentIteration}/${activeTab.ralphConfig.maxIterations}`
+                            : activeTab?.currentIntent || 'Working...'}
+                      </span>
+                      {(activeTab?.ralphConfig?.active || activeTab?.lisaConfig?.active) &&
+                        activeTab?.currentIntent && (
+                          <span className="text-[10px] text-copilot-text-muted truncate">
+                            — {activeTab.currentIntent}
+                          </span>
+                        )}
+                    </>
+                  ) : (
+                    <>
+                      <span className="w-2 h-2 rounded-full bg-copilot-success" />
+                      <span className="text-xs font-medium text-copilot-text-muted">Ready</span>
+                    </>
+                  )}
+                </div>
               </div>
-            </div>
-
-            {/* Tool Activity Log */}
-            <div className="flex-1 overflow-y-auto">
-              {/* Tools List */}
-              {(activeTab?.activeTools?.length || 0) > 0 && (
-                <div className="border-b border-copilot-surface">
-                  {(() => {
-                    type GroupedTool = { tool: ActiveTool; count: number };
-
-                    const tools = activeTab?.activeTools || [];
-                    const groups: GroupedTool[] = [];
-
-                    const getDescription = (tool: ActiveTool): string => {
-                      const input = tool.input || {};
-                      const path = input.path as string | undefined;
-                      const shortPath = path ? path.split('/').slice(-2).join('/') : '';
-
-                      if (tool.toolName === 'grep') {
-                        const pattern = (input.pattern as string) || '';
-                        return pattern ? `"${pattern}"` : '';
-                      }
-
-                      if (tool.toolName === 'glob') {
-                        return (input.pattern as string) || '';
-                      }
-
-                      if (tool.toolName === 'view') {
-                        return shortPath || path || '';
-                      }
-
-                      if (tool.toolName === 'edit' || tool.toolName === 'create') {
-                        return shortPath || path || '';
-                      }
-
-                      if (tool.toolName === 'bash') {
-                        const desc = (input.description as string) || '';
-                        const cmd = ((input.command as string) || '').slice(0, 40);
-                        return desc || (cmd ? `$ ${cmd}...` : '');
-                      }
-
-                      if (tool.toolName === 'read_bash' || tool.toolName === 'write_bash') {
-                        return 'session';
-                      }
-
-                      if (tool.toolName === 'web_fetch') {
-                        return ((input.url as string) || '').slice(0, 30);
-                      }
-
-                      return '';
-                    };
-
-                    const getGroupKey = (tool: ActiveTool): string => {
-                      const input = tool.input || {};
-                      const description = getDescription(tool);
-                      const summary =
-                        tool.status === 'done'
-                          ? formatToolOutput(tool.toolName, input, tool.output)
-                          : '';
-                      let key = `${tool.toolName}|${description}|${summary}`;
-
-                      // For edits, include first-line diff so unrelated edits don't collapse.
-                      if (tool.toolName === 'edit' && tool.status === 'done' && input.old_str) {
-                        const oldLine = String(input.old_str).split('\n')[0];
-                        const newLine =
-                          input.new_str !== undefined ? String(input.new_str).split('\n')[0] : '';
-                        key += `|${oldLine}|${newLine}`;
-                      }
-
-                      return key;
-                    };
-
-                    const groupMap = new Map<string, GroupedTool>();
-
-                    // Group all completed tools by identical rendered label/summary.
-                    for (const tool of tools) {
-                      if (tool.status !== 'done') {
-                        groups.push({ tool, count: 1 });
-                        continue;
-                      }
-
-                      const key = getGroupKey(tool);
-                      const existing = groupMap.get(key);
-                      if (existing) {
-                        existing.count += 1;
-                        continue;
-                      }
-
-                      const entry = { tool, count: 1 };
-                      groupMap.set(key, entry);
-                      groups.push(entry);
-                    }
-
-                    return groups.map(({ tool, count }) => {
-                      const input = tool.input || {};
-                      const isEdit = tool.toolName === 'edit';
-                      const description = getDescription(tool);
-
-                      return (
-                        <div
-                          key={`${tool.toolCallId}-g`}
-                          className="px-3 py-1.5 border-b border-copilot-bg last:border-b-0"
-                        >
-                          <div className="flex items-start gap-2 text-xs">
-                            {tool.status === 'running' ? (
-                              <span className="text-copilot-warning shrink-0 mt-0.5">○</span>
-                            ) : (
-                              <span className="text-copilot-success shrink-0">✓</span>
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span
-                                  className={`font-medium ${tool.status === 'done' ? 'text-copilot-text' : 'text-copilot-text-muted'}`}
-                                >
-                                  {tool.toolName.charAt(0).toUpperCase() + tool.toolName.slice(1)}
-                                </span>
-                                {tool.status === 'done' && count > 1 && (
-                                  <span className="text-[10px] text-copilot-text-muted">
-                                    ×{count}
-                                  </span>
-                                )}
-                              </div>
-                              {description && (
-                                <span className="text-copilot-text-muted font-mono ml-1 text-[10px] truncate block">
-                                  {description}
-                                </span>
-                              )}
-                              {tool.status === 'done' && (
-                                <div className="text-copilot-text-muted text-[10px] mt-0.5">
-                                  {formatToolOutput(tool.toolName, input, tool.output)}
-                                </div>
-                              )}
-                              {isEdit && tool.status === 'done' && !!input.old_str && (
-                                <div className="mt-1 text-[10px] font-mono pl-2 border-l border-copilot-border">
-                                  <div className="text-copilot-error truncate">
-                                    − {(input.old_str as string).split('\n')[0].slice(0, 35)}
-                                  </div>
-                                  {input.new_str !== undefined && (
-                                    <div className="text-copilot-success truncate">
-                                      + {(input.new_str as string).split('\n')[0].slice(0, 35)}
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    });
-                  })()}
-                </div>
-              )}
-
-              {/* Processing indicator when no tools visible */}
-              {activeTab?.isProcessing && (activeTab?.activeTools?.length || 0) === 0 && (
-                <div className="px-3 py-3 flex items-center gap-2 border-b border-copilot-surface">
-                  <Spinner size="sm" />
-                  <span className="text-xs text-copilot-text-muted">Thinking...</span>
-                </div>
-              )}
 
               {/* Session Info Section */}
-              <div className="border-t border-copilot-border mt-auto">
-                {/* Working Directory */}
-                <div className="px-3 py-2 border-b border-copilot-surface">
-                  <div className="text-[10px] text-copilot-text-muted uppercase tracking-wide mb-1">
-                    Directory
+              <div className="flex-1 overflow-y-auto">
+                {/* Processing indicator when no tools visible */}
+                {activeTab?.isProcessing && (activeTab?.activeTools?.length || 0) === 0 && (
+                  <div className="px-3 py-3 flex items-center gap-2 border-b border-copilot-border">
+                    <Spinner size="sm" />
+                    <span className="text-xs text-copilot-text-muted">Thinking...</span>
                   </div>
-                  <div className="flex items-center gap-1.5 text-xs min-w-0">
-                    <FolderIcon size={12} className="text-copilot-accent shrink-0" />
-                    <span className="text-copilot-text font-mono truncate" title={activeTab?.cwd}>
-                      {activeTab?.cwd || 'Unknown'}
-                    </span>
-                  </div>
-                </div>
+                )}
 
-                {/* Git Branch */}
-                <div className="px-3 py-2 border-b border-copilot-surface">
-                  <div className="flex items-center justify-between gap-2 mb-1">
-                    <div className="text-[10px] text-copilot-text-muted uppercase tracking-wide">
-                      Git Branch
+                <div className="mt-auto">
+                  {/* Working Directory */}
+                  <div className="px-3 py-2 border-b border-copilot-surface">
+                    <div className="text-[10px] text-copilot-text-muted uppercase tracking-wide mb-1">
+                      Directory
+                    </div>
+                    <div className="flex items-center gap-1.5 text-xs min-w-0">
+                      <FolderIcon size={12} className="text-copilot-accent shrink-0" />
+                      <span className="text-copilot-text font-mono truncate" title={activeTab?.cwd}>
+                        {activeTab?.cwd || 'Unknown'}
+                      </span>
                     </div>
                   </div>
-                  <GitBranchWidget cwd={activeTab?.cwd} refreshKey={activeTab?.gitBranchRefresh} />
-                </div>
 
-                {/* Edited Files */}
-                <div className="border-b border-copilot-surface" data-tour="edited-files">
-                  <div className="flex items-center">
-                    <button
-                      onClick={handleToggleEditedFiles}
-                      className="flex-1 flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
-                    >
-                      <ChevronRightIcon
-                        size={8}
-                        className={`transition-transform ${showEditedFiles ? 'rotate-90' : ''}`}
-                      />
-                      <span>Edited Files</span>
-                      {cleanedEditedFiles.length > 0 && (
-                        <span className="text-copilot-accent">
-                          ({cleanedEditedFiles.length - (activeTab?.untrackedFiles?.length || 0)})
-                        </span>
-                      )}
-                      {(activeTab?.untrackedFiles?.length || 0) > 0 && (
-                        <span
-                          className="text-copilot-text-muted"
-                          title="Untracked files (excluded from commit)"
-                        >
-                          +{activeTab?.untrackedFiles?.length} untracked
-                        </span>
-                      )}
-                      {showEditedFiles && !isGitRepo && (
-                        <span
-                          className="text-copilot-warning"
-                          title="Not in a Git repository. File list is based on manual tracking of files touched in this session."
-                        >
-                          <WarningIcon size={10} />
-                        </span>
-                      )}
-                    </button>
-                    {isGitRepo && (
-                      <IconButton
-                        icon={<CommitIcon size={12} />}
-                        onClick={handleOpenCommitModal}
-                        variant="accent"
-                        size="sm"
-                        title="Commit and push"
-                        className="mr-1"
-                      />
-                    )}
-                  </div>
-                  {showEditedFiles && activeTab && (
-                    <div className="max-h-48 overflow-y-auto" data-clarity-mask="true">
-                      {activeTab.editedFiles.length === 0 ? (
-                        <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
-                          No files edited
-                        </div>
-                      ) : (
-                        // Simple flat list - clicking opens the full overlay
-                        cleanedEditedFiles.map((filePath) => {
-                          const isConflicted =
-                            isGitRepo &&
-                            conflictedFiles.some(
-                              (cf) =>
-                                filePath.endsWith(cf) ||
-                                cf.endsWith(filePath.split(/[/\\]/).pop() || '')
-                            );
-                          const isUntracked = (activeTab.untrackedFiles || []).includes(filePath);
-                          return (
-                            <button
-                              key={filePath}
-                              onClick={() => setFilePreviewPath(filePath)}
-                              className={`w-full flex items-center gap-2 px-3 py-1 text-[10px] hover:bg-copilot-surface text-left ${
-                                isUntracked
-                                  ? 'text-copilot-text-muted/50'
-                                  : isConflicted
-                                    ? 'text-copilot-error'
-                                    : 'text-copilot-text-muted'
-                              }`}
-                              title={
-                                isUntracked
-                                  ? `${filePath} (untracked) - Click to preview`
-                                  : isConflicted
-                                    ? `${filePath} (conflict) - Click to preview`
-                                    : `${filePath} - Click to preview`
-                              }
-                            >
-                              <FileIcon
-                                size={8}
-                                className={`shrink-0 ${
-                                  isUntracked
-                                    ? 'text-copilot-text-muted/50'
-                                    : isConflicted
-                                      ? 'text-copilot-error'
-                                      : 'text-copilot-success'
-                                }`}
-                              />
-                              <span
-                                className={`truncate font-mono ${isUntracked ? 'line-through' : ''}`}
-                              >
-                                {filePath}
-                              </span>
-                              {isConflicted && (
-                                <span className="text-[8px] text-copilot-error">!</span>
-                              )}
-                              {isUntracked && (
-                                <span className="text-[8px] text-copilot-text-muted">
-                                  (untracked)
-                                </span>
-                              )}
-                            </button>
-                          );
-                        })
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Allowed Commands (merged session + global) */}
-                <div className="border-b border-copilot-border" data-tour="allowed-commands">
-                  <div className="flex items-center">
-                    <button
-                      onClick={() => {
-                        setShowAllowedCommands(!showAllowedCommands);
-                        if (!showAllowedCommands) {
-                          refreshAlwaysAllowed();
-                          refreshGlobalSafeCommands();
-                        } else {
-                          // Hide the add command input when collapsing
-                          setShowAddAllowedCommand(false);
-                        }
-                      }}
-                      className="flex-1 flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
-                    >
-                      <ChevronRightIcon
-                        size={8}
-                        className={`transition-transform ${showAllowedCommands ? 'rotate-90' : ''}`}
-                      />
-                      <span>Allowed Commands</span>
-                      {(activeTab?.alwaysAllowed.length || 0) + globalSafeCommands.length > 0 && (
-                        <span className="text-copilot-accent">
-                          ({(activeTab?.alwaysAllowed.length || 0) + globalSafeCommands.length})
-                        </span>
-                      )}
-                    </button>
-                    <div className="relative mr-1">
-                      <IconButton
-                        icon={<PlusIcon size={12} />}
-                        onClick={() => {
-                          setShowAddAllowedCommand(!showAddAllowedCommand);
-                          if (!showAllowedCommands) {
-                            setShowAllowedCommands(true);
-                            refreshAlwaysAllowed();
-                            refreshGlobalSafeCommands();
-                          }
-                        }}
-                        variant="success"
-                        size="sm"
-                        title="Add allowed command"
-                      />
-                    </div>
-                  </div>
-                  {showAddAllowedCommand && activeTab && (
-                    <div className="px-3 pb-2">
-                      <div className="flex items-center gap-2">
-                        <select
-                          value={addCommandScope}
-                          onChange={(e) =>
-                            setAddCommandScope(e.target.value as 'session' | 'global')
-                          }
-                          className="px-2 py-1 text-[10px] bg-copilot-surface border border-copilot-border rounded text-copilot-text focus:outline-none focus:border-copilot-accent"
-                        >
-                          <option value="session">Session</option>
-                          <option
-                            value="global"
-                            disabled={addCommandValue.trim().toLowerCase().startsWith('write')}
-                          >
-                            Global
-                          </option>
-                        </select>
-                        <input
-                          type="text"
-                          value={addCommandValue}
-                          onChange={(e) => {
-                            setAddCommandValue(e.target.value);
-                            // Reset to session scope if user types a "write" command while global is selected
-                            if (
-                              addCommandScope === 'global' &&
-                              e.target.value.trim().toLowerCase().startsWith('write')
-                            ) {
-                              setAddCommandScope('session');
-                            }
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleAddAllowedCommand();
-                            if (e.key === 'Escape') {
-                              setShowAddAllowedCommand(false);
-                              setAddCommandValue('');
-                            }
-                          }}
-                          placeholder="e.g., npm, git, python"
-                          className="flex-1 px-2 py-1 text-[10px] bg-copilot-surface border border-copilot-border rounded text-copilot-text placeholder:text-copilot-text-muted focus:outline-none focus:border-copilot-accent"
-                          autoFocus
-                        />
-                        <button
-                          onClick={handleAddAllowedCommand}
-                          disabled={!addCommandValue.trim()}
-                          className="px-2 py-1 text-[10px] bg-copilot-accent text-copilot-text rounded hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          Add
-                        </button>
+                  {/* Git Branch */}
+                  <div className="px-3 py-2 border-b border-copilot-surface">
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <div className="text-[10px] text-copilot-text-muted uppercase tracking-wide">
+                        Git Branch
                       </div>
                     </div>
-                  )}
-                  {showAllowedCommands && activeTab && (
-                    <div className="max-h-48 overflow-y-auto">
-                      {activeTab.alwaysAllowed.length === 0 && globalSafeCommands.length === 0 ? (
-                        <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
-                          No allowed commands
-                        </div>
-                      ) : (
-                        (() => {
-                          const isSpecialExe = (exe: string) =>
-                            exe.startsWith('write') ||
-                            exe.startsWith('url') ||
-                            exe.startsWith('mcp');
-                          const toPretty = (exe: string) => {
-                            const hasColon = exe.includes(':');
-                            const [rawPrefix, rawRest] = hasColon ? exe.split(':', 2) : [exe, null];
-                            const prefix = rawPrefix;
-                            const rest = rawRest;
+                    <GitBranchWidget
+                      cwd={activeTab?.cwd}
+                      refreshKey={activeTab?.gitBranchRefresh}
+                    />
+                  </div>
 
-                            const isSpecial =
-                              prefix === 'write' || prefix === 'url' || prefix === 'mcp';
-                            const meaning =
-                              prefix === 'write'
-                                ? 'File changes'
-                                : prefix === 'url'
-                                  ? 'Web access'
-                                  : prefix === 'mcp'
-                                    ? 'MCP tools'
-                                    : '';
-
-                            return isSpecial ? (rest ? `${meaning}: ${rest}` : meaning) : exe;
-                          };
-
-                          // Combine session and global commands with type indicator
-                          type AllowedCommand = {
-                            cmd: string;
-                            isGlobal: boolean;
-                            isSpecial: boolean;
-                            pretty: string;
-                          };
-                          const allCommands: AllowedCommand[] = [
-                            ...activeTab.alwaysAllowed.map((cmd) => ({
-                              cmd,
-                              isGlobal: false,
-                              isSpecial: isSpecialExe(cmd),
-                              pretty: toPretty(cmd),
-                            })),
-                            ...globalSafeCommands.map((cmd) => ({
-                              cmd,
-                              isGlobal: true,
-                              isSpecial: false,
-                              pretty: cmd,
-                            })),
-                          ].sort((a, b) => {
-                            // Global commands first, then special, then alphabetically
-                            if (a.isGlobal !== b.isGlobal) return a.isGlobal ? -1 : 1;
-                            if (a.isSpecial !== b.isSpecial) return a.isSpecial ? -1 : 1;
-                            return a.pretty.localeCompare(b.pretty);
-                          });
-
-                          return (
-                            <div className="pb-1">
-                              {allCommands.map(({ cmd, isGlobal, isSpecial, pretty }) => (
-                                <div
-                                  key={`${isGlobal ? 'global' : 'session'}-${cmd}`}
-                                  className="flex items-center gap-2 px-3 py-1 text-[10px] hover:bg-copilot-surface-hover transition-colors"
-                                >
-                                  {isGlobal && (
-                                    <GlobeIcon size={10} className="shrink-0 text-copilot-accent" />
-                                  )}
-                                  <span
-                                    className={`flex-1 truncate font-mono ${
-                                      isSpecial ? 'text-copilot-accent' : 'text-copilot-text-muted'
-                                    }`}
-                                    title={pretty}
-                                  >
-                                    {pretty}
-                                  </span>
-                                  <button
-                                    onClick={() =>
-                                      isGlobal
-                                        ? handleRemoveGlobalSafeCommand(cmd)
-                                        : handleRemoveAlwaysAllowed(cmd)
-                                    }
-                                    className="shrink-0 text-copilot-error hover:brightness-110"
-                                    title="Remove"
-                                  >
-                                    <CloseIcon size={10} />
-                                  </button>
-                                </div>
-                              ))}
-                            </div>
-                          );
-                        })()
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* MCP Servers & Skills Section */}
-                <div data-tour="mcp-skills">
-                  {/* MCP Servers */}
-                  <div>
+                  {/* Edited Files */}
+                  <div className="border-b border-copilot-surface" data-tour="edited-files">
                     <div className="flex items-center">
                       <button
-                        onClick={() => setShowMcpServers(!showMcpServers)}
+                        onClick={handleToggleEditedFiles}
                         className="flex-1 flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
                       >
                         <ChevronRightIcon
                           size={8}
-                          className={`transition-transform ${showMcpServers ? 'rotate-90' : ''}`}
+                          className={`transition-transform ${showEditedFiles ? 'rotate-90' : ''}`}
                         />
-                        <span>MCP Servers</span>
-                        {Object.keys(mcpServers).length > 0 && (
+                        <span>Edited Files</span>
+                        {cleanedEditedFiles.length > 0 && (
                           <span className="text-copilot-accent">
-                            ({Object.keys(mcpServers).length})
+                            ({cleanedEditedFiles.length - (activeTab?.untrackedFiles?.length || 0)})
+                          </span>
+                        )}
+                        {(activeTab?.untrackedFiles?.length || 0) > 0 && (
+                          <span
+                            className="text-copilot-text-muted"
+                            title="Untracked files (excluded from commit)"
+                          >
+                            +{activeTab?.untrackedFiles?.length} untracked
+                          </span>
+                        )}
+                        {showEditedFiles && !isGitRepo && (
+                          <span
+                            className="text-copilot-warning"
+                            title="Not in a Git repository. File list is based on manual tracking of files touched in this session."
+                          >
+                            <WarningIcon size={10} />
                           </span>
                         )}
                       </button>
-                      <IconButton
-                        icon={<FileIcon size={12} />}
-                        onClick={() => setShowMcpJsonModal(true)}
-                        variant="accent"
-                        size="sm"
-                        title="View JSON config"
-                        className="mr-1"
-                      />
-                      <IconButton
-                        icon={<RepeatIcon size={12} />}
-                        onClick={handleRefreshMcpServers}
-                        variant="accent"
-                        size="sm"
-                        title="Refresh MCP servers"
-                        className="mr-1"
-                      />
-                      <IconButton
-                        icon={<PlusIcon size={12} />}
-                        onClick={openAddMcpModal}
-                        variant="success"
-                        size="sm"
-                        title="Add MCP server"
-                        className="mr-1"
-                      />
+                      {isGitRepo && (
+                        <IconButton
+                          icon={<CommitIcon size={12} />}
+                          onClick={handleOpenCommitModal}
+                          variant="accent"
+                          size="sm"
+                          title="Commit and push"
+                          className="mr-1"
+                        />
+                      )}
                     </div>
-                    {showMcpServers && (
-                      <div className="max-h-48 overflow-y-auto">
-                        {Object.keys(mcpServers).length === 0 ? (
+                    {showEditedFiles && activeTab && (
+                      <div className="max-h-48 overflow-y-auto" data-clarity-mask="true">
+                        {activeTab.editedFiles.length === 0 ? (
                           <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
-                            No MCP servers configured
+                            No files edited
                           </div>
                         ) : (
-                          Object.entries(mcpServers).map(([name, server]) => {
-                            const isLocal =
-                              !server.type || server.type === 'local' || server.type === 'stdio';
-                            const toolCount =
-                              server.tools[0] === '*' ? 'all' : `${server.tools.length}`;
+                          // Simple flat list - clicking opens the full overlay
+                          cleanedEditedFiles.map((filePath) => {
+                            const isConflicted =
+                              isGitRepo &&
+                              conflictedFiles.some(
+                                (cf) =>
+                                  filePath.endsWith(cf) ||
+                                  cf.endsWith(filePath.split(/[/\\]/).pop() || '')
+                              );
+                            const isUntracked = (activeTab.untrackedFiles || []).includes(filePath);
                             return (
-                              <div
-                                key={name}
-                                className="group px-3 py-1.5 hover:bg-copilot-surface border-b border-copilot-border last:border-b-0"
+                              <button
+                                key={filePath}
+                                onClick={() => setFilePreviewPath(filePath)}
+                                className={`w-full flex items-center gap-2 px-3 py-1 text-[10px] hover:bg-copilot-surface text-left ${
+                                  isUntracked
+                                    ? 'text-copilot-text-muted/50'
+                                    : isConflicted
+                                      ? 'text-copilot-error'
+                                      : 'text-copilot-text-muted'
+                                }`}
+                                title={
+                                  isUntracked
+                                    ? `${filePath} (untracked) - Click to preview`
+                                    : isConflicted
+                                      ? `${filePath} (conflict) - Click to preview`
+                                      : `${filePath} - Click to preview`
+                                }
                               >
-                                <div className="flex items-center gap-2">
-                                  {isLocal ? (
-                                    <MonitorIcon
-                                      size={10}
-                                      className="shrink-0 text-copilot-accent"
-                                    />
-                                  ) : (
-                                    <GlobeIcon size={10} className="shrink-0 text-copilot-accent" />
-                                  )}
-                                  <div className="flex-1 min-w-0">
-                                    <div className="text-xs text-copilot-text truncate">{name}</div>
-                                    <div className="text-[10px] text-copilot-accent">
-                                      {toolCount} tools
-                                    </div>
-                                  </div>
-                                  <div className="shrink-0 opacity-0 group-hover:opacity-100 flex gap-1">
-                                    <IconButton
-                                      icon={<EditIcon size={10} />}
-                                      onClick={() => openEditMcpModal(name, server)}
-                                      variant="accent"
-                                      size="xs"
-                                      title="Edit"
-                                    />
-                                    <IconButton
-                                      icon={<CloseIcon size={10} />}
-                                      onClick={() => handleDeleteMcpServer(name)}
-                                      variant="error"
-                                      size="xs"
-                                      title="Delete"
-                                    />
-                                  </div>
-                                </div>
-                              </div>
+                                <FileIcon
+                                  size={8}
+                                  className={`shrink-0 ${
+                                    isUntracked
+                                      ? 'text-copilot-text-muted/50'
+                                      : isConflicted
+                                        ? 'text-copilot-error'
+                                        : 'text-copilot-success'
+                                  }`}
+                                />
+                                <span
+                                  className={`truncate font-mono ${isUntracked ? 'line-through' : ''}`}
+                                >
+                                  {filePath}
+                                </span>
+                                {isConflicted && (
+                                  <span className="text-[8px] text-copilot-error">!</span>
+                                )}
+                                {isUntracked && (
+                                  <span className="text-[8px] text-copilot-text-muted">
+                                    (untracked)
+                                  </span>
+                                )}
+                              </button>
                             );
                           })
                         )}
@@ -6403,67 +6843,394 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     )}
                   </div>
 
-                  {/* Separator */}
-                  <div className="border-t border-copilot-border" />
-
-                  {/* Agent Skills */}
-                  <div>
+                  {/* Allowed Commands (merged session + global) */}
+                  <div className="border-b border-copilot-border" data-tour="allowed-commands">
                     <div className="flex items-center">
                       <button
-                        onClick={() => setShowSkills(!showSkills)}
+                        onClick={() => {
+                          setShowAllowedCommands(!showAllowedCommands);
+                          if (!showAllowedCommands) {
+                            refreshAlwaysAllowed();
+                            refreshGlobalSafeCommands();
+                          } else {
+                            // Hide the add command input when collapsing
+                            setShowAddAllowedCommand(false);
+                          }
+                        }}
                         className="flex-1 flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
                       >
                         <ChevronRightIcon
                           size={8}
-                          className={`transition-transform ${showSkills ? 'rotate-90' : ''}`}
+                          className={`transition-transform ${showAllowedCommands ? 'rotate-90' : ''}`}
                         />
-                        <span>Agent Skills</span>
-                        {skills.length > 0 && (
-                          <span className="text-copilot-accent">({skills.length})</span>
+                        <span>Allowed Commands</span>
+                        {(activeTab?.alwaysAllowed.length || 0) + globalSafeCommands.length > 0 && (
+                          <span className="text-copilot-accent">
+                            ({(activeTab?.alwaysAllowed.length || 0) + globalSafeCommands.length})
+                          </span>
                         )}
                       </button>
+                      <div className="relative mr-1">
+                        <IconButton
+                          icon={<PlusIcon size={12} />}
+                          onClick={() => {
+                            setShowAddAllowedCommand(!showAddAllowedCommand);
+                            if (!showAllowedCommands) {
+                              setShowAllowedCommands(true);
+                              refreshAlwaysAllowed();
+                              refreshGlobalSafeCommands();
+                            }
+                          }}
+                          variant="success"
+                          size="sm"
+                          title="Add allowed command"
+                        />
+                      </div>
                     </div>
-                    {showSkills && (
+                    {showAddAllowedCommand && activeTab && (
+                      <div className="px-3 pb-2">
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={addCommandScope}
+                            onChange={(e) =>
+                              setAddCommandScope(e.target.value as 'session' | 'global')
+                            }
+                            className="px-2 py-1 text-[10px] bg-copilot-surface border border-copilot-border rounded text-copilot-text focus:outline-none focus:border-copilot-accent"
+                          >
+                            <option value="session">Session</option>
+                            <option
+                              value="global"
+                              disabled={addCommandValue.trim().toLowerCase().startsWith('write')}
+                            >
+                              Global
+                            </option>
+                          </select>
+                          <input
+                            type="text"
+                            value={addCommandValue}
+                            onChange={(e) => {
+                              setAddCommandValue(e.target.value);
+                              // Reset to session scope if user types a "write" command while global is selected
+                              if (
+                                addCommandScope === 'global' &&
+                                e.target.value.trim().toLowerCase().startsWith('write')
+                              ) {
+                                setAddCommandScope('session');
+                              }
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleAddAllowedCommand();
+                              if (e.key === 'Escape') {
+                                setShowAddAllowedCommand(false);
+                                setAddCommandValue('');
+                              }
+                            }}
+                            placeholder="e.g., npm, git, python"
+                            className="flex-1 px-2 py-1 text-[10px] bg-copilot-surface border border-copilot-border rounded text-copilot-text placeholder:text-copilot-text-muted focus:outline-none focus:border-copilot-accent"
+                            autoFocus
+                          />
+                          <button
+                            onClick={handleAddAllowedCommand}
+                            disabled={!addCommandValue.trim()}
+                            className="px-2 py-1 text-[10px] bg-copilot-accent text-copilot-text rounded hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            Add
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {showAllowedCommands && activeTab && (
                       <div className="max-h-48 overflow-y-auto">
-                        {skills.length === 0 ? (
+                        {activeTab.alwaysAllowed.length === 0 && globalSafeCommands.length === 0 ? (
                           <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
-                            No skills found
+                            No allowed commands
                           </div>
                         ) : (
-                          skills.map((skill) => (
-                            <div
-                              key={skill.path}
-                              className="group px-3 py-1.5 hover:bg-copilot-surface border-b border-copilot-border last:border-b-0"
-                            >
-                              <div className="flex items-center gap-2">
-                                <BookIcon size={10} className="shrink-0 text-copilot-accent" />
-                                <div className="flex-1 min-w-0">
-                                  <div className="text-xs text-copilot-text truncate">
-                                    {skill.name}
-                                  </div>
+                          (() => {
+                            const isSpecialExe = (exe: string) =>
+                              exe.startsWith('write') ||
+                              exe.startsWith('url') ||
+                              exe.startsWith('mcp');
+                            const toPretty = (exe: string) => {
+                              const hasColon = exe.includes(':');
+                              const [rawPrefix, rawRest] = hasColon
+                                ? exe.split(':', 2)
+                                : [exe, null];
+                              const prefix = rawPrefix;
+                              const rest = rawRest;
+
+                              const isSpecial =
+                                prefix === 'write' || prefix === 'url' || prefix === 'mcp';
+                              const meaning =
+                                prefix === 'write'
+                                  ? 'File changes'
+                                  : prefix === 'url'
+                                    ? 'Web access'
+                                    : prefix === 'mcp'
+                                      ? 'MCP tools'
+                                      : '';
+
+                              return isSpecial ? (rest ? `${meaning}: ${rest}` : meaning) : exe;
+                            };
+
+                            // Combine session and global commands with type indicator
+                            type AllowedCommand = {
+                              cmd: string;
+                              isGlobal: boolean;
+                              isSpecial: boolean;
+                              pretty: string;
+                            };
+                            const allCommands: AllowedCommand[] = [
+                              ...activeTab.alwaysAllowed.map((cmd) => ({
+                                cmd,
+                                isGlobal: false,
+                                isSpecial: isSpecialExe(cmd),
+                                pretty: toPretty(cmd),
+                              })),
+                              ...globalSafeCommands.map((cmd) => ({
+                                cmd,
+                                isGlobal: true,
+                                isSpecial: false,
+                                pretty: cmd,
+                              })),
+                            ].sort((a, b) => {
+                              // Global commands first, then special, then alphabetically
+                              if (a.isGlobal !== b.isGlobal) return a.isGlobal ? -1 : 1;
+                              if (a.isSpecial !== b.isSpecial) return a.isSpecial ? -1 : 1;
+                              return a.pretty.localeCompare(b.pretty);
+                            });
+
+                            return (
+                              <div className="pb-1">
+                                {allCommands.map(({ cmd, isGlobal, isSpecial, pretty }) => (
                                   <div
-                                    className="text-[10px] text-copilot-text-muted truncate"
-                                    title={skill.description}
+                                    key={`${isGlobal ? 'global' : 'session'}-${cmd}`}
+                                    className="flex items-center gap-2 px-3 py-1 text-[10px] hover:bg-copilot-surface-hover transition-colors"
                                   >
-                                    {skill.description}
+                                    {isGlobal && (
+                                      <GlobeIcon
+                                        size={10}
+                                        className="shrink-0 text-copilot-accent"
+                                      />
+                                    )}
+                                    <span
+                                      className={`flex-1 truncate font-mono ${
+                                        isSpecial
+                                          ? 'text-copilot-accent'
+                                          : 'text-copilot-text-muted'
+                                      }`}
+                                      title={pretty}
+                                    >
+                                      {pretty}
+                                    </span>
+                                    <button
+                                      onClick={() =>
+                                        isGlobal
+                                          ? handleRemoveGlobalSafeCommand(cmd)
+                                          : handleRemoveAlwaysAllowed(cmd)
+                                      }
+                                      className="shrink-0 text-copilot-error hover:brightness-110"
+                                      title="Remove"
+                                    >
+                                      <CloseIcon size={10} />
+                                    </button>
                                   </div>
-                                  <div className="text-[9px] text-copilot-accent">
-                                    {skill.type === 'personal' ? '~/' : '.'}/
-                                    {skill.source === 'copilot' ? '.copilot' : '.claude'}/skills
-                                  </div>
-                                </div>
+                                ))}
                               </div>
-                            </div>
-                          ))
+                            );
+                          })()
                         )}
                       </div>
                     )}
                   </div>
+
+                  {/* MCP Servers & Skills Section */}
+                  <div data-tour="mcp-skills">
+                    {/* MCP Servers */}
+                    <div>
+                      <div className="flex items-center">
+                        <button
+                          onClick={() => setShowMcpServers(!showMcpServers)}
+                          className="flex-1 flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                        >
+                          <ChevronRightIcon
+                            size={8}
+                            className={`transition-transform ${showMcpServers ? 'rotate-90' : ''}`}
+                          />
+                          <span>MCP Servers</span>
+                          {Object.keys(mcpServers).length > 0 && (
+                            <span className="text-copilot-accent">
+                              ({Object.keys(mcpServers).length})
+                            </span>
+                          )}
+                        </button>
+                        <IconButton
+                          icon={<FileIcon size={12} />}
+                          onClick={() => setShowMcpJsonModal(true)}
+                          variant="accent"
+                          size="sm"
+                          title="View JSON config"
+                          className="mr-1"
+                        />
+                        <IconButton
+                          icon={<RepeatIcon size={12} />}
+                          onClick={handleRefreshMcpServers}
+                          variant="accent"
+                          size="sm"
+                          title="Refresh MCP servers"
+                          className="mr-1"
+                        />
+                        <IconButton
+                          icon={<PlusIcon size={12} />}
+                          onClick={openAddMcpModal}
+                          variant="success"
+                          size="sm"
+                          title="Add MCP server"
+                          className="mr-1"
+                        />
+                      </div>
+                      {showMcpServers && (
+                        <div className="max-h-48 overflow-y-auto">
+                          {Object.keys(mcpServers).length === 0 ? (
+                            <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
+                              No MCP servers configured
+                            </div>
+                          ) : (
+                            Object.entries(mcpServers).map(([name, server]) => {
+                              const isLocal =
+                                !server.type || server.type === 'local' || server.type === 'stdio';
+                              const toolCount =
+                                server.tools[0] === '*' ? 'all' : `${server.tools.length}`;
+                              return (
+                                <div
+                                  key={name}
+                                  className="group px-3 py-1.5 hover:bg-copilot-surface border-b border-copilot-border last:border-b-0"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    {isLocal ? (
+                                      <MonitorIcon
+                                        size={10}
+                                        className="shrink-0 text-copilot-accent"
+                                      />
+                                    ) : (
+                                      <GlobeIcon
+                                        size={10}
+                                        className="shrink-0 text-copilot-accent"
+                                      />
+                                    )}
+                                    <div className="flex-1 min-w-0">
+                                      <div className="text-xs text-copilot-text truncate">
+                                        {name}
+                                      </div>
+                                      <div className="text-[10px] text-copilot-accent">
+                                        {toolCount} tools
+                                      </div>
+                                    </div>
+                                    <div className="shrink-0 opacity-0 group-hover:opacity-100 flex gap-1">
+                                      <IconButton
+                                        icon={<EditIcon size={10} />}
+                                        onClick={() => openEditMcpModal(name, server)}
+                                        variant="accent"
+                                        size="xs"
+                                        title="Edit"
+                                      />
+                                      <IconButton
+                                        icon={<CloseIcon size={10} />}
+                                        onClick={() => handleDeleteMcpServer(name)}
+                                        variant="error"
+                                        size="xs"
+                                        title="Delete"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Separator */}
+                    <div className="border-t border-copilot-border" />
+
+                    {/* Agent Skills */}
+                    <div>
+                      <div className="flex items-center">
+                        <button
+                          onClick={() => setShowSkills(!showSkills)}
+                          className="flex-1 flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                        >
+                          <ChevronRightIcon
+                            size={8}
+                            className={`transition-transform ${showSkills ? 'rotate-90' : ''}`}
+                          />
+                          <span>Agent Skills</span>
+                          {skills.length > 0 && (
+                            <span className="text-copilot-accent">({skills.length})</span>
+                          )}
+                        </button>
+                      </div>
+                      {showSkills && (
+                        <div className="max-h-48 overflow-y-auto">
+                          {skills.length === 0 ? (
+                            <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
+                              No skills found
+                            </div>
+                          ) : (
+                            skills.map((skill) => (
+                              <div
+                                key={skill.path}
+                                className="group px-3 py-1.5 hover:bg-copilot-surface border-b border-copilot-border last:border-b-0"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <BookIcon size={10} className="shrink-0 text-copilot-accent" />
+                                  <div className="flex-1 min-w-0">
+                                    <div className="text-xs text-copilot-text truncate">
+                                      {skill.name}
+                                    </div>
+                                    <div
+                                      className="text-[10px] text-copilot-text-muted truncate"
+                                      title={skill.description}
+                                    >
+                                      {skill.description}
+                                    </div>
+                                    <div className="text-[9px] text-copilot-accent">
+                                      {skill.type === 'personal' ? '~/' : '.'}/
+                                      {skill.source === 'copilot' ? '.copilot' : '.claude'}/skills
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {/* End MCP/Skills wrapper */}
                 </div>
-                {/* End MCP/Skills wrapper */}
               </div>
             </div>
-          </div>
+          ) : !isMobile ? (
+            /* Right Panel Toggle Button (when collapsed) */
+            <button
+              onClick={toggleRightPanel}
+              className="shrink-0 w-10 bg-copilot-bg border-l border-copilot-border flex flex-col items-center py-2 gap-2 hover:bg-copilot-surface transition-colors"
+              title="Show activity panel"
+            >
+              <ChevronDownIcon size={14} className="rotate-90 text-copilot-text-muted" />
+              <span
+                className="text-[10px] text-copilot-text-muted"
+                style={{ writingMode: 'vertical-rl', textOrientation: 'mixed' }}
+              >
+                Activity
+              </span>
+              {activeTab?.isProcessing && (
+                <span className="w-2 h-2 rounded-full bg-copilot-warning animate-pulse" />
+              )}
+            </button>
+          ) : null}
         </div>
 
         {/* Commit Modal */}
@@ -7100,7 +7867,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         {/* Image Lightbox Modal */}
         {lightboxImage && (
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm cursor-pointer"
+            className="fixed top-[var(--titlebar-height)] left-0 right-0 bottom-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm cursor-pointer"
             onClick={() => setLightboxImage(null)}
           >
             <div className="relative max-w-[90vw] max-h-[90vh]">
@@ -7181,6 +7948,38 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           releaseNotes={buildInfo.releaseNotes || ''}
         />
 
+        {/* Settings Modal */}
+        <SettingsModal
+          isOpen={showSettingsModal}
+          onClose={() => {
+            setShowSettingsModal(false);
+            setSettingsDefaultSection(undefined);
+          }}
+          soundEnabled={soundEnabled}
+          onSoundEnabledChange={handleSoundEnabledChange}
+          defaultSection={settingsDefaultSection}
+          // Voice settings
+          voiceSupported={voiceSpeech.isSupported}
+          voiceMuted={voiceSpeech.isMuted}
+          onToggleVoiceMute={voiceSpeech.toggleMute}
+          pushToTalk={pushToTalk}
+          onTogglePushToTalk={handleTogglePushToTalk}
+          alwaysListening={alwaysListening}
+          onToggleAlwaysListening={handleToggleAlwaysListening}
+          // Voice status
+          isRecording={voiceSpeech.isRecording}
+          isSpeaking={voiceSpeech.isSpeaking}
+          isModelLoading={voiceModelLoading}
+          modelLoaded={voiceModelLoaded}
+          voiceError={voiceInitError}
+          alwaysListeningError={alwaysListeningError}
+          voiceDownloadProgress={voiceDownloadProgress}
+          onInitVoice={handleInitVoice}
+          availableVoices={voiceSpeech.availableVoices}
+          selectedVoiceURI={voiceSpeech.selectedVoiceURI}
+          onVoiceChange={voiceSpeech.setSelectedVoiceURI}
+        />
+
         {/* Welcome Wizard - Spotlight Tour */}
         <SpotlightTour
           isOpen={showWelcomeWizard}
@@ -7247,7 +8046,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
         {/* Note Input Modal */}
         {noteInputModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="fixed top-[var(--titlebar-height)] left-0 right-0 bottom-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
             <div className="bg-copilot-surface border border-copilot-border rounded-lg shadow-xl w-full max-w-md mx-4 p-4">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-medium text-copilot-text">

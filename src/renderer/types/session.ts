@@ -11,6 +11,7 @@ export interface Message {
   timestamp?: number; // Unix timestamp in milliseconds for when the message was finalized
   imageAttachments?: ImageAttachment[]; // Images attached to this message
   fileAttachments?: FileAttachment[]; // Files attached to this message
+  tools?: ActiveTool[]; // Tools executed during this message turn (for assistant messages)
 }
 
 export interface ActiveTool {
@@ -64,6 +65,7 @@ export interface PendingConfirmation {
   toolCallId?: string;
   fullCommandText?: string;
   intention?: string;
+  description?: string; // Description of what the command does (from bash tool)
   path?: string;
   url?: string;
   serverName?: string;
