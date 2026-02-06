@@ -18,19 +18,11 @@ interface MicButtonProps {
   onTranscript: (text: string) => void;
   disabled?: boolean;
   className?: string;
-  pushToTalk?: boolean; // If true, hold to record. If false (default), click to toggle.
-  alwaysListening?: boolean; // If true, listen for wake words to auto-start recording.
+  pushToTalk?: boolean;
+  alwaysListening?: boolean;
   onAlwaysListeningError?: (error: string | null) => void;
-  onAbortDetected?: () => void; // Called when "abort" is detected during always-listening
-  onOpenSettings?: () => void; // Called on first press when voice not initialized
-}
-
-interface DownloadProgress {
-  progress: number;
-  downloaded: number;
-  total: number;
-  status: string;
-  step?: string;
+  onAbortDetected?: () => void;
+  onOpenSettings?: () => void;
 }
 
 export const MicButton: React.FC<MicButtonProps> = ({
@@ -43,9 +35,7 @@ export const MicButton: React.FC<MicButtonProps> = ({
   onAbortDetected,
   onOpenSettings,
 }) => {
-  const [showTooltip, setShowTooltip] = useState(false);
   const [isSettingUp, setIsSettingUp] = useState(false);
-  const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
   const [setupError, setSetupError] = useState<string | null>(null);
   const holdTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isHoldingRef = useRef(false);
@@ -122,44 +112,20 @@ export const MicButton: React.FC<MicButtonProps> = ({
     onAlwaysListeningError?.(alwaysListeningError);
   }, [alwaysListeningError, onAlwaysListeningError]);
 
-  // Listen for download progress updates
-  useEffect(() => {
-    const cleanup = window.electronAPI.voiceServer.onDownloadProgress((data) => {
-      setDownloadProgress(data);
-    });
-    return cleanup;
-  }, []);
-
   const handleSetupAndRecord = useCallback(async () => {
-    console.log(
-      '[MicButton] handleSetupAndRecord - disabled:',
-      disabled,
-      'isProcessing:',
-      isProcessing,
-      'isSettingUp:',
-      isSettingUp,
-      'isReady:',
-      isReady
-    );
     if (disabled || isProcessing || isSettingUp) return;
 
-    // If already ready, just start recording
     if (isReady) {
       console.log('[MicButton] Already ready, starting recording directly');
-      const result = await startRecording();
-      console.log('[MicButton] startRecording result:', result);
+      await startRecording();
       return;
     }
 
-    // Start setup process
     console.log('[MicButton] Starting setup process');
     setIsSettingUp(true);
     setSetupError(null);
-    setShowTooltip(true); // Keep tooltip visible during setup
 
     try {
-      // Load model (this will download if needed)
-      console.log('[MicButton] Calling loadModel...');
       const result = await loadModel();
       console.log('[MicButton] loadModel result:', result);
       if (!result.success) {
@@ -169,10 +135,7 @@ export const MicButton: React.FC<MicButtonProps> = ({
       }
 
       setIsSettingUp(false);
-      setDownloadProgress(null);
 
-      // Auto-start recording after successful setup if still holding
-      console.log('[MicButton] Setup complete, isHolding:', isHoldingRef.current);
       if (isHoldingRef.current) {
         console.log('[MicButton] Still holding, starting recording');
         await startRecording();
@@ -190,17 +153,45 @@ export const MicButton: React.FC<MicButtonProps> = ({
     if (disabled || isProcessing || pushToTalk) return;
 
     if (isRecording) {
-      // Currently recording - stop it
       console.log('[MicButton] Toggle mode: stopping recording');
       stopRecording();
+      return;
+    }
+
+    // Fresh check — model may have been loaded since mount
+    let ready = isReady;
+    if (!ready) {
+      try {
+        const voiceState = await window.electronAPI.voice.getState();
+        if (voiceState.isModelLoaded) {
+          ready = true;
+          await loadModel();
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
+    if (!ready && onOpenSettings) {
+      console.log('[MicButton] Not ready, opening settings');
+      onOpenSettings();
     } else {
-      // Not recording - start it (handleSetupAndRecord handles init if needed)
       console.log('[MicButton] Toggle mode: starting recording');
       isHoldingRef.current = true;
       await handleSetupAndRecord();
       isHoldingRef.current = false;
     }
-  }, [disabled, isProcessing, pushToTalk, isRecording, stopRecording, handleSetupAndRecord]);
+  }, [
+    disabled,
+    isProcessing,
+    pushToTalk,
+    isRecording,
+    isReady,
+    onOpenSettings,
+    stopRecording,
+    handleSetupAndRecord,
+    loadModel,
+  ]);
 
   // Mouse down for PTT mode (hold to record)
   const handleMouseDown = useCallback(async () => {
@@ -226,61 +217,27 @@ export const MicButton: React.FC<MicButtonProps> = ({
   }, [pushToTalk, isRecording, stopRecording]);
 
   const handleMouseLeave = useCallback(() => {
-    if (!isSettingUp) {
-      setShowTooltip(false);
-    }
-    // In PTT mode, stop if mouse leaves while recording
     if (pushToTalk && isRecording) {
       handleMouseUp();
     }
-  }, [pushToTalk, isRecording, isSettingUp, handleMouseUp]);
-
-  const getStatusText = (): string => {
-    if (isProcessing) return 'Transcribing...';
-    if (isRecording) {
-      if (alwaysListening) {
-        return '🟢 Recording... Say "stop" or "done"';
-      }
-      return pushToTalk ? '🟢 Listening... Release to stop' : '🟢 Listening... Click to stop';
-    }
-    if (setupError) return setupError.length > 50 ? setupError.slice(0, 50) + '...' : setupError;
-
-    if (isSettingUp) {
-      if (downloadProgress) {
-        return downloadProgress.status;
-      }
-      return 'Setting up voice...';
-    }
-
-    if (alwaysListening) {
-      if (isAlwaysListeningLoading) {
-        return 'Downloading wake word model (~39MB)...';
-      }
-      if (isAlwaysListeningActive) {
-        return 'Listening for "Hey Cooper"...';
-      }
-      if (isTinyModelLoaded) {
-        return 'Say "Hey Cooper" to start';
-      }
-      return 'Click to setup wake words';
-    }
-
-    const actionText = pushToTalk ? 'Hold' : 'Click';
-    if (isReady) return `${actionText} to record`;
-    return `${actionText} to record (first time setup ~250MB)`;
-  };
+  }, [pushToTalk, isRecording, handleMouseUp]);
 
   const getButtonClass = (): string => {
     const classes = ['mic-button', className];
     if (isRecording) classes.push('listening');
     if (isProcessing) classes.push('processing');
-    if (isSettingUp) classes.push('setting-up');
-    if (setupError) classes.push('error');
     if (disabled) classes.push('disabled');
-    // Show purple standby when always listening is enabled but not actively recording
-    if (alwaysListening && !isRecording && !isProcessing && !isSettingUp) classes.push('always-on');
+    if (alwaysListening && !isRecording && !isProcessing) classes.push('always-on');
     return classes.filter(Boolean).join(' ');
   };
+
+  const ariaLabel = isRecording
+    ? 'Stop recording'
+    : isProcessing
+      ? 'Transcribing...'
+      : isReady
+        ? 'Start recording'
+        : 'Setup voice';
 
   return (
     <div className="mic-button-container">
@@ -293,11 +250,8 @@ export const MicButton: React.FC<MicButtonProps> = ({
         onMouseLeave={handleMouseLeave}
         onTouchStart={handleMouseDown}
         onTouchEnd={handleMouseUp}
-        onMouseEnter={() => setShowTooltip(true)}
-        onFocus={() => setShowTooltip(true)}
-        onBlur={() => !isSettingUp && !isProcessing && setShowTooltip(false)}
-        disabled={disabled || isSettingUp}
-        aria-label={getStatusText()}
+        disabled={disabled}
+        aria-label={ariaLabel}
         data-testid="mic-button"
       >
         {isRecording ? (
@@ -305,7 +259,7 @@ export const MicButton: React.FC<MicButtonProps> = ({
             <MicrophoneIcon size={18} />
             <span className="pulse-ring pulse-ring-green" />
           </div>
-        ) : isSettingUp || isProcessing ? (
+        ) : isProcessing ? (
           <div className="mic-setup-indicator">
             <MicrophoneIcon size={18} />
             <span className="setup-spinner" />
@@ -314,23 +268,6 @@ export const MicButton: React.FC<MicButtonProps> = ({
           <MicrophoneIcon size={18} />
         )}
       </button>
-
-      {(showTooltip || isProcessing) && !isRecording && (
-        <div className={`mic-tooltip ${isSettingUp && downloadProgress ? 'mic-tooltip-wide' : ''}`}>
-          {getStatusText()}
-          {isSettingUp &&
-            downloadProgress &&
-            downloadProgress.progress > 0 &&
-            downloadProgress.progress < 100 && (
-              <div className="mic-progress-bar">
-                <div
-                  className="mic-progress-fill"
-                  style={{ width: `${downloadProgress.progress}%` }}
-                />
-              </div>
-            )}
-        </div>
-      )}
 
       {isRecording && <div className="mic-recording-status mic-listening-status">Listening...</div>}
     </div>
