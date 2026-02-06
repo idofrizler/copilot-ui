@@ -89,54 +89,52 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   ];
 
   const renderThemesSection = () => (
-    <div className="space-y-4">
-      <div>
-        <h4 className="text-sm font-medium text-copilot-text mb-3">Theme Preference</h4>
-        <div className="space-y-2">
+    <div>
+      <h4 className="text-[11px] font-semibold uppercase tracking-wider text-copilot-text-muted mb-1">
+        Theme Preference
+      </h4>
+      <p className="text-xs text-copilot-text-muted mb-3">Current theme: {activeTheme.name}</p>
+      <div className="flex flex-wrap gap-2 mb-4">
+        <button
+          onClick={() => {
+            setTheme('system');
+            trackEvent(TelemetryEvents.FEATURE_THEME_CHANGED);
+          }}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors ${
+            themePreference === 'system'
+              ? 'bg-copilot-accent/20 text-copilot-accent border border-copilot-accent/50'
+              : 'hover:bg-copilot-surface-hover text-copilot-text border border-copilot-border'
+          }`}
+        >
+          <MonitorIcon size={14} />
+          <span>System</span>
+        </button>
+        {availableThemes.map((theme) => (
           <button
+            key={theme.id}
             onClick={() => {
-              setTheme('system');
+              setTheme(theme.id);
               trackEvent(TelemetryEvents.FEATURE_THEME_CHANGED);
             }}
-            className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${
-              themePreference === 'system'
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors ${
+              themePreference === theme.id
                 ? 'bg-copilot-accent/20 text-copilot-accent border border-copilot-accent/50'
-                : 'bg-copilot-surface-hover hover:bg-copilot-border text-copilot-text'
+                : 'hover:bg-copilot-surface-hover text-copilot-text border border-copilot-border'
             }`}
           >
-            <MonitorIcon size={16} />
-            <span>System</span>
-            <span className="ml-auto text-xs text-copilot-text-muted">
-              Follow system appearance
-            </span>
+            {theme.id === 'dark' ? (
+              <MoonIcon size={14} />
+            ) : theme.id === 'light' ? (
+              <SunIcon size={14} />
+            ) : (
+              <PaletteIcon size={14} />
+            )}
+            <span>{theme.name}</span>
           </button>
-          {availableThemes.map((theme) => (
-            <button
-              key={theme.id}
-              onClick={() => {
-                setTheme(theme.id);
-                trackEvent(TelemetryEvents.FEATURE_THEME_CHANGED);
-              }}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${
-                themePreference === theme.id
-                  ? 'bg-copilot-accent/20 text-copilot-accent border border-copilot-accent/50'
-                  : 'bg-copilot-surface-hover hover:bg-copilot-border text-copilot-text'
-              }`}
-            >
-              {theme.id === 'dark' ? (
-                <MoonIcon size={16} />
-              ) : theme.id === 'light' ? (
-                <SunIcon size={16} />
-              ) : (
-                <PaletteIcon size={16} />
-              )}
-              <span>{theme.name}</span>
-            </button>
-          ))}
-        </div>
+        ))}
       </div>
 
-      <div className="border-t border-copilot-border pt-4">
+      <div className="border-t border-copilot-border pt-3">
         <button
           onClick={async () => {
             const result = await importTheme();
@@ -144,17 +142,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               console.error('Failed to import theme:', result.error);
             }
           }}
-          className="flex items-center gap-2 px-3 py-2 text-sm text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover rounded-md transition-colors"
+          className="flex items-center gap-2 text-sm text-copilot-text-muted hover:text-copilot-text transition-colors"
         >
           <UploadIcon size={16} />
           <span>Import Custom Theme...</span>
         </button>
-      </div>
-
-      <div className="border-t border-copilot-border pt-4">
-        <p className="text-xs text-copilot-text-muted">
-          Current theme: <span className="text-copilot-text">{activeTheme.name}</span>
-        </p>
       </div>
     </div>
   );
@@ -195,263 +187,255 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
 
     return (
-      <div className="space-y-4">
+      <div>
         {/* Error display */}
         {voiceError && (
-          <div className="text-xs text-copilot-error p-2 bg-copilot-error/10 rounded-md">
+          <div className="text-xs text-copilot-error p-2 bg-copilot-error/10 rounded-md mb-3">
             {voiceError}
           </div>
         )}
         {alwaysListening && alwaysListeningError && (
-          <div className="text-xs text-copilot-warning p-2 bg-copilot-warning/10 rounded-md">
+          <div className="text-xs text-copilot-warning p-2 bg-copilot-warning/10 rounded-md mb-3">
             ⚠️ {alwaysListeningError}
           </div>
         )}
 
         {/* Voice Input Settings */}
-        <div>
-          <h4 className="text-sm font-medium text-copilot-text mb-3">Voice Input</h4>
-          <div className="space-y-3">
-            {/* Speech-to-Text init / status */}
-            <div
-              className={`flex items-center gap-3 px-3 py-2 bg-copilot-surface-hover rounded-md ${
-                !modelLoaded && !isModelLoading && onInitVoice
-                  ? 'cursor-pointer hover:bg-copilot-border transition-colors'
-                  : ''
-              }`}
-              onClick={() => {
-                if (!modelLoaded && !isModelLoading && onInitVoice) {
-                  onInitVoice();
-                }
-              }}
-            >
-              <span className={`w-2 h-2 rounded-full ${getStatusColor()}`} />
-              <div className="flex-1">
-                <span className="text-sm text-copilot-text">Speech-to-Text</span>
-                <p className="text-xs text-copilot-text-muted">
-                  {getStatusText()}
-                  {!modelLoaded && !isModelLoading && onInitVoice && (
-                    <span className="text-copilot-accent ml-1">— Click to initialize</span>
-                  )}
-                </p>
-              </div>
-            </div>
-            {isModelLoading &&
-              voiceDownloadProgress &&
-              voiceDownloadProgress.progress > 0 &&
-              voiceDownloadProgress.progress < 100 && (
-                <div className="mx-3 mt-1">
-                  <div className="w-full bg-copilot-border rounded-full h-1.5">
-                    <div
-                      className="bg-copilot-accent h-1.5 rounded-full transition-all"
-                      style={{ width: `${voiceDownloadProgress.progress}%` }}
-                    />
-                  </div>
-                </div>
+        <h4 className="text-[11px] font-semibold uppercase tracking-wider text-copilot-text-muted mb-1">
+          Voice Input
+        </h4>
+
+        {/* Speech-to-Text init / status */}
+        <div
+          className={`flex items-center justify-between py-2.5 ${
+            !modelLoaded && !isModelLoading && onInitVoice ? 'cursor-pointer' : ''
+          }`}
+          onClick={() => {
+            if (!modelLoaded && !isModelLoading && onInitVoice) {
+              onInitVoice();
+            }
+          }}
+        >
+          <div>
+            <span className="text-sm text-copilot-text">Speech-to-Text</span>
+            <p className="text-xs text-copilot-text-muted flex items-center gap-1.5">
+              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${getStatusColor()}`} />
+              {getStatusText()}
+              {!modelLoaded && !isModelLoading && onInitVoice && (
+                <span className="text-copilot-accent ml-1">— Click to initialize</span>
               )}
-
-            {/* Always Listening toggle */}
-            <div
-              className={`flex items-center justify-between px-3 py-2 bg-copilot-surface-hover rounded-md ${!modelLoaded ? 'opacity-50' : ''}`}
-            >
-              <div className="flex items-center gap-3">
-                <MicIcon size={16} />
-                <div>
-                  <span className="text-sm text-copilot-text">Always Listening</span>
-                  <p className="text-xs text-copilot-text-muted">
-                    Listen for wake words like "Hey Cooper" to start recording
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => onToggleAlwaysListening?.(!alwaysListening)}
-                disabled={!modelLoaded}
-                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                  !modelLoaded
-                    ? 'bg-copilot-border/50 cursor-not-allowed'
-                    : alwaysListening
-                      ? 'bg-copilot-accent'
-                      : 'bg-copilot-border'
-                }`}
-              >
-                <span
-                  className="inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform"
-                  style={{
-                    transform:
-                      alwaysListening && modelLoaded ? 'translateX(18px)' : 'translateX(4px)',
-                  }}
-                />
-              </button>
-            </div>
-
-            {/* Push to Talk toggle */}
-            <div
-              className={`flex items-center justify-between px-3 py-2 bg-copilot-surface-hover rounded-md ${!modelLoaded ? 'opacity-50' : ''}`}
-            >
-              <div className="flex items-center gap-3">
-                <MicIcon size={16} />
-                <div>
-                  <span className="text-sm text-copilot-text">Push to Talk</span>
-                  <p className="text-xs text-copilot-text-muted">
-                    {alwaysListening
-                      ? 'Disabled when Always Listening is on'
-                      : 'Hold mic button to record instead of click-to-toggle'}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => onTogglePushToTalk?.(!pushToTalk)}
-                disabled={!modelLoaded || alwaysListening}
-                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                  !modelLoaded || alwaysListening
-                    ? 'bg-copilot-border/50 cursor-not-allowed'
-                    : pushToTalk
-                      ? 'bg-copilot-accent'
-                      : 'bg-copilot-border'
-                }`}
-              >
-                <span
-                  className="inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform"
-                  style={{
-                    transform:
-                      pushToTalk && !alwaysListening && modelLoaded
-                        ? 'translateX(18px)'
-                        : 'translateX(4px)',
-                  }}
-                />
-              </button>
-            </div>
-
-            {/* Voice Commands (inline) */}
-            {modelLoaded && (
-              <div className="px-3 py-2 bg-copilot-surface-hover rounded-md">
-                <span className="text-xs font-medium text-copilot-text">Voice Commands</span>
-                <div className="mt-1.5 space-y-1 text-xs text-copilot-text-muted">
-                  <div>
-                    <span className="font-medium text-copilot-text">Wake: </span>
-                    {VOICE_KEYWORDS.wake.map((kw) => `"${kw}"`).join(', ')}
-                  </div>
-                  <div>
-                    <span className="font-medium text-copilot-text">Stop: </span>
-                    {VOICE_KEYWORDS.stop.map((kw) => `"${kw}"`).join(', ')}
-                  </div>
-                  <div>
-                    <span className="font-medium text-copilot-text">Cancel: </span>
-                    {VOICE_KEYWORDS.abort.map((kw) => `"${kw}"`).join(', ')}
-                  </div>
-                  <div>
-                    <span className="font-medium text-copilot-text">Extend: </span>
-                    {VOICE_KEYWORDS.extend.map((kw) => `"${kw}"`).join(', ')}
-                  </div>
-                </div>
-              </div>
-            )}
+            </p>
           </div>
         </div>
+        {isModelLoading &&
+          voiceDownloadProgress &&
+          voiceDownloadProgress.progress > 0 &&
+          voiceDownloadProgress.progress < 100 && (
+            <div className="mb-1">
+              <div className="w-full bg-copilot-border rounded-full h-1.5">
+                <div
+                  className="bg-copilot-accent h-1.5 rounded-full transition-all"
+                  style={{ width: `${voiceDownloadProgress.progress}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+        <div className="border-t border-copilot-border opacity-30" />
+
+        {/* Always Listening toggle */}
+        <div
+          className={`flex items-center justify-between py-2.5 ${!modelLoaded ? 'opacity-50' : ''}`}
+        >
+          <div>
+            <span className="text-sm text-copilot-text">Always Listening</span>
+            <p className="text-xs text-copilot-text-muted">
+              Listen for wake words like &quot;Hey Cooper&quot;
+            </p>
+          </div>
+          <button
+            onClick={() => onToggleAlwaysListening?.(!alwaysListening)}
+            disabled={!modelLoaded}
+            className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
+              !modelLoaded
+                ? 'bg-copilot-border/50 cursor-not-allowed'
+                : alwaysListening
+                  ? 'bg-copilot-accent'
+                  : 'bg-copilot-border'
+            }`}
+          >
+            <span
+              className="inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform"
+              style={{
+                transform: alwaysListening && modelLoaded ? 'translateX(18px)' : 'translateX(4px)',
+              }}
+            />
+          </button>
+        </div>
+
+        <div className="border-t border-copilot-border opacity-30" />
+
+        {/* Push to Talk toggle */}
+        <div
+          className={`flex items-center justify-between py-2.5 ${!modelLoaded ? 'opacity-50' : ''}`}
+        >
+          <div>
+            <span className="text-sm text-copilot-text">Push to Talk</span>
+            <p className="text-xs text-copilot-text-muted">
+              {alwaysListening
+                ? 'Disabled when Always Listening is on'
+                : 'Hold mic button to record instead of click-to-toggle'}
+            </p>
+          </div>
+          <button
+            onClick={() => onTogglePushToTalk?.(!pushToTalk)}
+            disabled={!modelLoaded || alwaysListening}
+            className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
+              !modelLoaded || alwaysListening
+                ? 'bg-copilot-border/50 cursor-not-allowed'
+                : pushToTalk
+                  ? 'bg-copilot-accent'
+                  : 'bg-copilot-border'
+            }`}
+          >
+            <span
+              className="inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform"
+              style={{
+                transform:
+                  pushToTalk && !alwaysListening && modelLoaded
+                    ? 'translateX(18px)'
+                    : 'translateX(4px)',
+              }}
+            />
+          </button>
+        </div>
+
+        {/* Voice Commands (inline) */}
+        {modelLoaded && (
+          <>
+            <div className="border-t border-copilot-border opacity-30" />
+            <div className="py-2.5">
+              <span className="text-xs font-medium text-copilot-text">Voice Commands</span>
+              <div className="mt-1 space-y-0.5 text-xs text-copilot-text-muted">
+                <div>
+                  <span className="text-copilot-text">Wake:</span>{' '}
+                  {VOICE_KEYWORDS.wake.map((kw) => `"${kw}"`).join(', ')}
+                </div>
+                <div>
+                  <span className="text-copilot-text">Stop:</span>{' '}
+                  {VOICE_KEYWORDS.stop.map((kw) => `"${kw}"`).join(', ')}
+                </div>
+                <div>
+                  <span className="text-copilot-text">Cancel:</span>{' '}
+                  {VOICE_KEYWORDS.abort.map((kw) => `"${kw}"`).join(', ')}
+                </div>
+                <div>
+                  <span className="text-copilot-text">Extend:</span>{' '}
+                  {VOICE_KEYWORDS.extend.map((kw) => `"${kw}"`).join(', ')}
+                </div>
+              </div>
+            </div>
+          </>
+        )}
 
         {/* Voice Output Settings */}
-        <div>
-          <h4 className="text-sm font-medium text-copilot-text mb-3">Voice Output</h4>
-          <div className="space-y-3">
-            {/* TTS toggle */}
-            <div className="flex items-center justify-between px-3 py-2 bg-copilot-surface-hover rounded-md">
-              <div className="flex items-center gap-3">
-                {voiceMuted ? <VolumeMuteIcon size={16} /> : <VolumeIcon size={16} />}
-                <div>
-                  <span className="text-sm text-copilot-text">Text-to-Speech</span>
-                  <p className="text-xs text-copilot-text-muted">Read agent responses aloud</p>
-                </div>
-              </div>
-              <button
-                onClick={onToggleVoiceMute}
-                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                  !voiceMuted ? 'bg-copilot-accent' : 'bg-copilot-border'
-                }`}
-              >
-                <span
-                  className="inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform"
-                  style={{ transform: !voiceMuted ? 'translateX(18px)' : 'translateX(4px)' }}
-                />
-              </button>
-            </div>
+        <div className="border-t border-copilot-border mt-1 pt-4">
+          <h4 className="text-[11px] font-semibold uppercase tracking-wider text-copilot-text-muted mb-1">
+            Voice Output
+          </h4>
 
-            {/* Voice selector */}
-            {!voiceMuted && availableVoices.length > 0 && (
-              <div className="px-3 py-2 bg-copilot-surface-hover rounded-md">
-                <div className="flex items-center gap-3 mb-2">
-                  <VolumeIcon size={16} />
-                  <span className="text-sm text-copilot-text">Voice</span>
-                </div>
-                <select
-                  value={selectedVoiceURI || ''}
-                  onChange={(e) => onVoiceChange?.(e.target.value || null)}
-                  className="w-full text-xs bg-copilot-surface border border-copilot-border rounded px-2 py-1.5 text-copilot-text focus:outline-none focus:border-copilot-accent"
-                >
-                  <option value="">System Default</option>
-                  {availableVoices.map((voice) => (
-                    <option key={voice.voiceURI} value={voice.voiceURI}>
-                      {voice.name}
-                      {voice.lang ? ` (${voice.lang})` : ''}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  onClick={() => {
-                    if (window.speechSynthesis) {
-                      window.speechSynthesis.cancel();
-                      const utterance = new SpeechSynthesisUtterance('This is how I sound.');
-                      if (selectedVoiceURI) {
-                        const voice = availableVoices.find((v) => v.voiceURI === selectedVoiceURI);
-                        if (voice) utterance.voice = voice;
-                      }
-                      utterance.rate = 1.0;
-                      utterance.pitch = 1.0;
-                      utterance.volume = 0.9;
-                      window.speechSynthesis.speak(utterance);
-                    }
-                  }}
-                  className="mt-2 text-xs text-copilot-accent hover:text-copilot-text transition-colors"
-                >
-                  ▶ Preview voice
-                </button>
-              </div>
-            )}
+          {/* TTS toggle */}
+          <div className="flex items-center justify-between py-2.5">
+            <div>
+              <span className="text-sm text-copilot-text">Text-to-Speech</span>
+              <p className="text-xs text-copilot-text-muted">Read agent responses aloud</p>
+            </div>
+            <button
+              onClick={onToggleVoiceMute}
+              className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
+                !voiceMuted ? 'bg-copilot-accent' : 'bg-copilot-border'
+              }`}
+            >
+              <span
+                className="inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform"
+                style={{ transform: !voiceMuted ? 'translateX(18px)' : 'translateX(4px)' }}
+              />
+            </button>
           </div>
+
+          {/* Voice selector */}
+          {!voiceMuted && availableVoices.length > 0 && (
+            <>
+              <div className="border-t border-copilot-border opacity-30" />
+              <div className="py-2.5">
+                <span className="text-sm text-copilot-text">Voice</span>
+                <div className="flex items-center gap-2 mt-1.5">
+                  <select
+                    value={selectedVoiceURI || ''}
+                    onChange={(e) => onVoiceChange?.(e.target.value || null)}
+                    className="flex-1 text-xs bg-copilot-surface border border-copilot-border rounded px-2 py-1.5 text-copilot-text focus:outline-none focus:border-copilot-accent"
+                  >
+                    <option value="">System Default</option>
+                    {availableVoices.map((voice) => (
+                      <option key={voice.voiceURI} value={voice.voiceURI}>
+                        {voice.name}
+                        {voice.lang ? ` (${voice.lang})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => {
+                      if (window.speechSynthesis) {
+                        window.speechSynthesis.cancel();
+                        const utterance = new SpeechSynthesisUtterance('This is how I sound.');
+                        if (selectedVoiceURI) {
+                          const voice = availableVoices.find(
+                            (v) => v.voiceURI === selectedVoiceURI
+                          );
+                          if (voice) utterance.voice = voice;
+                        }
+                        utterance.rate = 1.0;
+                        utterance.pitch = 1.0;
+                        utterance.volume = 0.9;
+                        window.speechSynthesis.speak(utterance);
+                      }
+                    }}
+                    className="text-xs text-copilot-accent hover:text-copilot-text transition-colors shrink-0"
+                  >
+                    ▶ Preview
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
     );
   };
 
   const renderSoundsSection = () => (
-    <div className="space-y-4">
-      <div>
-        <h4 className="text-sm font-medium text-copilot-text mb-3">Notification Sounds</h4>
-        <div className="space-y-3">
-          <div className="flex items-center justify-between px-3 py-2 bg-copilot-surface-hover rounded-md">
-            <div className="flex items-center gap-3">
-              {soundEnabled ? <VolumeIcon size={16} /> : <VolumeMuteIcon size={16} />}
-              <div>
-                <span className="text-sm text-copilot-text">Completion sound</span>
-                <p className="text-xs text-copilot-text-muted">
-                  Play a sound when the agent finishes responding
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={() => onSoundEnabledChange(!soundEnabled)}
-              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                soundEnabled ? 'bg-copilot-accent' : 'bg-copilot-border'
-              }`}
-            >
-              <span
-                className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
-                  soundEnabled ? 'translate-x-4.5' : 'translate-x-1'
-                }`}
-                style={{ transform: soundEnabled ? 'translateX(18px)' : 'translateX(4px)' }}
-              />
-            </button>
-          </div>
+    <div>
+      <h4 className="text-[11px] font-semibold uppercase tracking-wider text-copilot-text-muted mb-1">
+        Notification Sounds
+      </h4>
+      <div className="flex items-center justify-between py-2.5">
+        <div>
+          <span className="text-sm text-copilot-text">Completion sound</span>
+          <p className="text-xs text-copilot-text-muted">
+            Play a sound when the agent finishes responding
+          </p>
         </div>
+        <button
+          onClick={() => onSoundEnabledChange(!soundEnabled)}
+          className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
+            soundEnabled ? 'bg-copilot-accent' : 'bg-copilot-border'
+          }`}
+        >
+          <span
+            className="inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform"
+            style={{ transform: soundEnabled ? 'translateX(18px)' : 'translateX(4px)' }}
+          />
+        </button>
       </div>
     </div>
   );
