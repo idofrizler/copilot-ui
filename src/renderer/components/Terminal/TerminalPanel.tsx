@@ -76,14 +76,18 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
       const isMac = navigator.platform.includes('Mac');
       const isCtrlOrCmd = isMac ? event.metaKey : event.ctrlKey;
 
-      // Handle Ctrl/Cmd+C - send SIGINT (ETX character) to the terminal
-      // This allows interrupting running processes
+      // Handle Ctrl/Cmd+C - copy if text is selected, otherwise send SIGINT
       if (isCtrlOrCmd && event.key === 'c') {
-        // Don't let the browser/Electron intercept this
+        if (xterm.hasSelection()) {
+          // Copy selected text to clipboard, then clear selection
+          navigator.clipboard.writeText(xterm.getSelection()).catch(() => {});
+          xterm.clearSelection();
+        } else {
+          // No selection — send SIGINT (ETX / 0x03) to interrupt running processes
+          window.electronAPI.pty.write(sessionIdRef.current, '\x03');
+        }
         event.preventDefault();
         event.stopPropagation();
-        // Send ETX (End of Text / Ctrl+C / 0x03) to the PTY
-        window.electronAPI.pty.write(sessionIdRef.current, '\x03');
         return false;
       }
 

@@ -1861,7 +1861,17 @@ async function initCopilot(): Promise<void> {
 }
 
 function createWindow(): void {
+  const iconPathCandidates = [
+    // Dev (repo checkout)
+    join(__dirname, '../../build/icon.png'),
+    // Packaged (if included as an extra resource)
+    join(process.resourcesPath, 'build/icon.png'),
+    join(process.resourcesPath, 'icon.png'),
+  ];
+  const windowIcon = iconPathCandidates.find((p) => existsSync(p));
+
   mainWindow = new BrowserWindow({
+    ...(windowIcon ? { icon: windowIcon } : {}),
     width: 1400,
     height: 750,
     minWidth: 320,
@@ -4511,12 +4521,22 @@ ipcMain.handle('updates:checkForUpdate', async () => {
       // Fallback to hardcoded version if package.json not accessible
     }
 
+    // If the app version was reset (e.g. back to 1.0.0), clear stale update state.
+    const lastSeenVersion = store.get('lastSeenVersion', '') as string;
+    if (lastSeenVersion && compareVersions(lastSeenVersion, currentVersion) > 0) {
+      store.set('lastSeenVersion', currentVersion);
+    }
+
+    const dismissedVersion = store.get('dismissedUpdateVersion', '') as string;
+    if (dismissedVersion && compareVersions(dismissedVersion, currentVersion) > 0) {
+      store.set('dismissedUpdateVersion', '');
+    }
+
     // Compare versions (simple comparison, assumes semver)
     const hasUpdate = compareVersions(latestVersion, currentVersion) > 0;
-    const dismissedVersion = store.get('dismissedUpdateVersion', '') as string;
 
     return {
-      hasUpdate: hasUpdate && latestVersion !== dismissedVersion,
+      hasUpdate: hasUpdate && latestVersion !== (store.get('dismissedUpdateVersion', '') as string),
       currentVersion,
       latestVersion,
       releaseNotes: release.body || '',
@@ -4539,6 +4559,27 @@ ipcMain.handle('updates:dismissVersion', async (_event, version: string) => {
 
 // Get the last seen version (for showing release notes on first run)
 ipcMain.handle('updates:getLastSeenVersion', async () => {
+  // If the app version was reset (e.g. back to 1.0.0), clear/update persisted version state
+  // so users don't see stale release notes/update dismissals from a higher previous version.
+  const pkgPath = join(__dirname, '..', '..', 'package.json');
+  let currentVersion = '1.0.0';
+  try {
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+    currentVersion = pkg.version.split('+')[0].split('-')[0];
+  } catch {
+    // Fallback to hardcoded version if package.json not accessible
+  }
+
+  const lastSeenVersion = store.get('lastSeenVersion', '') as string;
+  if (lastSeenVersion && compareVersions(lastSeenVersion, currentVersion) > 0) {
+    store.set('lastSeenVersion', currentVersion);
+  }
+
+  const dismissedVersion = store.get('dismissedUpdateVersion', '') as string;
+  if (dismissedVersion && compareVersions(dismissedVersion, currentVersion) > 0) {
+    store.set('dismissedUpdateVersion', '');
+  }
+
   return { version: store.get('lastSeenVersion', '') as string };
 });
 

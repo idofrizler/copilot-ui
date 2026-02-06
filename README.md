@@ -1,7 +1,7 @@
 # Cooper
 
 <p align="center">
-  <img src="build/icon.png" alt="Cooper Logo" width="128" height="128">
+  <img src="src/renderer/assets/logo.png" alt="Cooper Logo" width="128" height="128">
 </p>
 
 A native desktop GUI for GitHub Copilot, wrapping the [Copilot SDK](https://github.blog/changelog/2026-01-14-copilot-sdk-in-technical-preview/) and the Copilot agentic logic.
@@ -137,6 +137,24 @@ npm run dist:win
 ```bash
 npm install
 npm run dev
+```
+
+## Upgrading
+
+Cooper is distributed via GitHub Releases. To upgrade via command line, download the latest release asset and install it.
+
+### macOS
+
+```bash
+gh release download --repo idofrizler/copilot-ui --pattern "Cooper-*.dmg" --dir ~/Downloads --clobber
+open ~/Downloads/Cooper-*.dmg
+```
+
+### Windows (PowerShell)
+
+```powershell
+gh release download --repo idofrizler/copilot-ui --pattern "Cooper-*.exe" --dir $env:TEMP --clobber
+Start-Process (Get-ChildItem $env:TEMP\Cooper-*.exe | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName
 ```
 
 ## Build

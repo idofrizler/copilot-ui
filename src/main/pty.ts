@@ -1,5 +1,4 @@
 import { BrowserWindow } from 'electron';
-import * as os from 'os';
 
 // Lazy-loaded node-pty module to improve startup time
 // node-pty is a native module that takes time to load
@@ -47,17 +46,23 @@ export function createPty(
     const shell = getDefaultShell();
     const shellArgs = process.platform === 'win32' ? [] : ['-l'];
 
+    // Filter out undefined/null env vars that can cause issues with ConPTY on Windows
+    const cleanEnv: { [key: string]: string } = {};
+    for (const [key, value] of Object.entries(process.env)) {
+      if (value !== undefined && value !== null) {
+        cleanEnv[key] = value;
+      }
+    }
+    cleanEnv.TERM = 'xterm-256color';
+    cleanEnv.COLORTERM = 'truecolor';
+
     const pty = getPtyModule();
     const ptyProcess = pty.spawn(shell, shellArgs, {
       name: 'xterm-256color',
       cols: 80,
       rows: 24,
       cwd: cwd,
-      env: {
-        ...process.env,
-        TERM: 'xterm-256color',
-        COLORTERM: 'truecolor',
-      } as { [key: string]: string },
+      env: cleanEnv,
     });
 
     const instance: PtyInstance = {
@@ -66,8 +71,10 @@ export function createPty(
       maxBufferLines: 1000,
     };
 
-    // Handle PTY data
+    // Handle PTY data - only forward if this instance is still the active one
     ptyProcess.onData((data: string) => {
+      if (ptyInstances.get(sessionId) !== instance) return;
+
       // Store in buffer for "send to agent" functionality
       instance.outputBuffer.push(data);
       // Trim buffer if too large
@@ -81,8 +88,12 @@ export function createPty(
       }
     });
 
-    // Handle PTY exit
+    // Handle PTY exit - only act if this instance is still the active one.
+    // A replaced PTY's onExit fires asynchronously after a new one is created;
+    // without this guard the stale handler would delete the new instance.
     ptyProcess.onExit(({ exitCode }) => {
+      if (ptyInstances.get(sessionId) !== instance) return;
+
       console.log(`PTY for session ${sessionId} exited with code ${exitCode}`);
       ptyInstances.delete(sessionId);
       if (mainWindow && !mainWindow.isDestroyed()) {
