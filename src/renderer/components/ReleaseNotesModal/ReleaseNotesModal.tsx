@@ -44,7 +44,7 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({
               </svg>
             </div>
             <div>
-              <h4 className="text-copilot-text font-medium">Copilot Skins v{version}</h4>
+              <h4 className="text-copilot-text font-medium">Cooper v{version}</h4>
               <p className="text-copilot-text-muted text-xs">
                 You've been updated to the latest version
               </p>
