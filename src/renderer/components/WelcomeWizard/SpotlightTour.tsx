@@ -65,7 +65,7 @@ const tourSteps: TourStep[] = [
     title: 'Model Selection',
     description:
       'Switch between GPT-4.1, Claude Opus-4, Sonnet, Gemini, and more models per session.',
-    position: 'bottom',
+    position: 'top',
   },
   {
     selector: '[data-tour="edited-files"]',

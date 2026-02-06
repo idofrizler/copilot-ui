@@ -25,24 +25,16 @@ A native desktop GUI for GitHub Copilot, built on the [Copilot SDK](https://gith
 
 You need **Node.js 22+**, a **GitHub Copilot subscription**, and **GitHub CLI** authenticated (`gh auth login`).
 
-```bash
-git clone https://github.com/idofrizler/cooper.git && cd cooper
-```
-
 ### macOS
 
 ```bash
-npm install
-npm run dist
-open release/Cooper-*-arm64.dmg
+git clone https://github.com/idofrizler/cooper.git && cd cooper && npm install && npm run dist && open release/Cooper-*-arm64.dmg
 ```
 
 ### Windows
 
 ```powershell
-pwsh -NoProfile -File .\scripts\setup-windows.ps1
-npm run dist:win
-.\release\win-unpacked\Cooper.exe
+git clone https://github.com/idofrizler/cooper.git; cd cooper; pwsh -NoProfile -File .\scripts\setup-windows.ps1; npm run dist:win
 ```
 
 The setup script installs all Windows-specific prerequisites (Python, VS Build Tools, PowerShell 7+) and npm dependencies automatically.
@@ -73,6 +65,12 @@ Tell your agent:
 
 ```bash
 npm install && npm run dev
+```
+
+## Build
+
+```bash
+npm run build
 ```
 
 ## How It Works

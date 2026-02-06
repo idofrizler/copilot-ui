@@ -58,7 +58,7 @@ describe('SettingsModal Voice Section', () => {
   });
 
   it('displays voice settings when Voice section is selected', () => {
-    render(<SettingsModal {...defaultProps} />);
+    render(<SettingsModal {...defaultProps} modelLoaded={true} />);
 
     // Click on Voice section
     fireEvent.click(screen.getByText('Voice'));
@@ -84,7 +84,7 @@ describe('SettingsModal Voice Section', () => {
     render(<SettingsModal {...defaultProps} isModelLoading={true} />);
     fireEvent.click(screen.getByText('Voice'));
 
-    expect(screen.getByText('Loading model...')).toBeInTheDocument();
+    expect(screen.getByText('Setting up voice...')).toBeInTheDocument();
   });
 
   it('shows ready status when model is loaded', () => {
@@ -159,13 +159,13 @@ describe('SettingsModal Voice Section', () => {
   });
 
   it('displays voice commands reference', () => {
-    render(<SettingsModal {...defaultProps} />);
+    render(<SettingsModal {...defaultProps} modelLoaded={true} />);
     fireEvent.click(screen.getByText('Voice'));
 
-    expect(screen.getByText(/Wake Words/)).toBeInTheDocument();
-    expect(screen.getByText(/Stop Recording/)).toBeInTheDocument();
-    expect(screen.getByText(/Abort\/Cancel/)).toBeInTheDocument();
-    expect(screen.getByText(/Extend Input/)).toBeInTheDocument();
+    expect(screen.getByText(/Wake:/)).toBeInTheDocument();
+    expect(screen.getByText(/Stop:/)).toBeInTheDocument();
+    expect(screen.getByText(/Cancel:/)).toBeInTheDocument();
+    expect(screen.getByText(/Extend:/)).toBeInTheDocument();
   });
 
   it('shows not supported message when voice is not supported', () => {

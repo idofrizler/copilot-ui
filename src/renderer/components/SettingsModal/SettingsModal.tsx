@@ -37,6 +37,7 @@ export interface SettingsModalProps {
   modelLoaded?: boolean;
   voiceError?: string | null;
   alwaysListeningError?: string | null;
+  voiceDownloadProgress?: { progress: number; status: string } | null;
   onInitVoice?: () => Promise<void>;
   // Voice selection
   availableVoices?: SpeechSynthesisVoice[];
@@ -65,6 +66,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   modelLoaded = false,
   voiceError = null,
   alwaysListeningError = null,
+  voiceDownloadProgress = null,
   onInitVoice,
   availableVoices = [],
   selectedVoiceURI = null,
@@ -160,7 +162,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const renderVoiceSection = () => {
     // Helper to get status text
     const getStatusText = () => {
-      if (isModelLoading) return 'Loading model...';
+      if (isModelLoading && voiceDownloadProgress) return voiceDownloadProgress.status;
+      if (isModelLoading) return 'Setting up voice...';
       if (isRecording) return 'Recording...';
       if (isSpeaking) return 'Speaking...';
       if (alwaysListening && modelLoaded) return 'Listening for wake words...';
@@ -168,7 +171,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       return 'Click to download and initialize';
     };
 
-    // Helper to get status color
     const getStatusColor = () => {
       if (isModelLoading) return 'bg-copilot-warning animate-pulse';
       if (isRecording) return 'bg-copilot-accent animate-pulse';
@@ -234,6 +236,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </p>
               </div>
             </div>
+            {isModelLoading &&
+              voiceDownloadProgress &&
+              voiceDownloadProgress.progress > 0 &&
+              voiceDownloadProgress.progress < 100 && (
+                <div className="mx-3 mt-1">
+                  <div className="w-full bg-copilot-border rounded-full h-1.5">
+                    <div
+                      className="bg-copilot-accent h-1.5 rounded-full transition-all"
+                      style={{ width: `${voiceDownloadProgress.progress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
 
             {/* Always Listening toggle */}
             <div
@@ -306,6 +321,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 />
               </button>
             </div>
+
+            {/* Voice Commands (inline) */}
+            {modelLoaded && (
+              <div className="px-3 py-2 bg-copilot-surface-hover rounded-md">
+                <span className="text-xs font-medium text-copilot-text">Voice Commands</span>
+                <div className="mt-1.5 space-y-1 text-xs text-copilot-text-muted">
+                  <div>
+                    <span className="font-medium text-copilot-text">Wake: </span>
+                    {VOICE_KEYWORDS.wake.map((kw) => `"${kw}"`).join(', ')}
+                  </div>
+                  <div>
+                    <span className="font-medium text-copilot-text">Stop: </span>
+                    {VOICE_KEYWORDS.stop.map((kw) => `"${kw}"`).join(', ')}
+                  </div>
+                  <div>
+                    <span className="font-medium text-copilot-text">Cancel: </span>
+                    {VOICE_KEYWORDS.abort.map((kw) => `"${kw}"`).join(', ')}
+                  </div>
+                  <div>
+                    <span className="font-medium text-copilot-text">Extend: </span>
+                    {VOICE_KEYWORDS.extend.map((kw) => `"${kw}"`).join(', ')}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -376,37 +416,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </button>
               </div>
             )}
-          </div>
-        </div>
-
-        {/* Voice Keywords Reference */}
-        <div className="border-t border-copilot-border pt-4">
-          <h4 className="text-sm font-medium text-copilot-text mb-3">Voice Commands</h4>
-          <div className="space-y-2 text-xs">
-            <div>
-              <span className="text-copilot-accent font-medium">🎤 Wake Words: </span>
-              <span className="text-copilot-text-muted">
-                {VOICE_KEYWORDS.wake.map((kw) => `"${kw}"`).join(', ')}
-              </span>
-            </div>
-            <div>
-              <span className="text-copilot-error font-medium">🛑 Stop Recording: </span>
-              <span className="text-copilot-text-muted">
-                {VOICE_KEYWORDS.stop.map((kw) => `"${kw}"`).join(', ')}
-              </span>
-            </div>
-            <div>
-              <span className="text-copilot-warning font-medium">❌ Abort/Cancel: </span>
-              <span className="text-copilot-text-muted">
-                {VOICE_KEYWORDS.abort.map((kw) => `"${kw}"`).join(', ')}
-              </span>
-            </div>
-            <div>
-              <span className="text-copilot-success font-medium">➕ Extend Input: </span>
-              <span className="text-copilot-text-muted">
-                {VOICE_KEYWORDS.extend.map((kw) => `"${kw}"`).join(', ')}
-              </span>
-            </div>
           </div>
         </div>
       </div>

@@ -2530,6 +2530,16 @@ ipcMain.handle('copilot:pickFolder', async () => {
 
 // Check if a directory is trusted and optionally request trust
 ipcMain.handle('copilot:checkDirectoryTrust', async (_event, dir: string) => {
+  // Auto-trust directories under the worktree sessions directory (we created them)
+  const sessionsDir = worktree.getWorktreeConfig().directory;
+  if (
+    dir === sessionsDir ||
+    dir.startsWith(sessionsDir + '/') ||
+    dir.startsWith(sessionsDir + '\\')
+  ) {
+    return { trusted: true, decision: 'already-trusted' };
+  }
+
   // Check if already always-trusted (persisted)
   const alwaysTrusted = (store.get('trustedDirectories') as string[]) || [];
   if (alwaysTrusted.includes(dir)) {
@@ -3384,7 +3394,7 @@ ipcMain.handle(
         if (uncommittedFiles.length > 0) {
           try {
             // Use -u to include untracked files, -k to keep index
-            await execAsync('git stash push -u -m "copilot-ui-temp-stash"', { cwd: data.cwd });
+            await execAsync('git stash push -u -m "cooper-temp-stash"', { cwd: data.cwd });
             didGitStash = true;
           } catch (stashError) {
             console.error('Git stash failed:', stashError);
@@ -4477,7 +4487,7 @@ ipcMain.handle('file:openFile', async (_event, filePath: string) => {
 
 // GitHub repository for checking updates
 const GITHUB_REPO_OWNER = 'idofrizler';
-const GITHUB_REPO_NAME = 'copilot-ui';
+const GITHUB_REPO_NAME = 'cooper';
 
 interface GitHubRelease {
   tag_name: string;
