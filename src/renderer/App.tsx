@@ -4489,13 +4489,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       onInitializeTerminal={handleInitializeTerminal}
     >
       <div className="h-screen w-screen flex flex-col overflow-hidden bg-copilot-bg rounded-xl">
-        <TitleBar
-          currentModel={activeTab?.model || null}
-          availableModels={availableModels}
-          onModelChange={handleModelChange}
-          onOpenSettings={() => setShowSettingsModal(true)}
-          isMobile={isMobile}
-        />
+        <TitleBar />
 
         {/* Mobile Header Bar */}
         {isMobile && (
@@ -4623,34 +4617,37 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
             {/* Settings Section - Model & Theme */}
             <div className="border-t border-copilot-border">
               {/* Model Selector */}
-              <AccordionSelect
-                label="Model"
-                icon={<MonitorIcon size={14} />}
-                value={activeTab?.model || null}
-                options={availableModels.map((m) => ({
-                  id: m.id,
-                  label: m.name || m.id,
-                  rightContent: (
-                    <span
-                      className={`text-xs ${
-                        m.multiplier === 0
-                          ? 'text-copilot-success'
-                          : m.multiplier < 1
+              <div className="border-b border-copilot-border">
+                <AccordionSelect
+                  label="Model"
+                  icon={<MonitorIcon size={16} />}
+                  value={activeTab?.model || null}
+                  options={availableModels.map((m) => ({
+                    id: m.id,
+                    label: m.name || m.id,
+                    rightContent: (
+                      <span
+                        className={`text-xs ${
+                          m.multiplier === 0
                             ? 'text-copilot-success'
-                            : m.multiplier > 1
-                              ? 'text-copilot-warning'
-                              : 'text-copilot-text-muted'
-                      }`}
-                    >
-                      {m.multiplier === 0 ? 'free' : `${m.multiplier}×`}
-                    </span>
-                  ),
-                }))}
-                onSelect={(modelId) => {
-                  handleModelChange(modelId);
-                }}
-                testId="mobile-drawer-model-select"
-              />
+                            : m.multiplier < 1
+                              ? 'text-copilot-success'
+                              : m.multiplier > 1
+                                ? 'text-copilot-warning'
+                                : 'text-copilot-text-muted'
+                        }`}
+                      >
+                        {m.multiplier === 0 ? 'free' : `${m.multiplier}×`}
+                      </span>
+                    ),
+                  }))}
+                  onSelect={(modelId) => {
+                    handleModelChange(modelId);
+                  }}
+                  size="md"
+                  testId="mobile-drawer-model-select"
+                />
+              </div>
 
               {/* Settings Button */}
               <button
@@ -5187,6 +5184,51 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                         {tabs.length + previousSessions.length}
                       </span>
                     )}
+                  </button>
+                </div>
+
+                {/* Model Selector */}
+                <div className="border-t border-copilot-border" data-tour="model-selector">
+                  <AccordionSelect
+                    label="Model"
+                    icon={<MonitorIcon size={14} />}
+                    value={activeTab?.model || null}
+                    options={availableModels.map((m) => ({
+                      id: m.id,
+                      label: m.name || m.id,
+                      rightContent: (
+                        <span
+                          className={`text-xs ${
+                            m.multiplier === 0
+                              ? 'text-copilot-success'
+                              : m.multiplier < 1
+                                ? 'text-copilot-success'
+                                : m.multiplier > 1
+                                  ? 'text-copilot-warning'
+                                  : 'text-copilot-text-muted'
+                          }`}
+                        >
+                          {m.multiplier === 0 ? 'free' : `${m.multiplier}×`}
+                        </span>
+                      ),
+                    }))}
+                    onSelect={(modelId) => {
+                      handleModelChange(modelId);
+                    }}
+                    testId="sidebar-model-select"
+                  />
+                </div>
+
+                {/* Settings Button */}
+                <div className="border-t border-copilot-border h-[32px] flex items-center">
+                  <button
+                    onClick={() => setShowSettingsModal(true)}
+                    className="w-full h-full flex items-center gap-2 px-3 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                    title="Settings"
+                    data-testid="sidebar-settings-button"
+                  >
+                    <SettingsIcon size={14} />
+                    <span>Settings</span>
                   </button>
                 </div>
 
