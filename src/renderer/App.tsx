@@ -66,6 +66,7 @@ import {
   ToolActivitySection,
   VoiceKeywordsPanel,
   VolumeMuteIcon,
+  TitleBar,
 } from './components';
 import {
   Status,
@@ -4488,58 +4489,13 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       onInitializeTerminal={handleInitializeTerminal}
     >
       <div className="h-screen w-screen flex flex-col overflow-hidden bg-copilot-bg rounded-xl">
-        {/* Title Bar */}
-        <div className="drag-region flex items-center justify-between px-4 py-2.5 bg-copilot-surface border-b border-copilot-border shrink-0">
-          <div className="flex items-center gap-3">
-            <WindowControls />
-
-            <div className="flex items-center gap-2 ml-2">
-              <img src={logo} alt="Cooper" className="w-4 h-4 rounded-sm" />
-              <span className="text-copilot-text text-sm font-medium">Cooper</span>
-            </div>
-          </div>
-
-          <div className={`flex items-center gap-2 no-drag ${isMobile ? 'hidden' : ''}`}>
-            {/* Model Selector */}
-            <div data-tour="model-selector">
-              <Dropdown
-                value={activeTab?.model || null}
-                options={availableModels.map((model) => ({
-                  id: model.id,
-                  label: model.name,
-                  rightContent: (
-                    <span
-                      className={`ml-2 ${
-                        model.multiplier === 0
-                          ? 'text-copilot-success'
-                          : model.multiplier < 1
-                            ? 'text-copilot-success'
-                            : model.multiplier > 1
-                              ? 'text-copilot-warning'
-                              : 'text-copilot-text-muted'
-                      }`}
-                    >
-                      {model.multiplier === 0 ? 'free' : `${model.multiplier}×`}
-                    </span>
-                  ),
-                }))}
-                onSelect={handleModelChange}
-                placeholder="Loading..."
-                title="Model"
-                minWidth="240px"
-              />
-            </div>
-
-            {/* Settings Button */}
-            <button
-              onClick={() => setShowSettingsModal(true)}
-              className="flex items-center gap-1.5 px-2 py-1 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover rounded transition-colors"
-              title="Settings"
-            >
-              <SettingsIcon size={14} />
-            </button>
-          </div>
-        </div>
+        <TitleBar
+          currentModel={activeTab?.model || null}
+          availableModels={availableModels}
+          onModelChange={handleModelChange}
+          onOpenSettings={() => setShowSettingsModal(true)}
+          isMobile={isMobile}
+        />
 
         {/* Mobile Header Bar */}
         {isMobile && (
