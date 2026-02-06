@@ -7114,21 +7114,14 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       )}
                     </div>
 
-                    {/* Voice Control Keywords Panel */}
+                    {/* Voice Control Status (minimal) */}
                     <VoiceKeywordsPanel
                       isRecording={voiceSpeech.isRecording}
                       isSpeaking={voiceSpeech.isSpeaking}
-                      isMuted={voiceSpeech.isMuted}
                       isSupported={voiceSpeech.isSupported}
                       isModelLoading={voiceSpeech.isModelLoading}
                       modelLoaded={voiceSpeech.modelLoaded}
-                      error={voiceSpeech.error}
-                      onToggleMute={voiceSpeech.toggleMute}
-                      pushToTalk={pushToTalk}
-                      onTogglePushToTalk={handleTogglePushToTalk}
                       alwaysListening={alwaysListening}
-                      onToggleAlwaysListening={handleToggleAlwaysListening}
-                      alwaysListeningError={alwaysListeningError}
                     />
                   </div>
                   {/* End MCP/Skills wrapper */}
@@ -7877,6 +7870,21 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           onClose={() => setShowSettingsModal(false)}
           soundEnabled={soundEnabled}
           onSoundEnabledChange={handleSoundEnabledChange}
+          // Voice settings
+          voiceSupported={voiceSpeech.isSupported}
+          voiceMuted={voiceSpeech.isMuted}
+          onToggleVoiceMute={voiceSpeech.toggleMute}
+          pushToTalk={pushToTalk}
+          onTogglePushToTalk={handleTogglePushToTalk}
+          alwaysListening={alwaysListening}
+          onToggleAlwaysListening={handleToggleAlwaysListening}
+          // Voice status
+          isRecording={voiceSpeech.isRecording}
+          isSpeaking={voiceSpeech.isSpeaking}
+          isModelLoading={voiceSpeech.isModelLoading}
+          modelLoaded={voiceSpeech.modelLoaded}
+          voiceError={voiceSpeech.error}
+          alwaysListeningError={alwaysListeningError}
         />
 
         {/* Welcome Wizard - Spotlight Tour */}
