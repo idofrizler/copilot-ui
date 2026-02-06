@@ -111,7 +111,7 @@ describe('ReleaseNotesModal', () => {
 
   it('displays the version number', () => {
     render(<ReleaseNotesModal {...defaultProps} />);
-    expect(screen.getByText('Copilot Skins v1.1.0')).toBeInTheDocument();
+    expect(screen.getByText('Cooper v1.1.0')).toBeInTheDocument();
   });
 
   it('renders release notes markdown', () => {

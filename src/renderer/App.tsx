@@ -4427,8 +4427,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
             <WindowControls />
 
             <div className="flex items-center gap-2 ml-2">
-              <img src={logo} alt="Copilot Skins" className="w-4 h-4 rounded-sm" />
-              <span className="text-copilot-text text-sm font-medium">Copilot Skins</span>
+              <img src={logo} alt="Cooper" className="w-4 h-4 rounded-sm" />
+              <span className="text-copilot-text text-sm font-medium">Cooper</span>
             </div>
           </div>
 
@@ -5243,7 +5243,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
             <div className="flex-1 overflow-y-auto p-4 space-y-2 min-h-0" data-clarity-mask="true">
               {activeTab?.messages.length === 0 && (
                 <div className="flex flex-col items-center justify-center min-h-full text-center -m-4 p-4">
-                  <img src={logo} alt="Copilot Skins" className="w-16 h-16 mb-4" />
+                  <img src={logo} alt="Cooper" className="w-16 h-16 mb-4" />
                   <h2 className="text-copilot-text text-lg font-medium mb-1">
                     How can I help you today?
                   </h2>
