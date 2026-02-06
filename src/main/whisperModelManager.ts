@@ -350,7 +350,7 @@ class WhisperModelManager {
     }
 
     if (process.platform !== 'win32') {
-      return this.buildBinaryFromSource();
+      return this.installBinaryViaBrew();
     }
 
     return this.downloadBinaryWindows();
@@ -437,6 +437,60 @@ class WhisperModelManager {
   /**
    * Build whisper.cpp from source (macOS/Linux)
    */
+  /**
+   * Install whisper-cli via Homebrew (macOS) or build from source as fallback (Linux)
+   */
+  private async installBinaryViaBrew(): Promise<{
+    success: boolean;
+    path?: string;
+    error?: string;
+  }> {
+    this.state.currentStep = 'binary';
+
+    // On macOS, try Homebrew first
+    if (process.platform === 'darwin') {
+      try {
+        // Find brew
+        const brewPaths = ['/opt/homebrew/bin/brew', '/usr/local/bin/brew'];
+        let brewPath: string | null = null;
+        for (const p of brewPaths) {
+          if (existsSync(p)) {
+            brewPath = p;
+            break;
+          }
+        }
+
+        if (brewPath) {
+          this.sendProgressUpdate('Installing whisper-cpp via Homebrew...');
+          console.log(`[WhisperModelManager] Installing whisper-cpp via brew: ${brewPath}`);
+
+          await execFileAsync(brewPath, ['install', 'whisper-cpp'], { timeout: 300000 });
+
+          // After install, find the binary on PATH
+          const binary = this.findBinaryOnPath();
+          if (binary) {
+            this.state.binaryPath = binary;
+            console.log(`[WhisperModelManager] Installed via Homebrew: ${binary}`);
+            return { success: true, path: binary };
+          }
+
+          return {
+            success: false,
+            error:
+              'whisper-cpp installed via Homebrew but binary not found. Try running: brew install whisper-cpp',
+          };
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(`[WhisperModelManager] Homebrew install failed: ${message}`);
+        // Fall through to build from source
+      }
+    }
+
+    // Fallback: build from source (requires cmake)
+    return this.buildBinaryFromSource();
+  }
+
   private async buildBinaryFromSource(): Promise<{
     success: boolean;
     path?: string;
@@ -538,7 +592,7 @@ class WhisperModelManager {
 
       const hint =
         process.platform === 'darwin'
-          ? ' Try: brew install whisper-cpp'
+          ? ' Try: brew install whisper-cpp (install Homebrew first from https://brew.sh if needed)'
           : ' Ensure git, cmake, and a C++ compiler are installed.';
       return { success: false, error: `Failed to build whisper.cpp: ${message}.${hint}` };
     }
