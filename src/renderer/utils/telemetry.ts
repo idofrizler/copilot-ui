@@ -48,7 +48,9 @@ export async function initTelemetry(appVersion: string, gitBranch: string): Prom
 
     // Identify this installation as a unique "user" so Clarity can track
     // the same user across sessions (app restarts)
-    Clarity.identify(installationId);
+    // The friendly name shows a short readable ID in the Clarity dashboard
+    const friendlyName = `User-${installationId.substring(0, 8)}`;
+    Clarity.identify(installationId, undefined, undefined, friendlyName);
 
     // Set initial tags for context (no PII)
     Clarity.setTag('app_version', appVersion);

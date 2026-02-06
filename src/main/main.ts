@@ -908,6 +908,7 @@ const AVAILABLE_MODELS: ModelInfo[] = [
   { id: 'gpt-5', name: 'GPT-5', multiplier: 1 },
   { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro (Preview)', multiplier: 1 },
   { id: 'claude-opus-4.5', name: 'Claude Opus 4.5', multiplier: 3 },
+  { id: 'claude-opus-4.6', name: 'Claude Opus 4.6', multiplier: 3 },
 ];
 
 // Cache for verified models (models confirmed available for current user)
