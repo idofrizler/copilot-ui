@@ -17,7 +17,7 @@
     "test:e2e:headed": "npm run build && npx playwright test --headed",
     "test:integration": "node --import tsx/esm tests/integration/choice-detection.test.ts",
     "test:all": "npm run test && npm run test:e2e",
-    "postinstall": "npx patch-package && npx @electron/rebuild -w node-pty",
+    "postinstall": "npx patch-package && npx @electron/rebuild -w node-pty && node -e \"if(process.platform==='darwin'){require('child_process').execSync('codesign --force --deep --sign - --entitlements build/entitlements.mac.plist node_modules/electron/dist/Electron.app',{stdio:'inherit'})}\"",
     "rebuild-pty": "npx @electron/rebuild -f -w node-pty",
     "prebuild-info": "node scripts/build-info.js",
     "clean": "node -e \"const fs=require('fs');['out','release'].forEach(d=>{try{fs.rmSync(d,{recursive:true,force:true})}catch{}})\"",
@@ -37,14 +37,23 @@
       "output": "release"
     },
     "files": [
-      "out/**/*"
+      "out/**/*",
+      "public/**/*"
     ],
     "asarUnpack": [
-      "node_modules/@github/copilot-*/**/*"
+      "node_modules/@github/copilot-*/**/*",
+      "node_modules/ffmpeg-static/**/*",
+      "public/whisper-cpp/**/*",
+      "public/whisper-model/**/*"
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
-      "icon": "build/icon.icns"
+      "icon": "build/icon.icns",
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "This app needs microphone access for voice input and speech-to-text features."
+      }
     },
     "win": {
       "target": [
