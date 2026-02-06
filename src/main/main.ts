@@ -1861,7 +1861,17 @@ async function initCopilot(): Promise<void> {
 }
 
 function createWindow(): void {
+  const iconPathCandidates = [
+    // Dev (repo checkout)
+    join(__dirname, '../../build/icon.png'),
+    // Packaged (if included as an extra resource)
+    join(process.resourcesPath, 'build/icon.png'),
+    join(process.resourcesPath, 'icon.png'),
+  ];
+  const windowIcon = iconPathCandidates.find((p) => existsSync(p));
+
   mainWindow = new BrowserWindow({
+    ...(windowIcon ? { icon: windowIcon } : {}),
     width: 1400,
     height: 750,
     minWidth: 320,

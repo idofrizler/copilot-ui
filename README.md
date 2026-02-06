@@ -1,7 +1,7 @@
 # Cooper
 
 <p align="center">
-  <img src="build/icon.png" alt="Cooper Logo" width="128" height="128">
+  <img src="src/renderer/assets/logo.png" alt="Cooper Logo" width="128" height="128">
 </p>
 
 A native desktop GUI for GitHub Copilot, wrapping the [Copilot SDK](https://github.blog/changelog/2026-01-14-copilot-sdk-in-technical-preview/) and the Copilot agentic logic.
