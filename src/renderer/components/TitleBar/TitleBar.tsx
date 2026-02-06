@@ -15,7 +15,8 @@ export const TitleBar: React.FC<TitleBarProps> = () => {
   return (
     <div className="drag-region flex items-center justify-between px-4 py-2.5 bg-copilot-surface border-b border-copilot-border shrink-0">
       <div className="flex items-center gap-3">
-        <WindowControls />
+        {/* macOS/Linux: show traffic light controls; Windows: native overlay handles this */}
+        {window.electronAPI?.platform !== 'win32' ? <WindowControls /> : null}
 
         <div className="flex items-center gap-2 ml-2">
           <img src={logo} alt="Cooper" className="w-4 h-4 rounded-sm" />

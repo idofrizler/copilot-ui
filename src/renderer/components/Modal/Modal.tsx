@@ -87,7 +87,7 @@ export const Modal: React.FC<ModalProps> & {
 
   return (
     <div
-      className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[100]"
+      className="fixed top-[var(--titlebar-height)] left-0 right-0 bottom-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[100]"
       style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       data-testid={testId}
     >

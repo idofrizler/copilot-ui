@@ -80,7 +80,7 @@ export function SidebarDrawer({
       {/* Backdrop */}
       <div
         className={`
-          fixed inset-0 bg-black/50 backdrop-blur-sm
+          fixed top-[var(--titlebar-height)] left-0 right-0 bottom-0 bg-black/50 backdrop-blur-sm
           transition-opacity duration-300 ease-in-out
           ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}
         `}
@@ -92,7 +92,7 @@ export function SidebarDrawer({
       <div
         ref={drawerRef}
         className={`
-          fixed top-0 ${positionClass} h-full
+          fixed top-[var(--titlebar-height)] ${positionClass} bottom-0
           bg-copilot-bg border-copilot-border
           ${side === 'left' ? 'border-r' : 'border-l'}
           transform transition-transform duration-300 ease-in-out
