@@ -24,7 +24,7 @@ export const UpdateAvailableModal: React.FC<UpdateAvailableModalProps> = ({
 
   const handleOpenReleases = () => {
     window.electronAPI.updates.openDownloadUrl(
-      'https://github.com/idofrizler/copilot-ui/releases/latest'
+      'https://github.com/idofrizler/cooper'
     );
   };
 
@@ -71,27 +71,20 @@ export const UpdateAvailableModal: React.FC<UpdateAvailableModalProps> = ({
           </div>
 
           <p className="text-copilot-text-muted text-xs text-center">
-            Automatic in-app upgrades are disabled. Use the command line to download the latest
-            release.
+            Pull the latest version and rebuild to upgrade.
           </p>
 
           <div className="space-y-3 text-xs">
             <div>
               <div className="text-copilot-text-muted mb-1">macOS</div>
               <pre className="bg-copilot-background rounded p-2 overflow-auto whitespace-pre-wrap">
-                {`gh release download --repo idofrizler/copilot-ui --pattern "Cooper-*.dmg" --dir ~/Downloads --clobber\nopen ~/Downloads/Cooper-*.dmg`}
+                {`cd cooper\ngit pull\nnpm install\nnpm run dist\nopen release/Cooper-*-arm64.dmg`}
               </pre>
             </div>
             <div>
               <div className="text-copilot-text-muted mb-1">Windows (PowerShell)</div>
               <pre className="bg-copilot-background rounded p-2 overflow-auto whitespace-pre-wrap">
-                {`gh release download --repo idofrizler/copilot-ui --pattern "Cooper-*.exe" --dir $env:TEMP --clobber\nStart-Process (Get-ChildItem $env:TEMP\\Cooper-*.exe | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName`}
-              </pre>
-            </div>
-            <div>
-              <div className="text-copilot-text-muted mb-1">From source (git checkout)</div>
-              <pre className="bg-copilot-background rounded p-2 overflow-auto whitespace-pre-wrap">
-                {`git pull\nnpm install\nnpm run build`}
+                {`cd cooper\ngit pull\npwsh -NoProfile -File .\\scripts\\setup-windows.ps1\nnpm run dist:win`}
               </pre>
             </div>
           </div>
@@ -104,7 +97,7 @@ export const UpdateAvailableModal: React.FC<UpdateAvailableModalProps> = ({
               Later
             </Button>
             <Button variant="primary" onClick={handleOpenReleases}>
-              Open Releases
+              Open Repository
             </Button>
           </div>
           <div className="flex justify-center">

@@ -37,7 +37,7 @@ const createMockSessions = (): PreviousSession[] => [
   createMockSession('session-yesterday-2', 'Update API endpoints', 1, '/Users/dev/project-c'),
 
   // Last 7 days (3-6 days ago)
-  createMockSession('session-week-1', 'Feature: Session History', 3, '/Users/dev/copilot-ui'),
+  createMockSession('session-week-1', 'Feature: Session History', 3, '/Users/dev/cooper'),
   createMockSession('session-week-2', 'Write unit tests', 5, '/Users/dev/project-a'),
 
   // Last 30 days (10-25 days ago)
@@ -445,7 +445,7 @@ describe('SessionHistory Component', () => {
       );
 
       const searchInput = screen.getByPlaceholderText('Search sessions...');
-      await user.type(searchInput, 'copilot-ui');
+      await user.type(searchInput, 'cooper');
 
       // Should show session with matching path
       expect(screen.getByText('Feature: Session History')).toBeInTheDocument();
