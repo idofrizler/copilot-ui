@@ -1,20 +1,20 @@
-# Copilot Skins
+# Cooper
 
 <p align="center">
-  <img src="build/icon.png" alt="Copilot Skins Logo" width="128" height="128">
+  <img src="src/renderer/assets/logo.png" alt="Cooper Logo" width="128" height="128">
 </p>
 
 A native desktop GUI for GitHub Copilot, wrapping the [Copilot SDK](https://github.blog/changelog/2026-01-14-copilot-sdk-in-technical-preview/) and the Copilot agentic logic.
 
-Watch Copilot Skins building itself in action!
+Watch Cooper building itself in action!
 
-![Copilot Skins Demo](https://github.com/idofrizler/copilot-ui/releases/download/assets/Copilot.Skins.2-4.gif)
+![Cooper Demo](https://github.com/idofrizler/copilot-ui/releases/download/assets/Copilot.Skins.2-4.gif)
 
 ## Features
 
 ### 🗂️ Multiple Sessions, Multiple Contexts
 
-CLI gives you one session at a time. Copilot Skins gives you tabs—each with its own working directory, model, and conversation history.
+CLI gives you one session at a time. Cooper gives you tabs—each with its own working directory, model, and conversation history.
 
 Each session maintains its own working directory, model, allowed commands, and file changes. Switch tabs instantly. No re-explaining context. No restarting sessions.
 
@@ -22,7 +22,7 @@ Each session maintains its own working directory, model, allowed commands, and f
 
 Instead of just a new tab, create a worktree session—a completely isolated git worktree tied to a branch.
 
-Paste a GitHub issue URL. Copilot Skins fetches the issue (title, body, comments), creates a git worktree in `~/.copilot-sessions/` and opens a new session in that worktree.
+Paste a GitHub issue URL. Cooper fetches the issue (title, body, comments), creates a git worktree in `~/.copilot-sessions/` and opens a new session in that worktree.
 
 Work on multiple issues simultaneously without stashing, switching branches, or losing your place. Each worktree is a real directory—run builds, tests, whatever you need.
 
@@ -120,7 +120,7 @@ git clone https://github.com/idofrizler/copilot-ui.git
 cd copilot-ui
 npm install
 npm run dist
-open release/Copilot-Skins-*-arm64.dmg
+open release/Cooper-*-arm64.dmg
 ```
 
 ### Windows (build an EXE)
@@ -137,6 +137,24 @@ npm run dist:win
 ```bash
 npm install
 npm run dev
+```
+
+## Upgrading
+
+Cooper is distributed via GitHub Releases. To upgrade via command line, download the latest release asset and install it.
+
+### macOS
+
+```bash
+gh release download --repo idofrizler/copilot-ui --pattern "Cooper-*.dmg" --dir ~/Downloads --clobber
+open ~/Downloads/Cooper-*.dmg
+```
+
+### Windows (PowerShell)
+
+```powershell
+gh release download --repo idofrizler/copilot-ui --pattern "Cooper-*.exe" --dir $env:TEMP --clobber
+Start-Process (Get-ChildItem $env:TEMP\Cooper-*.exe | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName
 ```
 
 ## Build

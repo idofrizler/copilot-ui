@@ -5,18 +5,12 @@ import { UpdateAvailableModal } from '../../src/renderer/components/UpdateAvaila
 import { ReleaseNotesModal } from '../../src/renderer/components/ReleaseNotesModal';
 
 // Mock the electronAPI
-const mockCanAutoUpdate = vi.fn();
-const mockPerformUpdate = vi.fn();
-const mockRestartApp = vi.fn();
 const mockOpenDownloadUrl = vi.fn();
 
 beforeEach(() => {
   // @ts-expect-error - mocking electron API
   window.electronAPI = {
     updates: {
-      canAutoUpdate: mockCanAutoUpdate,
-      performUpdate: mockPerformUpdate,
-      restartApp: mockRestartApp,
       openDownloadUrl: mockOpenDownloadUrl,
     },
   };
@@ -33,7 +27,6 @@ describe('UpdateAvailableModal', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockCanAutoUpdate.mockResolvedValue({ canAutoUpdate: true });
   });
 
   it('renders when isOpen is true', async () => {
@@ -71,18 +64,17 @@ describe('UpdateAvailableModal', () => {
     expect(defaultProps.onClose).toHaveBeenCalled();
   });
 
-  it('calls performUpdate when Update button is clicked', async () => {
-    mockPerformUpdate.mockResolvedValue({ success: true, needsRestart: true });
+  it('opens releases page when Open Releases button is clicked', async () => {
     render(<UpdateAvailableModal {...defaultProps} />);
 
     await waitFor(() => {
-      expect(screen.getByText('Update')).toBeInTheDocument();
+      expect(screen.getByText('Open Releases')).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByText('Update'));
+    fireEvent.click(screen.getByText('Open Releases'));
 
     await waitFor(() => {
-      expect(mockPerformUpdate).toHaveBeenCalled();
+      expect(mockOpenDownloadUrl).toHaveBeenCalled();
     });
   });
 });
@@ -111,7 +103,7 @@ describe('ReleaseNotesModal', () => {
 
   it('displays the version number', () => {
     render(<ReleaseNotesModal {...defaultProps} />);
-    expect(screen.getByText('Copilot Skins v1.1.0')).toBeInTheDocument();
+    expect(screen.getByText('Cooper v1.1.0')).toBeInTheDocument();
   });
 
   it('renders release notes markdown', () => {
