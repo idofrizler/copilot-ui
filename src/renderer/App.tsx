@@ -5857,7 +5857,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                               }}
                               className="px-4 py-2 rounded-l bg-copilot-success hover:brightness-110 text-copilot-text-inverse text-sm font-medium transition-colors"
                             >
-                              Allow
+                              {allowMode === 'once' ? 'Allow' : allowMode === 'session' ? 'Allow (Session)' : 'Allow (Global)'}
                             </button>
                             <button
                               onClick={() => setShowAllowDropdown(!showAllowDropdown)}
