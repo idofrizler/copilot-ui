@@ -42,6 +42,7 @@ import {
   TerminalPanel,
   TerminalOutputShrinkModal,
   CreateWorktreeSession,
+  EvaluationModal,
   ChoiceSelector,
   PaperclipIcon,
   MicrophoneIcon,
@@ -99,6 +100,7 @@ import {
   Skill,
   Instruction,
 } from './types';
+import type { EvaluationConfig, EvaluationContext } from './types/evaluation';
 import { generateId, generateTabName, setTabCounter } from './utils/session';
 import { playNotificationSound } from './utils/sound';
 import { LONG_OUTPUT_LINE_THRESHOLD } from './utils/cliOutputCompression';
@@ -763,6 +765,8 @@ const App: React.FC = () => {
   // Worktree session state
   const [showCreateWorktree, setShowCreateWorktree] = useState(false);
   const [worktreeRepoPath, setWorktreeRepoPath] = useState('');
+  const [showEvaluationModal, setShowEvaluationModal] = useState(false);
+  const [evaluationRepoPath, setEvaluationRepoPath] = useState('');
 
   // Terminal panel state - track which session has terminal open
   const [terminalOpenForSession, setTerminalOpenForSession] = useState<string | null>(null);
@@ -4137,7 +4141,266 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     }
   };
 
-  // Handle opening an existing worktree session
+  // Handle starting an evaluation - pick folder, validate git repo, open modal
+  const handleNewEvaluation = async () => {
+    try {
+      const folderResult = await window.electronAPI.copilot.pickFolder();
+      if (folderResult.canceled || !folderResult.path) {
+        return;
+      }
+      // Validate it's a git repo
+      const gitCheck = await window.electronAPI.git.isGitRepo(folderResult.path);
+      if (!gitCheck.success || !gitCheck.isGitRepo) {
+        alert('The selected folder is not a git repository. Please select a git repository.');
+        return;
+      }
+      setEvaluationRepoPath(folderResult.path);
+      setShowEvaluationModal(true);
+    } catch (error) {
+      console.error('Failed to pick folder for evaluation:', error);
+    }
+  };
+
+  // Handle starting evaluation runs - creates worktrees for each context × model combination
+  const handleStartEvaluation = async (config: EvaluationConfig) => {
+    setShowEvaluationModal(false);
+
+    // Build the list of contexts to evaluate
+    const contextRuns: Array<{ context: EvaluationContext | null; contextLabel: string }> = [];
+    if (config.useDefaultContext) {
+      contextRuns.push({ context: null, contextLabel: 'default' });
+    }
+    for (const ctx of config.contexts) {
+      contextRuns.push({ context: ctx, contextLabel: ctx.name.toLowerCase().replace(/\s+/g, '-') });
+    }
+    // If no contexts selected, still run with default (no file changes)
+    if (contextRuns.length === 0) {
+      contextRuns.push({ context: null, contextLabel: 'default' });
+    }
+
+    // Build prompt suffix from completion options (shared across all runs)
+    const suffixParts: string[] = [];
+    if (config.completeWithoutInput) {
+      suffixParts.push(
+        'Complete the entire task without asking for clarification or user input. Make reasonable decisions and proceed autonomously.'
+      );
+    }
+    if (config.ensureTestsPass) {
+      suffixParts.push(
+        'Before finishing, run the relevant tests and ensure they pass. Fix any test failures caused by your changes.'
+      );
+    }
+    if (config.commitChanges) {
+      suffixParts.push(
+        'When the task is fully complete, commit all changes with a descriptive commit message.'
+      );
+    }
+    if (config.pushChanges) {
+      suffixParts.push('After committing, push the changes to the remote repository.');
+    }
+
+    const basePrompt =
+      suffixParts.length > 0
+        ? `${config.prompt}\n\n## Requirements\n\n${suffixParts.map((s, i) => `${i + 1}. ${s}`).join('\n')}`
+        : config.prompt;
+
+    for (const { context, contextLabel } of contextRuns) {
+      for (const modelId of config.models) {
+        try {
+          const modelShort = modelId.replace(/[^a-zA-Z0-9.-]/g, '');
+          const branch =
+            contextRuns.length > 1
+              ? `${config.branchPrefix}-${contextLabel}-${modelShort}`
+              : `${config.branchPrefix}-${modelShort}`;
+
+          // Create worktree
+          const worktreeResult = await window.electronAPI.worktree.createSession({
+            repoPath: config.repoPath,
+            branch,
+          });
+
+          if (!worktreeResult.success || !worktreeResult.session) {
+            console.error(
+              `Failed to create worktree for ${modelId} (${contextLabel}):`,
+              worktreeResult.error
+            );
+            continue;
+          }
+
+          const worktreePath = worktreeResult.session.worktreePath;
+
+          // Write context files into worktree (if custom context)
+          if (context) {
+            const writeResult = await window.electronAPI.evaluation.writeContextFiles({
+              worktreePath,
+              files: context.files.map((f) => ({
+                name: f.name,
+                content: f.content,
+                isPathSpecific: f.isPathSpecific,
+              })),
+              overrideExisting: context.overrideExisting,
+            });
+            if (!writeResult.success) {
+              console.error(
+                `Failed to write context files for ${contextLabel}:`,
+                writeResult.error
+              );
+            }
+          }
+
+          // Check trust
+          const trustResult = await window.electronAPI.copilot.checkDirectoryTrust(worktreePath);
+          if (!trustResult.trusted) {
+            const sessionId = worktreePath.split(/[/\\]/).pop() || '';
+            await window.electronAPI.worktree.removeSession({ sessionId, force: true });
+            continue;
+          }
+
+          // Create session with specific model
+          setStatus('connecting');
+          const result = await window.electronAPI.copilot.createSession({
+            cwd: worktreePath,
+            model: modelId,
+          });
+
+          // Pre-approve commands (same as worktree flow)
+          const preApprovedCommands = ['write', 'mkdir', 'url:github.com'];
+          for (const cmd of preApprovedCommands) {
+            await window.electronAPI.copilot.addAlwaysAllowed(result.sessionId, cmd);
+          }
+
+          // Find model display name
+          const modelName = availableModels.find((m) => m.id === modelId)?.name || modelId;
+
+          const tabName =
+            contextRuns.length > 1
+              ? `eval: ${modelName} [${contextLabel}] (${branch})`
+              : `eval: ${modelName} (${branch})`;
+
+          // Build prompt based on agent mode
+          let promptToSend: string;
+          let ralphConfig: RalphConfig | undefined = undefined;
+          let lisaConfig: LisaConfig | undefined = undefined;
+
+          if (config.agentMode === 'lisa') {
+            promptToSend = buildLisaPhasePrompt('plan', 1, basePrompt, '', undefined);
+            lisaConfig = {
+              originalPrompt: basePrompt,
+              currentPhase: 'plan',
+              phaseIterations: {
+                plan: 1,
+                'plan-review': 0,
+                execute: 0,
+                'code-review': 0,
+                validate: 0,
+                'final-review': 0,
+              },
+              active: true,
+              phaseHistory: [{ phase: 'plan', iteration: 1, timestamp: Date.now() }],
+              evidenceFolderPath: `${worktreePath}/evidence`,
+            };
+          } else if (config.agentMode === 'ralph') {
+            promptToSend = `${basePrompt}
+
+## COMPLETION REQUIREMENTS
+
+When you have finished the task, please verify:
+
+1. **Build/Lint Check**: Run any build or lint commands to verify there are no errors.
+
+2. **Test Check**: Run relevant tests to verify your changes work correctly.
+
+3. **Code Review**: Review your changes one final time for any issues.
+
+4. **Git Status**: Use git diff or git status to review all changes made.
+
+5. **Verify Completion**: Go through each item in your plan one more time to ensure nothing was missed.
+
+Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETION_SIGNAL}`;
+            ralphConfig = {
+              originalPrompt: basePrompt,
+              maxIterations: config.ralphMaxIterations,
+              currentIteration: 1,
+              active: true,
+            };
+          } else {
+            promptToSend = basePrompt;
+          }
+
+          // Create tab
+          const newTab: TabState = {
+            id: result.sessionId,
+            name: tabName,
+            messages: [],
+            model: result.model,
+            cwd: result.cwd,
+            isProcessing: false,
+            activeTools: [],
+            hasUnreadCompletion: false,
+            pendingConfirmations: [],
+            needsTitle: false,
+            alwaysAllowed: preApprovedCommands,
+            editedFiles: [],
+            untrackedFiles: [],
+            fileViewMode: 'flat',
+            currentIntent: null,
+            currentIntentTimestamp: null,
+            gitBranchRefresh: 0,
+          };
+          setTabs((prev) => [...prev, newTab]);
+          setActiveTabId(result.sessionId);
+          setStatus('connected');
+
+          // Auto-send prompt
+          const userMessage: Message = {
+            id: generateId(),
+            role: 'user',
+            content: basePrompt,
+          };
+
+          setTabs((prev) =>
+            prev.map((tab) =>
+              tab.id === result.sessionId
+                ? {
+                    ...tab,
+                    messages: [
+                      userMessage,
+                      {
+                        id: generateId(),
+                        role: 'assistant',
+                        content: '',
+                        isStreaming: true,
+                      },
+                    ],
+                    isProcessing: true,
+                    ralphConfig,
+                    lisaConfig,
+                  }
+                : tab
+            )
+          );
+
+          try {
+            await window.electronAPI.copilot.send(result.sessionId, promptToSend);
+          } catch (sendError) {
+            console.error(`Failed to send prompt to ${modelId}:`, sendError);
+            setTabs((prev) =>
+              prev.map((tab) =>
+                tab.id === result.sessionId
+                  ? { ...tab, isProcessing: false, ralphConfig: undefined, lisaConfig: undefined }
+                  : tab
+              )
+            );
+          }
+        } catch (error) {
+          console.error(
+            `Failed to create evaluation session for ${modelId} (${contextLabel}):`,
+            error
+          );
+        }
+      }
+    }
+  };
   const handleOpenWorktreeSession = async (session: { worktreePath: string; branch: string }) => {
     // Check if this worktree is already open in an existing tab
     const existingTab = tabs.find((tab) => tab.cwd === session.worktreePath);
@@ -4697,6 +4960,16 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 <GitBranchIcon size={16} />
                 New Worktree Session
               </button>
+              <button
+                onClick={() => {
+                  handleNewEvaluation();
+                  setLeftDrawerOpen(false);
+                }}
+                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+              >
+                <ZapIcon size={16} />
+                Evaluation
+              </button>
             </div>
 
             {/* Session List */}
@@ -5203,6 +5476,16 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                         data-tour="new-worktree"
                       >
                         <GitBranchIcon size={12} />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleNewEvaluation();
+                        }}
+                        className="p-1 text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="Evaluation (multi-model comparison)"
+                      >
+                        <ZapIcon size={12} />
                       </button>
                     </div>
                   </div>
@@ -8035,6 +8318,14 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           onClose={() => setShowCreateWorktree(false)}
           repoPath={worktreeRepoPath}
           onSessionCreated={handleWorktreeSessionCreated}
+        />
+
+        <EvaluationModal
+          isOpen={showEvaluationModal}
+          onClose={() => setShowEvaluationModal(false)}
+          repoPath={evaluationRepoPath}
+          availableModels={availableModels}
+          onStartEvaluation={handleStartEvaluation}
         />
 
         {/* Terminal Output Shrink Modal */}

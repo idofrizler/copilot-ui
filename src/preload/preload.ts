@@ -36,6 +36,7 @@ const electronAPI = {
     // Session management
     createSession: (options?: {
       cwd?: string;
+      model?: string;
     }): Promise<{ sessionId: string; model: string; cwd: string }> => {
       return ipcRenderer.invoke('copilot:createSession', options);
     },
@@ -1019,6 +1020,30 @@ const electronAPI = {
     },
     openFile: (filePath: string): Promise<{ success: boolean; error?: string }> => {
       return ipcRenderer.invoke('file:openFile', filePath);
+    },
+  },
+  // Evaluation
+  evaluation: {
+    getRepoInstructions: (
+      repoPath: string
+    ): Promise<{ files: Array<{ path: string; type: string }> }> => {
+      return ipcRenderer.invoke('evaluation:getRepoInstructions', repoPath);
+    },
+    getHomeInstructions: (): Promise<{ exists: boolean; path: string }> => {
+      return ipcRenderer.invoke('evaluation:getHomeInstructions');
+    },
+    pickInstructionFiles: (): Promise<{
+      canceled: boolean;
+      files: Array<{ name: string; content: string }>;
+    }> => {
+      return ipcRenderer.invoke('evaluation:pickInstructionFiles');
+    },
+    writeContextFiles: (data: {
+      worktreePath: string;
+      files: Array<{ name: string; content: string; isPathSpecific: boolean }>;
+      overrideExisting: boolean;
+    }): Promise<{ success: boolean; error?: string }> => {
+      return ipcRenderer.invoke('evaluation:writeContextFiles', data);
     },
   },
   // Updates and Release Notes

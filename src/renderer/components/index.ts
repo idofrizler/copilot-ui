@@ -18,6 +18,7 @@ export * from './UpdateAvailableModal';
 export * from './WelcomeWizard';
 export * from './WindowControls';
 export * from './WorktreeSessions';
+export * from './Evaluation';
 export * from './Terminal';
 export * from './SettingsModal';
 export * from './TitleBar';

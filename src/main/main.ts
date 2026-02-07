@@ -2628,11 +2628,14 @@ ipcMain.handle('copilot:getCwd', async () => {
 });
 
 // Create a new session (for new tabs)
-ipcMain.handle('copilot:createSession', async (_event, options?: { cwd?: string }) => {
-  const sessionId = await createNewSession(undefined, options?.cwd);
-  const sessionState = sessions.get(sessionId)!;
-  return { sessionId, model: sessionState.model, cwd: sessionState.cwd };
-});
+ipcMain.handle(
+  'copilot:createSession',
+  async (_event, options?: { cwd?: string; model?: string }) => {
+    const sessionId = await createNewSession(options?.model, options?.cwd);
+    const sessionState = sessions.get(sessionId)!;
+    return { sessionId, model: sessionState.model, cwd: sessionState.cwd };
+  }
+);
 
 // Pick a folder dialog
 ipcMain.handle('copilot:pickFolder', async () => {
@@ -4268,6 +4271,147 @@ if (!gotTheLock) {
       }
     });
   }
+
+  // Evaluation: scan repo for existing instruction files
+  ipcMain.handle(
+    'evaluation:getRepoInstructions',
+    async (_event, repoPath: string): Promise<{ files: Array<{ path: string; type: string }> }> => {
+      const files: Array<{ path: string; type: string }> = [];
+      try {
+        // Check .github/copilot-instructions.md
+        const copilotInstr = join(repoPath, '.github', 'copilot-instructions.md');
+        if (existsSync(copilotInstr)) {
+          files.push({ path: '.github/copilot-instructions.md', type: 'copilot-instructions' });
+        }
+        // Check AGENTS.md, CLAUDE.md, GEMINI.md at root
+        for (const name of ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md']) {
+          if (existsSync(join(repoPath, name))) {
+            files.push({
+              path: name,
+              type: name.replace('.md', '').toLowerCase() + '-md',
+            });
+          }
+        }
+        // Check .github/instructions/**/*.instructions.md
+        const instrDir = join(repoPath, '.github', 'instructions');
+        if (existsSync(instrDir)) {
+          const scanDir = (dir: string) => {
+            const entries = readdirSync(dir, { withFileTypes: true });
+            for (const entry of entries) {
+              const fullPath = join(dir, entry.name);
+              if (entry.isDirectory()) {
+                scanDir(fullPath);
+              } else if (entry.isFile() && entry.name.endsWith('.instructions.md')) {
+                files.push({
+                  path: path.relative(repoPath, fullPath).replace(/\\/g, '/'),
+                  type: 'path-specific',
+                });
+              }
+            }
+          };
+          scanDir(instrDir);
+        }
+      } catch (error) {
+        console.error('Failed to scan repo instructions:', error);
+      }
+      return { files };
+    }
+  );
+
+  // Evaluation: check for home directory instructions
+  ipcMain.handle(
+    'evaluation:getHomeInstructions',
+    async (): Promise<{ exists: boolean; path: string }> => {
+      const homePath = join(app.getPath('home'), '.copilot', 'copilot-instructions.md');
+      return { exists: existsSync(homePath), path: homePath };
+    }
+  );
+
+  // Evaluation: pick instruction files via file dialog
+  ipcMain.handle(
+    'evaluation:pickInstructionFiles',
+    async (): Promise<{ canceled: boolean; files: Array<{ name: string; content: string }> }> => {
+      const result = await dialog.showOpenDialog(mainWindow!, {
+        properties: ['openFile', 'multiSelections'],
+        title: 'Select Instruction Files',
+        filters: [{ name: 'Markdown', extensions: ['md'] }],
+      });
+
+      if (result.canceled || result.filePaths.length === 0) {
+        return { canceled: true, files: [] };
+      }
+
+      const files: Array<{ name: string; content: string }> = [];
+      for (const filePath of result.filePaths) {
+        try {
+          const content = await readFile(filePath, 'utf-8');
+          files.push({ name: path.basename(filePath), content });
+        } catch (error) {
+          console.error(`Failed to read file ${filePath}:`, error);
+        }
+      }
+      return { canceled: false, files };
+    }
+  );
+
+  // Evaluation: write context files into a worktree
+  ipcMain.handle(
+    'evaluation:writeContextFiles',
+    async (
+      _event,
+      data: {
+        worktreePath: string;
+        files: Array<{ name: string; content: string; isPathSpecific: boolean }>;
+        overrideExisting: boolean;
+      }
+    ): Promise<{ success: boolean; error?: string }> => {
+      try {
+        const { worktreePath, files, overrideExisting } = data;
+
+        if (overrideExisting) {
+          // Wipe existing instruction files
+          const toDelete = [
+            join(worktreePath, '.github', 'copilot-instructions.md'),
+            join(worktreePath, 'AGENTS.md'),
+            join(worktreePath, 'CLAUDE.md'),
+            join(worktreePath, 'GEMINI.md'),
+          ];
+          for (const f of toDelete) {
+            if (existsSync(f)) {
+              await require('fs').promises.unlink(f);
+            }
+          }
+          // Wipe .github/instructions directory
+          const instrDir = join(worktreePath, '.github', 'instructions');
+          if (existsSync(instrDir)) {
+            await require('fs').promises.rm(instrDir, { recursive: true, force: true });
+          }
+        }
+
+        // Write files
+        let pathSpecificIndex = 0;
+        for (const file of files) {
+          if (file.isPathSpecific) {
+            pathSpecificIndex++;
+            const instrDir = join(worktreePath, '.github', 'instructions');
+            await mkdir(instrDir, { recursive: true });
+            const fileName = `eval-${pathSpecificIndex}.instructions.md`;
+            await writeFile(join(instrDir, fileName), file.content, 'utf-8');
+          } else {
+            // Global instruction file
+            const githubDir = join(worktreePath, '.github');
+            await mkdir(githubDir, { recursive: true });
+            await writeFile(join(githubDir, 'copilot-instructions.md'), file.content, 'utf-8');
+          }
+        }
+
+        return { success: true };
+      } catch (error) {
+        console.error('Failed to write context files:', error);
+        return { success: false, error: String(error) };
+      }
+    }
+  );
 
   app.whenReady().then(() => {
     // Start CopilotClient initialization early - runs in parallel with window load
