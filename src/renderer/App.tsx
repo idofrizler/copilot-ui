@@ -579,6 +579,7 @@ const App: React.FC = () => {
   const [tabs, setTabs] = useState<TabState[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
+  const [favoriteModels, setFavoriteModels] = useState<string[]>([]);
   const [previousSessions, setPreviousSessions] = useState<PreviousSession[]>([]);
   const [showSessionHistory, setShowSessionHistory] = useState(false);
   const [showAllowedCommands, setShowAllowedCommands] = useState(false);
@@ -1410,6 +1411,16 @@ const App: React.FC = () => {
         })
         .catch((error) => {
           console.error('Failed to load global safe commands:', error);
+        });
+
+      // Load favorite models in background (non-blocking)
+      window.electronAPI.copilot
+        .getFavoriteModels()
+        .then((favorites) => {
+          setFavoriteModels(favorites);
+        })
+        .catch((error) => {
+          console.error('Failed to load favorite models:', error);
         });
 
       // If no sessions exist, we need to create one (with trust check)
@@ -4535,10 +4546,38 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     }
   };
 
+  const handleToggleFavoriteModel = async (modelId: string) => {
+    const isFavorite = favoriteModels.includes(modelId);
+    try {
+      if (isFavorite) {
+        await window.electronAPI.copilot.removeFavoriteModel(modelId);
+        setFavoriteModels((prev) => prev.filter((m) => m !== modelId));
+      } else {
+        await window.electronAPI.copilot.addFavoriteModel(modelId);
+        setFavoriteModels((prev) => [...prev, modelId]);
+      }
+    } catch (error) {
+      console.error('Failed to toggle favorite model:', error);
+    }
+  };
+
   // Memoize cleaned edited files for the active tab
   const cleanedEditedFiles = useMemo(() => {
     return activeTab ? getCleanEditedFiles(activeTab.editedFiles) : [];
   }, [activeTab]);
+
+  // Memoize sorted models with favorites first
+  const sortedModels = useMemo(() => {
+    const favorites = availableModels.filter((m) => favoriteModels.includes(m.id));
+    const nonFavorites = availableModels.filter((m) => !favoriteModels.includes(m.id));
+    return [...favorites, ...nonFavorites];
+  }, [availableModels, favoriteModels]);
+
+  // Calculate divider index (after last favorite, if any favorites exist)
+  const modelDividers = useMemo(() => {
+    const favoriteCount = availableModels.filter((m) => favoriteModels.includes(m.id)).length;
+    return favoriteCount > 0 ? [favoriteCount - 1] : [];
+  }, [availableModels, favoriteModels]);
 
   // Callbacks for TerminalProvider
   const handleOpenTerminal = useCallback(() => {
@@ -4695,9 +4734,10 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   label="Model"
                   icon={<MonitorIcon size={16} />}
                   value={activeTab?.model || null}
-                  options={availableModels.map((m) => ({
+                  options={sortedModels.map((m) => ({
                     id: m.id,
                     label: m.name || m.id,
+                    isFavorite: favoriteModels.includes(m.id),
                     rightContent: (
                       <span
                         className={`text-xs ${
@@ -4717,6 +4757,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   onSelect={(modelId) => {
                     handleModelChange(modelId);
                   }}
+                  onToggleFavorite={handleToggleFavoriteModel}
+                  dividers={modelDividers}
                   size="md"
                   testId="mobile-drawer-model-select"
                 />
@@ -5316,9 +5358,10 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     label="Model"
                     icon={<MonitorIcon size={14} />}
                     value={activeTab?.model || null}
-                    options={availableModels.map((m) => ({
+                    options={sortedModels.map((m) => ({
                       id: m.id,
                       label: m.name || m.id,
+                      isFavorite: favoriteModels.includes(m.id),
                       rightContent: (
                         <span
                           className={`text-xs ${
@@ -5338,6 +5381,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     onSelect={(modelId) => {
                       handleModelChange(modelId);
                     }}
+                    onToggleFavorite={handleToggleFavoriteModel}
+                    dividers={modelDividers}
                     testId="sidebar-model-select"
                   />
                 </div>

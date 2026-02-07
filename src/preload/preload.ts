@@ -334,6 +334,16 @@ const electronAPI = {
     removeGlobalSafeCommand: (command: string): Promise<{ success: boolean }> => {
       return ipcRenderer.invoke('copilot:removeGlobalSafeCommand', command);
     },
+    // Favorite models management
+    getFavoriteModels: (): Promise<string[]> => {
+      return ipcRenderer.invoke('copilot:getFavoriteModels');
+    },
+    addFavoriteModel: (modelId: string): Promise<{ success: boolean }> => {
+      return ipcRenderer.invoke('copilot:addFavoriteModel', modelId);
+    },
+    removeFavoriteModel: (modelId: string): Promise<{ success: boolean }> => {
+      return ipcRenderer.invoke('copilot:removeFavoriteModel', modelId);
+    },
     // URL allowlist/denylist management
     getAllowedUrls: (): Promise<string[]> => {
       return ipcRenderer.invoke('copilot:getAllowedUrls');
