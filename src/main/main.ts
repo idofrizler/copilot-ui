@@ -2931,6 +2931,31 @@ ipcMain.handle('git:getDiff', async (_event, data: { cwd: string; files: string[
       const { stdout: status } = await execAsync(`git status --porcelain -- ${fileArgs}`, {
         cwd: data.cwd,
       });
+
+      // For untracked files, generate a proper diff using --no-index
+      const statusLines = status.split('\n').filter(Boolean);
+      const untrackedFiles = statusLines
+        .filter((line) => line.startsWith('??'))
+        .map((line) => line.substring(3).trim());
+
+      if (untrackedFiles.length > 0) {
+        let combinedDiff = '';
+        for (const file of untrackedFiles) {
+          try {
+            await execAsync(`git diff --no-index -- /dev/null "${file}"`, { cwd: data.cwd });
+          } catch (diffError: unknown) {
+            // git diff --no-index exits with code 1 when differences are found
+            const err = diffError as { stdout?: string };
+            if (err.stdout) {
+              combinedDiff += err.stdout + '\n';
+            }
+          }
+        }
+        if (combinedDiff.trim()) {
+          return { diff: combinedDiff, success: true };
+        }
+      }
+
       return { diff: status || 'No changes detected', success: true };
     }
 
