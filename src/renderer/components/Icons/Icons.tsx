@@ -388,6 +388,28 @@ export const MicIcon: React.FC<IconProps> = ({ size = 24, className, strokeWidth
   </svg>
 );
 
+// Star icon (outline) for favorites
+export const StarIcon: React.FC<IconProps> = ({ size = 24, className, strokeWidth = 2 }) => (
+  <svg width={size} height={size} className={className} {...defaultProps} strokeWidth={strokeWidth}>
+    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+  </svg>
+);
+
+// Star icon (filled) for favorites
+export const StarFilledIcon: React.FC<IconProps> = ({ size = 24, className }) => (
+  <svg
+    width={size}
+    height={size}
+    className={className}
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    stroke="currentColor"
+    strokeWidth="1"
+  >
+    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+  </svg>
+);
+
 // Icons object for convenient access
 export const Icons = {
   ChevronDown: ChevronDownIcon,
@@ -435,6 +457,8 @@ export const Icons = {
   VolumeMute: VolumeMuteIcon,
   Mic: MicIcon,
   HelpCircle: HelpCircleIcon,
+  Star: StarIcon,
+  StarFilled: StarFilledIcon,
 };
 
 export default Icons;

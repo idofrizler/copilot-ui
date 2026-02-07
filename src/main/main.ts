@@ -205,6 +205,7 @@ const store = new Store({
     sessionCwds: {} as Record<string, string>, // Persistent map of sessionId -> cwd (survives session close)
     sessionMarks: {} as Record<string, { markedForReview?: boolean; reviewNote?: string }>, // Persistent mark/note state
     globalSafeCommands: [] as string[], // Globally safe commands that are auto-approved for all sessions
+    favoriteModels: [] as string[], // Model IDs marked as favorites (shown at top of model selector)
     hasSeenWelcomeWizard: false as boolean, // Whether user has completed the welcome wizard
     wizardVersion: 0 as number, // Version of wizard shown (bump to re-show wizard after updates)
     installationId: '' as string, // Unique ID for this installation (for telemetry user identification)
@@ -2712,6 +2713,27 @@ ipcMain.handle('copilot:removeGlobalSafeCommand', async (_event, command: string
   const updated = globalSafeCommands.filter((c) => c !== command);
   store.set('globalSafeCommands', updated);
   console.log('Removed from global safe commands:', command);
+  return { success: true };
+});
+
+// Favorite Models Management
+ipcMain.handle('copilot:getFavoriteModels', async () => {
+  return (store.get('favoriteModels') as string[]) || [];
+});
+
+ipcMain.handle('copilot:addFavoriteModel', async (_event, modelId: string) => {
+  const favoriteModels = (store.get('favoriteModels') as string[]) || [];
+  if (!favoriteModels.includes(modelId)) {
+    favoriteModels.push(modelId);
+    store.set('favoriteModels', favoriteModels);
+  }
+  return { success: true };
+});
+
+ipcMain.handle('copilot:removeFavoriteModel', async (_event, modelId: string) => {
+  const favoriteModels = (store.get('favoriteModels') as string[]) || [];
+  const updated = favoriteModels.filter((m) => m !== modelId);
+  store.set('favoriteModels', updated);
   return { success: true };
 });
 

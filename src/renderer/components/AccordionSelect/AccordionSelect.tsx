@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronRightIcon } from '../Icons';
+import { ChevronRightIcon, StarIcon, StarFilledIcon } from '../Icons';
 
 export interface AccordionSelectOption<T = string> {
   /** Unique identifier for the option */
@@ -10,6 +10,8 @@ export interface AccordionSelectOption<T = string> {
   icon?: React.ReactNode;
   /** Optional right content (e.g., badge, multiplier) */
   rightContent?: React.ReactNode;
+  /** Whether this option is marked as favorite */
+  isFavorite?: boolean;
 }
 
 export interface AccordionSelectProps<T = string> {
@@ -29,6 +31,10 @@ export interface AccordionSelectProps<T = string> {
   size?: 'sm' | 'md';
   /** Test ID for automated testing */
   testId?: string;
+  /** Indices after which to show dividers */
+  dividers?: number[];
+  /** Callback when favorite is toggled */
+  onToggleFavorite?: (id: T) => void;
 }
 
 /**
@@ -44,8 +50,11 @@ export function AccordionSelect<T = string>({
   displayValue,
   size = 'sm',
   testId,
+  dividers = [],
+  onToggleFavorite,
 }: AccordionSelectProps<T>): React.ReactElement {
   const [isOpen, setIsOpen] = useState(false);
+  const [hoveredOption, setHoveredOption] = useState<T | null>(null);
 
   const selectedOption = options.find((opt) => opt.id === value);
   const displayText = displayValue || selectedOption?.label || 'Select...';
@@ -88,24 +97,48 @@ export function AccordionSelect<T = string>({
       >
         <div className="overflow-hidden bg-copilot-surface/50">
           <div className="max-h-[240px] overflow-y-auto">
-            {options.map((option) => (
-              <button
-                key={String(option.id)}
-                onClick={() => handleSelect(option.id)}
-                className={`w-full flex items-center gap-2 pl-11 pr-4 py-2.5 text-sm transition-colors hover:bg-copilot-surface ${
-                  option.id === value
-                    ? 'text-copilot-accent'
-                    : 'text-copilot-text-muted hover:text-copilot-text'
-                }`}
-                data-testid={testId ? `${testId}-option-${option.id}` : undefined}
-              >
-                {option.icon && <span className="w-4">{option.icon}</span>}
-                <span className="flex-1 text-left">
-                  {option.id === value && '✓ '}
-                  {option.label}
-                </span>
-                {option.rightContent}
-              </button>
+            {options.map((option, index) => (
+              <React.Fragment key={String(option.id)}>
+                <div
+                  className={`w-full flex items-center gap-2 pl-4 pr-4 py-2.5 text-sm transition-colors hover:bg-copilot-surface ${
+                    option.id === value
+                      ? 'text-copilot-accent'
+                      : 'text-copilot-text-muted hover:text-copilot-text'
+                  }`}
+                  onMouseEnter={() => setHoveredOption(option.id)}
+                  onMouseLeave={() => setHoveredOption(null)}
+                  data-testid={testId ? `${testId}-option-${option.id}` : undefined}
+                >
+                  {/* Favorite star button */}
+                  {onToggleFavorite && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleFavorite(option.id);
+                      }}
+                      className={`shrink-0 p-0.5 rounded transition-colors hover:text-copilot-warning ${
+                        option.isFavorite
+                          ? 'text-copilot-warning'
+                          : hoveredOption === option.id
+                            ? 'text-copilot-text-muted'
+                            : 'text-transparent'
+                      }`}
+                      title={option.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+                    >
+                      {option.isFavorite ? <StarFilledIcon size={14} /> : <StarIcon size={14} />}
+                    </button>
+                  )}
+                  {option.icon && <span className="w-4">{option.icon}</span>}
+                  <button onClick={() => handleSelect(option.id)} className="flex-1 text-left">
+                    {option.id === value && '✓ '}
+                    {option.label}
+                  </button>
+                  {option.rightContent}
+                </div>
+                {dividers.includes(index) && (
+                  <div className="border-t border-copilot-border my-1" />
+                )}
+              </React.Fragment>
             ))}
           </div>
         </div>
