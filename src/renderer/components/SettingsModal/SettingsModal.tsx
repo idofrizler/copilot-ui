@@ -9,12 +9,15 @@ import {
   MoonIcon,
   SunIcon,
   UploadIcon,
+  GlobeIcon,
+  CloseIcon,
+  PlusIcon,
 } from '../Icons';
 import { useTheme } from '../../context/ThemeContext';
 import { trackEvent, TelemetryEvents } from '../../utils/telemetry';
 import { VOICE_KEYWORDS } from '../../hooks/useVoiceSpeech';
 
-type SettingsSection = 'themes' | 'voice' | 'sounds';
+type SettingsSection = 'themes' | 'voice' | 'sounds' | 'commands';
 
 export interface SettingsModalProps {
   isOpen: boolean;
@@ -43,6 +46,10 @@ export interface SettingsModalProps {
   availableVoices?: SpeechSynthesisVoice[];
   selectedVoiceURI?: string | null;
   onVoiceChange?: (uri: string | null) => void;
+  // Global commands
+  globalSafeCommands?: string[];
+  onAddGlobalSafeCommand?: (cmd: string) => Promise<void>;
+  onRemoveGlobalSafeCommand?: (cmd: string) => Promise<void>;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -71,8 +78,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   availableVoices = [],
   selectedVoiceURI = null,
   onVoiceChange,
+  // Global commands
+  globalSafeCommands = [],
+  onAddGlobalSafeCommand,
+  onRemoveGlobalSafeCommand,
 }) => {
   const [activeSection, setActiveSection] = useState<SettingsSection>('themes');
+  const [newCommandValue, setNewCommandValue] = useState('');
   const { themePreference, setTheme, availableThemes, activeTheme, importTheme } = useTheme();
 
   // Switch to requested section when modal opens
@@ -84,6 +96,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const sections: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
     { id: 'themes', label: 'Themes', icon: <PaletteIcon size={16} /> },
+    { id: 'commands', label: 'Commands', icon: <GlobeIcon size={16} /> },
     { id: 'voice', label: 'Voice', icon: <MicIcon size={16} /> },
     { id: 'sounds', label: 'Sounds', icon: <VolumeIcon size={16} /> },
   ];
@@ -440,10 +453,85 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     </div>
   );
 
+  const renderCommandsSection = () => {
+    const handleAdd = async () => {
+      if (!newCommandValue.trim() || !onAddGlobalSafeCommand) return;
+      if (newCommandValue.trim().toLowerCase().startsWith('write')) return;
+      await onAddGlobalSafeCommand(newCommandValue.trim());
+      setNewCommandValue('');
+    };
+
+    return (
+      <div>
+        <h4 className="text-[11px] font-semibold uppercase tracking-wider text-copilot-text-muted mb-1">
+          Global Allowed Commands
+        </h4>
+        <p className="text-xs text-copilot-text-muted mb-3">
+          Commands allowed across all sessions. Session-specific commands can be managed from the
+          activity panel.
+        </p>
+
+        {/* Add command input */}
+        <div className="flex items-center gap-2 mb-3">
+          <input
+            type="text"
+            value={newCommandValue}
+            onChange={(e) => setNewCommandValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleAdd();
+            }}
+            placeholder="e.g., npm, git, python"
+            className="flex-1 px-2 py-1.5 text-xs bg-copilot-surface border border-copilot-border rounded text-copilot-text placeholder:text-copilot-text-muted focus:outline-none focus:border-copilot-accent"
+          />
+          <button
+            onClick={handleAdd}
+            disabled={
+              !newCommandValue.trim() || newCommandValue.trim().toLowerCase().startsWith('write')
+            }
+            className="flex items-center gap-1 px-2 py-1.5 text-xs bg-copilot-accent text-copilot-text rounded hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <PlusIcon size={12} />
+            Add
+          </button>
+        </div>
+
+        {/* Commands list */}
+        <div className="space-y-1">
+          {globalSafeCommands.length === 0 ? (
+            <div className="text-xs text-copilot-text-muted py-2">
+              No global commands configured.
+            </div>
+          ) : (
+            globalSafeCommands.map((cmd) => (
+              <div
+                key={cmd}
+                className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-copilot-surface-hover transition-colors"
+              >
+                <GlobeIcon size={12} className="shrink-0 text-copilot-accent" />
+                <span className="flex-1 truncate font-mono text-xs text-copilot-text-muted">
+                  {cmd}
+                </span>
+                <button
+                  onClick={() => onRemoveGlobalSafeCommand?.(cmd)}
+                  className="shrink-0 p-1 text-copilot-error hover:bg-copilot-surface rounded transition-colors"
+                  title="Remove"
+                >
+                  <CloseIcon size={12} />
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    );
+  };
+
   const renderContent = () => {
     switch (activeSection) {
       case 'themes':
         return renderThemesSection();
+      case 'commands':
+        return renderCommandsSection();
       case 'voice':
         return renderVoiceSection();
       case 'sounds':

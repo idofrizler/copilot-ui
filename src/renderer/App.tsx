@@ -834,7 +834,7 @@ const App: React.FC = () => {
   // Settings modal state
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [settingsDefaultSection, setSettingsDefaultSection] = useState<
-    'themes' | 'voice' | 'sounds' | undefined
+    'themes' | 'voice' | 'sounds' | 'commands' | undefined
   >(undefined);
   const [soundEnabled, setSoundEnabled] = useState(() => {
     const saved = localStorage.getItem('copilot-sound-enabled');
@@ -5030,51 +5030,55 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
             {/* Allowed Commands - pinned to bottom */}
             <div className="mt-auto border-t border-copilot-border">
-              <button
-                onClick={() => {
-                  setShowAllowedCommands(!showAllowedCommands);
-                  if (!showAllowedCommands) {
-                    refreshAlwaysAllowed();
-                    refreshGlobalSafeCommands();
-                  }
-                }}
-                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
-              >
-                <ChevronRightIcon
-                  size={14}
-                  className={`transition-transform ${showAllowedCommands ? '-rotate-90' : ''}`}
-                />
-                <span>Allowed Commands</span>
-                {(activeTab?.alwaysAllowed.length || 0) + globalSafeCommands.length > 0 && (
-                  <span className="ml-auto text-copilot-accent">
-                    {(activeTab?.alwaysAllowed.length || 0) + globalSafeCommands.length}
-                  </span>
-                )}
-              </button>
+              <div className="flex items-center">
+                <button
+                  onClick={() => {
+                    setShowAllowedCommands(!showAllowedCommands);
+                    if (!showAllowedCommands) {
+                      refreshAlwaysAllowed();
+                    }
+                  }}
+                  className="flex-1 flex items-center gap-3 px-4 py-3 text-sm text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                >
+                  <ChevronRightIcon
+                    size={14}
+                    className={`transition-transform ${showAllowedCommands ? '-rotate-90' : ''}`}
+                  />
+                  <span>Allowed Commands</span>
+                  {(activeTab?.alwaysAllowed.length || 0) > 0 && (
+                    <span className="ml-auto text-copilot-accent">
+                      {activeTab?.alwaysAllowed.length || 0}
+                    </span>
+                  )}
+                </button>
+                <button
+                  onClick={() => {
+                    setRightDrawerOpen(false);
+                    setSettingsDefaultSection('commands');
+                    setShowSettingsModal(true);
+                  }}
+                  className="shrink-0 mr-3 p-1.5 text-copilot-text-muted hover:text-copilot-accent transition-colors"
+                  title="Global commands (Settings)"
+                >
+                  <GlobeIcon size={14} />
+                </button>
+              </div>
               {showAllowedCommands && (
                 <div className="px-4 pb-3">
                   <div className="flex flex-col gap-2 mb-2">
                     <div className="flex items-center gap-2">
-                      <select
-                        value={addCommandScope}
-                        onChange={(e) => setAddCommandScope(e.target.value as 'session' | 'global')}
-                        className="px-2 py-1.5 text-xs bg-copilot-surface border border-copilot-border rounded text-copilot-text shrink-0"
-                      >
-                        <option value="session">Session</option>
-                        <option value="global">Global</option>
-                      </select>
                       <input
                         type="text"
                         value={addCommandValue}
                         onChange={(e) => setAddCommandValue(e.target.value)}
                         onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleAddAllowedCommand();
+                          if (e.key === 'Enter') handleAddAlwaysAllowed();
                         }}
                         placeholder="npm, git..."
                         className="flex-1 min-w-0 px-2 py-1.5 text-xs bg-copilot-surface border border-copilot-border rounded text-copilot-text placeholder:text-copilot-text-muted"
                       />
                       <button
-                        onClick={handleAddAllowedCommand}
+                        onClick={handleAddAlwaysAllowed}
                         disabled={!addCommandValue.trim()}
                         className="px-2 py-1.5 text-xs bg-copilot-accent text-copilot-text rounded disabled:opacity-50 shrink-0"
                       >
@@ -5083,44 +5087,25 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     </div>
                   </div>
                   <div className="max-h-32 overflow-y-auto space-y-1">
-                    {(activeTab?.alwaysAllowed.length || 0) + globalSafeCommands.length === 0 ? (
-                      <div className="text-xs text-copilot-text-muted">No allowed commands</div>
+                    {(activeTab?.alwaysAllowed.length || 0) === 0 ? (
+                      <div className="text-xs text-copilot-text-muted">No session commands</div>
                     ) : (
-                      <>
-                        {globalSafeCommands.map((cmd) => (
-                          <div key={`global-${cmd}`} className="flex items-center gap-2 text-xs">
-                            <GlobeIcon size={12} className="text-copilot-accent" />
-                            <span className="flex-1 truncate font-mono text-copilot-text-muted">
-                              {cmd}
-                            </span>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleRemoveGlobalSafeCommand(cmd);
-                              }}
-                              className="p-1 text-copilot-error hover:bg-copilot-surface rounded"
-                            >
-                              <CloseIcon size={14} />
-                            </button>
-                          </div>
-                        ))}
-                        {activeTab?.alwaysAllowed.map((cmd) => (
-                          <div key={`session-${cmd}`} className="flex items-center gap-2 text-xs">
-                            <span className="flex-1 truncate font-mono text-copilot-text-muted">
-                              {cmd}
-                            </span>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleRemoveAlwaysAllowed(cmd);
-                              }}
-                              className="p-1 text-copilot-error hover:bg-copilot-surface rounded"
-                            >
-                              <CloseIcon size={14} />
-                            </button>
-                          </div>
-                        ))}
-                      </>
+                      activeTab?.alwaysAllowed.map((cmd) => (
+                        <div key={`session-${cmd}`} className="flex items-center gap-2 text-xs">
+                          <span className="flex-1 truncate font-mono text-copilot-text-muted">
+                            {cmd}
+                          </span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRemoveAlwaysAllowed(cmd);
+                            }}
+                            className="p-1 text-copilot-error hover:bg-copilot-surface rounded"
+                          >
+                            <CloseIcon size={14} />
+                          </button>
+                        </div>
+                      ))
                     )}
                   </div>
                 </div>
@@ -7253,7 +7238,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       setShowAllowedCommands(!showAllowedCommands);
                       if (!showAllowedCommands) {
                         refreshAlwaysAllowed();
-                        refreshGlobalSafeCommands();
                       } else {
                         setShowAddAllowedCommand(false);
                       }
@@ -7265,11 +7249,21 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       className={`transition-transform ${showAllowedCommands ? '-rotate-90' : ''}`}
                     />
                     <span>Allowed Commands</span>
-                    {(activeTab?.alwaysAllowed.length || 0) + globalSafeCommands.length > 0 && (
+                    {(activeTab?.alwaysAllowed.length || 0) > 0 && (
                       <span className="text-copilot-accent">
-                        ({(activeTab?.alwaysAllowed.length || 0) + globalSafeCommands.length})
+                        ({activeTab?.alwaysAllowed.length || 0})
                       </span>
                     )}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSettingsDefaultSection('commands');
+                      setShowSettingsModal(true);
+                    }}
+                    className="shrink-0 mr-1 p-1 text-copilot-text-muted hover:text-copilot-accent transition-colors"
+                    title="Global commands (Settings)"
+                  >
+                    <GlobeIcon size={12} />
                   </button>
                   <div className="relative mr-1">
                     <IconButton
@@ -7279,7 +7273,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                         if (!showAllowedCommands) {
                           setShowAllowedCommands(true);
                           refreshAlwaysAllowed();
-                          refreshGlobalSafeCommands();
                         }
                       }}
                       variant="success"
@@ -7291,33 +7284,12 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 {showAddAllowedCommand && activeTab && (
                   <div className="px-3 pb-2">
                     <div className="flex items-center gap-2">
-                      <select
-                        value={addCommandScope}
-                        onChange={(e) => setAddCommandScope(e.target.value as 'session' | 'global')}
-                        className="px-2 py-1 text-[10px] bg-copilot-surface border border-copilot-border rounded text-copilot-text focus:outline-none focus:border-copilot-accent"
-                      >
-                        <option value="session">Session</option>
-                        <option
-                          value="global"
-                          disabled={addCommandValue.trim().toLowerCase().startsWith('write')}
-                        >
-                          Global
-                        </option>
-                      </select>
                       <input
                         type="text"
                         value={addCommandValue}
-                        onChange={(e) => {
-                          setAddCommandValue(e.target.value);
-                          if (
-                            addCommandScope === 'global' &&
-                            e.target.value.trim().toLowerCase().startsWith('write')
-                          ) {
-                            setAddCommandScope('session');
-                          }
-                        }}
+                        onChange={(e) => setAddCommandValue(e.target.value)}
                         onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleAddAllowedCommand();
+                          if (e.key === 'Enter') handleAddAlwaysAllowed();
                           if (e.key === 'Escape') {
                             setShowAddAllowedCommand(false);
                             setAddCommandValue('');
@@ -7328,7 +7300,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                         autoFocus
                       />
                       <button
-                        onClick={handleAddAllowedCommand}
+                        onClick={handleAddAlwaysAllowed}
                         disabled={!addCommandValue.trim()}
                         className="px-2 py-1 text-[10px] bg-copilot-accent text-copilot-text rounded hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
@@ -7339,69 +7311,52 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 )}
                 {showAllowedCommands && activeTab && (
                   <div className="max-h-48 overflow-y-auto">
-                    {activeTab.alwaysAllowed.length === 0 && globalSafeCommands.length === 0 ? (
+                    {activeTab.alwaysAllowed.length === 0 ? (
                       <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
-                        No allowed commands
+                        No session commands
                       </div>
                     ) : (
-                      (() => {
-                        const isSpecialExe = (exe: string) =>
-                          exe.startsWith('write') || exe.startsWith('url') || exe.startsWith('mcp');
-                        const toPretty = (exe: string) => {
-                          const hasColon = exe.includes(':');
-                          const [rawPrefix, rawRest] = hasColon ? exe.split(':', 2) : [exe, null];
-                          const prefix = rawPrefix;
-                          const rest = rawRest;
+                      <div className="pb-1">
+                        {(() => {
+                          const isSpecialExe = (exe: string) =>
+                            exe.startsWith('write') ||
+                            exe.startsWith('url') ||
+                            exe.startsWith('mcp');
+                          const toPretty = (exe: string) => {
+                            const hasColon = exe.includes(':');
+                            const [rawPrefix, rawRest] = hasColon ? exe.split(':', 2) : [exe, null];
+                            const prefix = rawPrefix;
+                            const rest = rawRest;
 
-                          const isSpecial =
-                            prefix === 'write' || prefix === 'url' || prefix === 'mcp';
-                          const meaning =
-                            prefix === 'write'
-                              ? 'File changes'
-                              : prefix === 'url'
-                                ? 'Web access'
-                                : prefix === 'mcp'
-                                  ? 'MCP tools'
-                                  : '';
+                            const isSpecial =
+                              prefix === 'write' || prefix === 'url' || prefix === 'mcp';
+                            const meaning =
+                              prefix === 'write'
+                                ? 'File changes'
+                                : prefix === 'url'
+                                  ? 'Web access'
+                                  : prefix === 'mcp'
+                                    ? 'MCP tools'
+                                    : '';
 
-                          return isSpecial ? (rest ? `${meaning}: ${rest}` : meaning) : exe;
-                        };
+                            return isSpecial ? (rest ? `${meaning}: ${rest}` : meaning) : exe;
+                          };
 
-                        type AllowedCommand = {
-                          cmd: string;
-                          isGlobal: boolean;
-                          isSpecial: boolean;
-                          pretty: string;
-                        };
-                        const allCommands: AllowedCommand[] = [
-                          ...activeTab.alwaysAllowed.map((cmd) => ({
-                            cmd,
-                            isGlobal: false,
-                            isSpecial: isSpecialExe(cmd),
-                            pretty: toPretty(cmd),
-                          })),
-                          ...globalSafeCommands.map((cmd) => ({
-                            cmd,
-                            isGlobal: true,
-                            isSpecial: false,
-                            pretty: cmd,
-                          })),
-                        ].sort((a, b) => {
-                          if (a.isGlobal !== b.isGlobal) return a.isGlobal ? -1 : 1;
-                          if (a.isSpecial !== b.isSpecial) return a.isSpecial ? -1 : 1;
-                          return a.pretty.localeCompare(b.pretty);
-                        });
-
-                        return (
-                          <div className="pb-1">
-                            {allCommands.map(({ cmd, isGlobal, isSpecial, pretty }) => (
+                          return activeTab.alwaysAllowed
+                            .map((cmd) => ({
+                              cmd,
+                              isSpecial: isSpecialExe(cmd),
+                              pretty: toPretty(cmd),
+                            }))
+                            .sort((a, b) => {
+                              if (a.isSpecial !== b.isSpecial) return a.isSpecial ? -1 : 1;
+                              return a.pretty.localeCompare(b.pretty);
+                            })
+                            .map(({ cmd, isSpecial, pretty }) => (
                               <div
-                                key={`${isGlobal ? 'global' : 'session'}-${cmd}`}
+                                key={`session-${cmd}`}
                                 className="flex items-center gap-2 px-3 py-1 text-[10px] hover:bg-copilot-surface-hover transition-colors"
                               >
-                                {isGlobal && (
-                                  <GlobeIcon size={10} className="shrink-0 text-copilot-accent" />
-                                )}
                                 <span
                                   className={`flex-1 truncate font-mono ${
                                     isSpecial ? 'text-copilot-accent' : 'text-copilot-text-muted'
@@ -7411,21 +7366,16 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                                   {pretty}
                                 </span>
                                 <button
-                                  onClick={() =>
-                                    isGlobal
-                                      ? handleRemoveGlobalSafeCommand(cmd)
-                                      : handleRemoveAlwaysAllowed(cmd)
-                                  }
+                                  onClick={() => handleRemoveAlwaysAllowed(cmd)}
                                   className="shrink-0 text-copilot-error hover:brightness-110"
                                   title="Remove"
                                 >
                                   <CloseIcon size={10} />
                                 </button>
                               </div>
-                            ))}
-                          </div>
-                        );
-                      })()
+                            ));
+                        })()}
+                      </div>
                     )}
                   </div>
                 )}
@@ -8197,6 +8147,17 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           availableVoices={voiceSpeech.availableVoices}
           selectedVoiceURI={voiceSpeech.selectedVoiceURI}
           onVoiceChange={voiceSpeech.setSelectedVoiceURI}
+          // Global commands
+          globalSafeCommands={globalSafeCommands}
+          onAddGlobalSafeCommand={async (cmd) => {
+            try {
+              await window.electronAPI.copilot.addGlobalSafeCommand(cmd);
+              setGlobalSafeCommands((prev) => [...prev, cmd]);
+            } catch (error) {
+              console.error('Failed to add global safe command:', error);
+            }
+          }}
+          onRemoveGlobalSafeCommand={handleRemoveGlobalSafeCommand}
         />
 
         {/* Welcome Wizard - Spotlight Tour */}
