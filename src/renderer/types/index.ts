@@ -37,3 +37,5 @@ export type {
 } from './mcp';
 
 export type { Skill, SkillsResult } from './skills';
+
+export type { Instruction, InstructionsResult } from './instructions';

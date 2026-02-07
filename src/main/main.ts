@@ -152,6 +152,9 @@ async function writeMcpConfig(config: MCPConfigFile): Promise<void> {
 // Agent Skills - imported from skills module
 import { getAllSkills } from './skills';
 
+// Copilot Instructions - imported from instructions module
+import { getAllInstructions } from './instructions';
+
 // Set up file logging only - no IPC to renderer (causes errors)
 log.transports.file.level = 'info';
 log.transports.console.level = 'info';
@@ -2441,30 +2444,48 @@ ipcMain.handle(
 );
 
 // Persist a single session's mark/note immediately
-ipcMain.handle('copilot:saveSessionMark', async (_event, args: { sessionId: string; mark: { markedForReview?: boolean; reviewNote?: string } }) => {
-  try {
-    const { sessionId, mark } = args;
-    const sessionMarks = (store.get('sessionMarks') as Record<string, { markedForReview?: boolean; reviewNote?: string }>) || {};
+ipcMain.handle(
+  'copilot:saveSessionMark',
+  async (
+    _event,
+    args: { sessionId: string; mark: { markedForReview?: boolean; reviewNote?: string } }
+  ) => {
+    try {
+      const { sessionId, mark } = args;
+      const sessionMarks =
+        (store.get('sessionMarks') as Record<
+          string,
+          { markedForReview?: boolean; reviewNote?: string }
+        >) || {};
 
-    // If nothing to save (both undefined or empty), remove existing mark
-    const hasMark = typeof mark.markedForReview !== 'undefined' || (typeof mark.reviewNote === 'string' && mark.reviewNote !== '');
-    if (!hasMark) {
-      delete sessionMarks[sessionId];
-    } else {
-      sessionMarks[sessionId] = {
-        ...(sessionMarks[sessionId] || {}),
-        markedForReview: typeof mark.markedForReview !== 'undefined' ? mark.markedForReview : sessionMarks[sessionId]?.markedForReview,
-        reviewNote: typeof mark.reviewNote !== 'undefined' ? mark.reviewNote : sessionMarks[sessionId]?.reviewNote,
-      };
+      // If nothing to save (both undefined or empty), remove existing mark
+      const hasMark =
+        typeof mark.markedForReview !== 'undefined' ||
+        (typeof mark.reviewNote === 'string' && mark.reviewNote !== '');
+      if (!hasMark) {
+        delete sessionMarks[sessionId];
+      } else {
+        sessionMarks[sessionId] = {
+          ...(sessionMarks[sessionId] || {}),
+          markedForReview:
+            typeof mark.markedForReview !== 'undefined'
+              ? mark.markedForReview
+              : sessionMarks[sessionId]?.markedForReview,
+          reviewNote:
+            typeof mark.reviewNote !== 'undefined'
+              ? mark.reviewNote
+              : sessionMarks[sessionId]?.reviewNote,
+        };
+      }
+
+      store.set('sessionMarks', sessionMarks);
+      return { success: true };
+    } catch (error) {
+      console.error('Failed to save session mark:', error);
+      return { success: false };
     }
-
-    store.set('sessionMarks', sessionMarks);
-    return { success: true };
-  } catch (error) {
-    console.error('Failed to save session mark:', error);
-    return { success: false };
   }
-});
+);
 
 // Fetch image from URL and save to temp
 ipcMain.handle('copilot:fetchImageFromUrl', async (_event, url: string) => {
@@ -4005,6 +4026,20 @@ ipcMain.handle('skills:getAll', async (_event, cwd?: string) => {
   }
   const result = await getAllSkills(projectCwd);
   console.log(`Found ${result.skills.length} skills (${result.errors.length} errors)`);
+  return result;
+});
+
+// Copilot Instructions handlers
+ipcMain.handle('instructions:getAll', async (_event, cwd?: string) => {
+  let projectCwd = cwd;
+  if (!projectCwd && sessions.size > 0) {
+    const firstSession = sessions.values().next().value;
+    if (firstSession) {
+      projectCwd = firstSession.cwd;
+    }
+  }
+  const result = await getAllInstructions(projectCwd);
+  console.log(`Found ${result.instructions.length} instructions (${result.errors.length} errors)`);
   return result;
 });
 

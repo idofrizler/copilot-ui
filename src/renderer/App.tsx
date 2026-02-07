@@ -97,6 +97,7 @@ import {
   LISA_REVIEW_APPROVE_SIGNAL,
   LISA_REVIEW_REJECT_PREFIX,
   Skill,
+  Instruction,
 } from './types';
 import { generateId, generateTabName, setTabCounter } from './utils/session';
 import { playNotificationSound } from './utils/sound';
@@ -662,6 +663,10 @@ const App: React.FC = () => {
   // Agent Skills state
   const [skills, setSkills] = useState<Skill[]>([]);
   const [showSkills, setShowSkills] = useState(false);
+
+  // Copilot Instructions state
+  const [instructions, setInstructions] = useState<Instruction[]>([]);
+  const [showInstructions, setShowInstructions] = useState(false);
 
   // Voice control settings
   const [pushToTalk, setPushToTalk] = useState(() => {
@@ -1340,6 +1345,23 @@ const App: React.FC = () => {
       }
     };
     loadSkills();
+  }, [activeTab?.cwd]);
+
+  // Load Copilot Instructions on startup and when active tab changes
+  useEffect(() => {
+    const loadInstructions = async () => {
+      try {
+        const cwd = activeTab?.cwd;
+        const result = await window.electronAPI.instructions.getAll(cwd);
+        setInstructions(result.instructions || []);
+        if (result.errors?.length > 0) {
+          console.warn('Some instructions had errors:', result.errors);
+        }
+      } catch (error) {
+        console.error('Failed to load instructions:', error);
+      }
+    };
+    loadInstructions();
   }, [activeTab?.cwd]);
 
   // Helper to update a specific tab
@@ -4272,12 +4294,14 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     });
     // Persist mark immediately to avoid races on app quit
     try {
-      window.electronAPI.copilot.saveSessionMark(tabId, {
-        markedForReview: newMarked,
-        reviewNote: newReviewNote,
-      }).catch((e) => {
-        console.error('Failed to persist session mark:', e);
-      });
+      window.electronAPI.copilot
+        .saveSessionMark(tabId, {
+          markedForReview: newMarked,
+          reviewNote: newReviewNote,
+        })
+        .catch((e) => {
+          console.error('Failed to persist session mark:', e);
+        });
     } catch (e) {
       console.error('Failed to call saveSessionMark:', e);
     }
@@ -4304,10 +4328,12 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     });
     // Persist mark/note immediately
     try {
-      window.electronAPI.copilot.saveSessionMark(tabId, {
-        markedForReview: newMarked,
-        reviewNote: note || undefined,
-      }).catch((e) => console.error('Failed to persist session mark:', e));
+      window.electronAPI.copilot
+        .saveSessionMark(tabId, {
+          markedForReview: newMarked,
+          reviewNote: note || undefined,
+        })
+        .catch((e) => console.error('Failed to persist session mark:', e));
     } catch (e) {
       console.error('Failed to call saveSessionMark:', e);
     }
@@ -4324,9 +4350,9 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
   const handleClearNote = (tabId: string) => {
     updateTab(tabId, { reviewNote: undefined });
     try {
-      window.electronAPI.copilot.saveSessionMark(tabId, { reviewNote: undefined }).catch((e) =>
-        console.error('Failed to persist session mark:', e)
-      );
+      window.electronAPI.copilot
+        .saveSessionMark(tabId, { reviewNote: undefined })
+        .catch((e) => console.error('Failed to persist session mark:', e));
     } catch (e) {
       console.error('Failed to call saveSessionMark:', e);
     }
@@ -5003,6 +5029,56 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                             </div>
                             <div className="text-[10px] text-copilot-text-muted ml-5 truncate">
                               {skill.description}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Copilot Instructions */}
+              <div className="border-b border-copilot-border">
+                <button
+                  onClick={() => setShowInstructions(!showInstructions)}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-sm text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                >
+                  <ChevronRightIcon
+                    size={14}
+                    className={`transition-transform ${showInstructions ? 'rotate-90' : ''}`}
+                  />
+                  <span>Instructions</span>
+                  {instructions.length > 0 && (
+                    <span className="ml-auto text-copilot-accent">{instructions.length}</span>
+                  )}
+                </button>
+                {showInstructions && (
+                  <div className="px-4 pb-3">
+                    {instructions.length === 0 ? (
+                      <div className="text-xs text-copilot-text-muted">
+                        No instruction files found
+                      </div>
+                    ) : (
+                      <div className="space-y-2 max-h-32 overflow-y-auto">
+                        {instructions.map((instruction) => (
+                          <div
+                            key={instruction.path}
+                            className="text-xs cursor-pointer hover:bg-copilot-surface rounded px-1 py-0.5"
+                            onClick={() => window.electronAPI.file.openFile(instruction.path)}
+                            title={instruction.path}
+                          >
+                            <div className="flex items-center gap-2">
+                              <FileIcon size={12} className="text-copilot-accent" />
+                              <span className="text-copilot-text">{instruction.name}</span>
+                            </div>
+                            <div className="text-[10px] text-copilot-text-muted ml-5 truncate">
+                              {instruction.type === 'personal'
+                                ? 'Personal'
+                                : instruction.type === 'organization'
+                                  ? 'Organization'
+                                  : 'Project'}
+                              {instruction.scope === 'path-specific' ? ' · Path-specific' : ''}
                             </div>
                           </div>
                         ))}
@@ -5886,7 +5962,11 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                               }}
                               className="px-4 py-2 rounded-l bg-copilot-success hover:brightness-110 text-copilot-text-inverse text-sm font-medium transition-colors"
                             >
-                              {allowMode === 'once' ? 'Allow' : allowMode === 'session' ? 'Allow (Session)' : 'Allow (Global)'}
+                              {allowMode === 'once'
+                                ? 'Allow'
+                                : allowMode === 'session'
+                                  ? 'Allow (Session)'
+                                  : 'Allow (Global)'}
                             </button>
                             <button
                               onClick={() => setShowAllowDropdown(!showAllowDropdown)}
@@ -7252,6 +7332,65 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                                     <div className="text-[9px] text-copilot-accent">
                                       {skill.type === 'personal' ? '~/' : '.'}/
                                       {skill.source === 'copilot' ? '.copilot' : '.claude'}/skills
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Separator */}
+                    <div className="border-t border-copilot-border" />
+
+                    {/* Copilot Instructions */}
+                    <div>
+                      <div className="flex items-center">
+                        <button
+                          onClick={() => setShowInstructions(!showInstructions)}
+                          className="flex-1 flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                        >
+                          <ChevronRightIcon
+                            size={8}
+                            className={`transition-transform ${showInstructions ? 'rotate-90' : ''}`}
+                          />
+                          <span>Instructions</span>
+                          {instructions.length > 0 && (
+                            <span className="text-copilot-accent">({instructions.length})</span>
+                          )}
+                        </button>
+                      </div>
+                      {showInstructions && (
+                        <div className="max-h-48 overflow-y-auto">
+                          {instructions.length === 0 ? (
+                            <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
+                              No instruction files found
+                            </div>
+                          ) : (
+                            instructions.map((instruction) => (
+                              <div
+                                key={instruction.path}
+                                className="group px-3 py-1.5 hover:bg-copilot-surface border-b border-copilot-border last:border-b-0 cursor-pointer"
+                                onClick={() => window.electronAPI.file.openFile(instruction.path)}
+                                title={instruction.path}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <FileIcon size={10} className="shrink-0 text-copilot-accent" />
+                                  <div className="flex-1 min-w-0">
+                                    <div className="text-xs text-copilot-text truncate">
+                                      {instruction.name}
+                                    </div>
+                                    <div className="text-[9px] text-copilot-text-muted">
+                                      {instruction.type === 'personal'
+                                        ? 'Personal'
+                                        : instruction.type === 'organization'
+                                          ? 'Organization'
+                                          : 'Project'}
+                                      {instruction.scope === 'path-specific'
+                                        ? ' · Path-specific'
+                                        : ''}
                                     </div>
                                   </div>
                                 </div>

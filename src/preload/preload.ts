@@ -608,71 +608,113 @@ const electronAPI = {
       return ipcRenderer.invoke('git:getWorkingStatus', cwd);
     },
   },
-  
+
   // Whisper.cpp speech recognition (native)
   voice: {
     loadModel: (): Promise<{ success: boolean; error?: string }> => {
-      return ipcRenderer.invoke('voice:loadModel')
+      return ipcRenderer.invoke('voice:loadModel');
     },
     loadTinyModel: (): Promise<{ success: boolean; path?: string; error?: string }> => {
-      return ipcRenderer.invoke('voice:loadTinyModel')
+      return ipcRenderer.invoke('voice:loadTinyModel');
     },
-    getState: (): Promise<{ isModelLoaded: boolean; isRecording: boolean; error: string | null }> => {
-      return ipcRenderer.invoke('voice:getState')
+    getState: (): Promise<{
+      isModelLoaded: boolean;
+      isRecording: boolean;
+      error: string | null;
+    }> => {
+      return ipcRenderer.invoke('voice:getState');
     },
     startRecording: (): Promise<{ success: boolean; error?: string }> => {
-      return ipcRenderer.invoke('voice:startRecording')
+      return ipcRenderer.invoke('voice:startRecording');
     },
-    processAudio: (audioData: Uint8Array): Promise<{ success: boolean; isSilence?: boolean; text?: string; partial?: string; error?: string }> => {
-      return ipcRenderer.invoke('voice:processAudio', audioData)
+    processAudio: (
+      audioData: Uint8Array
+    ): Promise<{
+      success: boolean;
+      isSilence?: boolean;
+      text?: string;
+      partial?: string;
+      error?: string;
+    }> => {
+      return ipcRenderer.invoke('voice:processAudio', audioData);
     },
-    processAndTranscribe: (audioData: Uint8Array, mimeType: string): Promise<{ success: boolean; text?: string; error?: string }> => {
-      return ipcRenderer.invoke('voice:processAndTranscribe', audioData, mimeType)
+    processAndTranscribe: (
+      audioData: Uint8Array,
+      mimeType: string
+    ): Promise<{ success: boolean; text?: string; error?: string }> => {
+      return ipcRenderer.invoke('voice:processAndTranscribe', audioData, mimeType);
     },
-    detectWakeWord: (audioData: Uint8Array, mimeType: string): Promise<{ success: boolean; text?: string; wakeWordDetected?: boolean; stopWordDetected?: boolean; abortWordDetected?: boolean; error?: string }> => {
-      return ipcRenderer.invoke('voice:detectWakeWord', audioData, mimeType)
+    detectWakeWord: (
+      audioData: Uint8Array,
+      mimeType: string
+    ): Promise<{
+      success: boolean;
+      text?: string;
+      wakeWordDetected?: boolean;
+      stopWordDetected?: boolean;
+      abortWordDetected?: boolean;
+      error?: string;
+    }> => {
+      return ipcRenderer.invoke('voice:detectWakeWord', audioData, mimeType);
     },
     stopRecording: (): Promise<{ success: boolean; text?: string; error?: string }> => {
-      return ipcRenderer.invoke('voice:stopRecording')
+      return ipcRenderer.invoke('voice:stopRecording');
     },
     dispose: (): Promise<{ success: boolean }> => {
-      return ipcRenderer.invoke('voice:dispose')
+      return ipcRenderer.invoke('voice:dispose');
     },
     onResult: (callback: (data: { text: string }) => void): (() => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: { text: string }) => callback(data)
-      ipcRenderer.on('voice:result', handler)
-      return () => ipcRenderer.removeListener('voice:result', handler)
+      const handler = (_event: Electron.IpcRendererEvent, data: { text: string }) => callback(data);
+      ipcRenderer.on('voice:result', handler);
+      return () => ipcRenderer.removeListener('voice:result', handler);
     },
     onPartialResult: (callback: (data: { partial: string }) => void): (() => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: { partial: string }) => callback(data)
-      ipcRenderer.on('voice:partialResult', handler)
-      return () => ipcRenderer.removeListener('voice:partialResult', handler)
+      const handler = (_event: Electron.IpcRendererEvent, data: { partial: string }) =>
+        callback(data);
+      ipcRenderer.on('voice:partialResult', handler);
+      return () => ipcRenderer.removeListener('voice:partialResult', handler);
     },
   },
-  
+
   // Whisper model management (for native whisper.cpp STT)
   voiceServer: {
     // Whisper model management
-    checkModel: (): Promise<{ exists: boolean; path?: string; size?: number; binaryExists?: boolean; binaryPath?: string }> => {
-      return ipcRenderer.invoke('voiceServer:checkModel')
+    checkModel: (): Promise<{
+      exists: boolean;
+      path?: string;
+      size?: number;
+      binaryExists?: boolean;
+      binaryPath?: string;
+    }> => {
+      return ipcRenderer.invoke('voiceServer:checkModel');
     },
     downloadModel: (): Promise<{ success: boolean; path?: string; error?: string }> => {
-      return ipcRenderer.invoke('voiceServer:downloadModel')
+      return ipcRenderer.invoke('voiceServer:downloadModel');
     },
-    onDownloadProgress: (callback: (data: { progress: number; downloaded: number; total: number; status: string }) => void): (() => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, data: { progress: number; downloaded: number; total: number; status: string }) => callback(data)
-      ipcRenderer.on('voiceServer:downloadProgress', handler)
-      return () => ipcRenderer.removeListener('voiceServer:downloadProgress', handler)
+    onDownloadProgress: (
+      callback: (data: {
+        progress: number;
+        downloaded: number;
+        total: number;
+        status: string;
+      }) => void
+    ): (() => void) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        data: { progress: number; downloaded: number; total: number; status: string }
+      ) => callback(data);
+      ipcRenderer.on('voiceServer:downloadProgress', handler);
+      return () => ipcRenderer.removeListener('voiceServer:downloadProgress', handler);
     },
     // Tiny model for wake word detection
     checkTinyModel: (): Promise<{ exists: boolean; path?: string }> => {
-      return ipcRenderer.invoke('voiceServer:checkTinyModel')
+      return ipcRenderer.invoke('voiceServer:checkTinyModel');
     },
     downloadTinyModel: (): Promise<{ success: boolean; path?: string; error?: string }> => {
-      return ipcRenderer.invoke('voiceServer:downloadTinyModel')
+      return ipcRenderer.invoke('voiceServer:downloadTinyModel');
     },
   },
-  
+
   // Settings for target branch persistence
   settings: {
     getTargetBranch: (
@@ -761,6 +803,12 @@ const electronAPI = {
   skills: {
     getAll: (cwd?: string): Promise<{ skills: Skill[]; errors: string[] }> => {
       return ipcRenderer.invoke('skills:getAll', cwd);
+    },
+  },
+  // Copilot Instructions Management
+  instructions: {
+    getAll: (cwd?: string): Promise<{ instructions: Instruction[]; errors: string[] }> => {
+      return ipcRenderer.invoke('instructions:getAll', cwd);
     },
   },
   // Browser Automation Management
@@ -1040,6 +1088,14 @@ interface Skill {
   path: string;
   type: 'personal' | 'project';
   source: 'copilot' | 'claude';
+}
+
+// Copilot Instruction types
+interface Instruction {
+  name: string;
+  path: string;
+  type: 'personal' | 'project' | 'organization';
+  scope: 'repository' | 'path-specific';
 }
 
 // Worktree Session types
