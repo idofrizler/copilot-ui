@@ -350,9 +350,23 @@ const copilotClients = new Map<string, CopilotClient>();
 const inFlightCopilotClients = new Map<string, Promise<CopilotClient>>();
 
 // Resolve CLI path for packaged apps
-function getCliPath(): string | undefined {
+function getCliPath(): string {
   if (!app.isPackaged) {
-    return undefined; // Use default "copilot" from PATH in dev
+    // In dev, the SDK's import.meta.resolve doesn't work in bundled code,
+    // and passing index.js would spawn it with Electron (process.execPath)
+    // which lacks newer Node.js globals. Use the native platform binary instead.
+    const platform = process.platform;
+    const arch = process.arch;
+    const cliName = platform === 'win32' ? 'copilot.exe' : 'copilot';
+    return join(
+      __dirname,
+      '..',
+      '..',
+      'node_modules',
+      '@github',
+      `copilot-${platform}-${arch}`,
+      cliName
+    );
   }
 
   // When packaged, the copilot binary is in the unpacked asar
@@ -612,20 +626,18 @@ async function resumeDisconnectedSession(
         sessionId,
         toolCallId: event.data.toolCallId,
         toolName: event.data.toolName,
-        input: event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
+        input: event.data.arguments || (event.data as Record<string, unknown>),
       });
     } else if (event.type === 'tool.execution_complete') {
       log.info(`[${sessionId}] Tool end FULL:`, JSON.stringify(event.data, null, 2));
+      const completeData = event.data as Record<string, unknown>;
       mainWindow.webContents.send('copilot:tool-end', {
         sessionId,
         toolCallId: event.data.toolCallId,
-        toolName: event.data.toolName,
-        input: event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
-        output: event.data.output,
+        toolName: completeData.toolName,
+        input: completeData.arguments || completeData,
+        output: event.data.result?.content || completeData.output,
       });
-    } else if (event.type === 'tool.confirmation_requested') {
-      log.info(`[${sessionId}] Confirmation requested:`, event.data);
-      mainWindow.webContents.send('copilot:confirm', { sessionId, ...event.data });
     } else if (event.type === 'session.error') {
       log.info(`[${sessionId}] Session error:`, event.data);
       const errorMessage = event.data?.message || JSON.stringify(event.data);
@@ -803,18 +815,17 @@ async function startEarlySessionResumption(): Promise<void> {
               sessionId,
               toolCallId: event.data.toolCallId,
               toolName: event.data.toolName,
-              input:
-                event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
+              input: event.data.arguments || (event.data as Record<string, unknown>),
             });
           } else if (event.type === 'tool.execution_complete') {
             console.log(`[${sessionId}] Tool end FULL:`, JSON.stringify(event.data, null, 2));
+            const completeData = event.data as Record<string, unknown>;
             mainWindow.webContents.send('copilot:tool-end', {
               sessionId,
               toolCallId: event.data.toolCallId,
-              toolName: event.data.toolName,
-              input:
-                event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
-              output: event.data.output,
+              toolName: completeData.toolName,
+              input: completeData.arguments || completeData,
+              output: event.data.result?.content || completeData.output,
             });
           }
         });
@@ -1436,20 +1447,18 @@ Browser tools available: browser_navigate, browser_click, browser_fill, browser_
         sessionId,
         toolCallId: event.data.toolCallId,
         toolName: event.data.toolName,
-        input: event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
+        input: event.data.arguments || (event.data as Record<string, unknown>),
       });
     } else if (event.type === 'tool.execution_complete') {
       console.log(`[${sessionId}] Tool end FULL:`, JSON.stringify(event.data, null, 2));
+      const completeData = event.data as Record<string, unknown>;
       mainWindow.webContents.send('copilot:tool-end', {
         sessionId,
         toolCallId: event.data.toolCallId,
-        toolName: event.data.toolName,
-        input: event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
-        output: event.data.output,
+        toolName: completeData.toolName,
+        input: completeData.arguments || completeData,
+        output: event.data.result?.content || completeData.output,
       });
-    } else if (event.type === 'tool.confirmation_requested') {
-      console.log(`[${sessionId}] Confirmation requested:`, event.data);
-      mainWindow.webContents.send('copilot:confirm', { sessionId, ...event.data });
     } else if (event.type === 'session.error') {
       console.log(`[${sessionId}] Session error:`, event.data);
       const errorMessage = event.data?.message || JSON.stringify(event.data);
@@ -1747,18 +1756,17 @@ async function initCopilot(): Promise<void> {
               sessionId,
               toolCallId: event.data.toolCallId,
               toolName: event.data.toolName,
-              input:
-                event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
+              input: event.data.arguments || (event.data as Record<string, unknown>),
             });
           } else if (event.type === 'tool.execution_complete') {
             console.log(`[${sessionId}] Tool end FULL:`, JSON.stringify(event.data, null, 2));
+            const completeData = event.data as Record<string, unknown>;
             mainWindow.webContents.send('copilot:tool-end', {
               sessionId,
               toolCallId: event.data.toolCallId,
-              toolName: event.data.toolName,
-              input:
-                event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
-              output: event.data.output,
+              toolName: completeData.toolName,
+              input: completeData.arguments || completeData,
+              output: event.data.result?.content || completeData.output,
             });
           }
         });
@@ -3910,20 +3918,18 @@ ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string
         sessionId,
         toolCallId: event.data.toolCallId,
         toolName: event.data.toolName,
-        input: event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
+        input: event.data.arguments || (event.data as Record<string, unknown>),
       });
     } else if (event.type === 'tool.execution_complete') {
       console.log(`[${sessionId}] Tool end FULL:`, JSON.stringify(event.data, null, 2));
+      const completeData = event.data as Record<string, unknown>;
       mainWindow.webContents.send('copilot:tool-end', {
         sessionId,
         toolCallId: event.data.toolCallId,
-        toolName: event.data.toolName,
-        input: event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
-        output: event.data.output,
+        toolName: completeData.toolName,
+        input: completeData.arguments || completeData,
+        output: event.data.result?.content || completeData.output,
       });
-    } else if (event.type === 'tool.confirmation_requested') {
-      console.log(`[${sessionId}] Confirmation requested:`, event.data);
-      mainWindow.webContents.send('copilot:confirm', { sessionId, ...event.data });
     } else if (event.type === 'session.error') {
       console.log(`[${sessionId}] Session error:`, event.data);
       const errorMessage = event.data?.message || JSON.stringify(event.data);

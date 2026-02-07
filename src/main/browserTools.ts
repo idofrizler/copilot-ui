@@ -12,7 +12,7 @@ import * as browser from './browser';
 /**
  * Create browser automation tools for a specific Copilot session
  */
-export function createBrowserTools(sessionId: string): Tool<unknown>[] {
+export function createBrowserTools(sessionId: string): Tool<any>[] {
   return [
     // Navigate to a URL
     defineTool('browser_navigate', {
