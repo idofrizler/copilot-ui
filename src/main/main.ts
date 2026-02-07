@@ -1861,7 +1861,19 @@ async function initCopilot(): Promise<void> {
 }
 
 function createWindow(): void {
+  const isWindows = process.platform === 'win32';
+
+  const iconPathCandidates = [
+    // Dev (repo checkout)
+    join(__dirname, '../../build/icon.png'),
+    // Packaged (if included as an extra resource)
+    join(process.resourcesPath, 'build/icon.png'),
+    join(process.resourcesPath, 'icon.png'),
+  ];
+  const windowIcon = iconPathCandidates.find((p) => existsSync(p));
+
   mainWindow = new BrowserWindow({
+    ...(windowIcon ? { icon: windowIcon } : {}),
     width: 1400,
     height: 750,
     minWidth: 320,
@@ -1870,6 +1882,14 @@ function createWindow(): void {
     backgroundColor: '#0d1117',
     titleBarStyle: 'hidden',
     trafficLightPosition: { x: -100, y: -100 },
+    // On Windows, use native title bar overlay for minimize/maximize/close buttons
+    ...(isWindows && {
+      titleBarOverlay: {
+        color: '#2d2d2d',
+        symbolColor: '#e6edf3',
+        height: 38,
+      },
+    }),
     hasShadow: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -2520,6 +2540,16 @@ ipcMain.handle('copilot:pickFolder', async () => {
 
 // Check if a directory is trusted and optionally request trust
 ipcMain.handle('copilot:checkDirectoryTrust', async (_event, dir: string) => {
+  // Auto-trust directories under the worktree sessions directory (we created them)
+  const sessionsDir = worktree.getWorktreeConfig().directory;
+  if (
+    dir === sessionsDir ||
+    dir.startsWith(sessionsDir + '/') ||
+    dir.startsWith(sessionsDir + '\\')
+  ) {
+    return { trusted: true, decision: 'already-trusted' };
+  }
+
   // Check if already always-trusted (persisted)
   const alwaysTrusted = (store.get('trustedDirectories') as string[]) || [];
   if (alwaysTrusted.includes(dir)) {
@@ -3374,7 +3404,7 @@ ipcMain.handle(
         if (uncommittedFiles.length > 0) {
           try {
             // Use -u to include untracked files, -k to keep index
-            await execAsync('git stash push -u -m "copilot-ui-temp-stash"', { cwd: data.cwd });
+            await execAsync('git stash push -u -m "cooper-temp-stash"', { cwd: data.cwd });
             didGitStash = true;
           } catch (stashError) {
             console.error('Git stash failed:', stashError);
@@ -3971,6 +4001,23 @@ ipcMain.on('window:quit', () => {
   app.quit();
 });
 
+ipcMain.on(
+  'window:updateTitleBarOverlay',
+  (_event, options: { color: string; symbolColor: string }) => {
+    if (process.platform === 'win32' && mainWindow && !mainWindow.isDestroyed()) {
+      try {
+        mainWindow.setTitleBarOverlay({
+          color: options.color,
+          symbolColor: options.symbolColor,
+          height: 38,
+        });
+      } catch {
+        // setTitleBarOverlay may not be available on older Electron versions
+      }
+    }
+  }
+);
+
 // Theme handlers
 ipcMain.handle('theme:get', () => {
   return store.get('theme') as string;
@@ -4467,7 +4514,7 @@ ipcMain.handle('file:openFile', async (_event, filePath: string) => {
 
 // GitHub repository for checking updates
 const GITHUB_REPO_OWNER = 'idofrizler';
-const GITHUB_REPO_NAME = 'copilot-ui';
+const GITHUB_REPO_NAME = 'cooper';
 
 interface GitHubRelease {
   tag_name: string;
@@ -4486,7 +4533,7 @@ ipcMain.handle('updates:checkForUpdate', async () => {
       {
         headers: {
           Accept: 'application/vnd.github.v3+json',
-          'User-Agent': 'Copilot-Skins',
+          'User-Agent': 'Cooper',
         },
       }
     );
@@ -4511,12 +4558,22 @@ ipcMain.handle('updates:checkForUpdate', async () => {
       // Fallback to hardcoded version if package.json not accessible
     }
 
+    // If the app version was reset (e.g. back to 1.0.0), clear stale update state.
+    const lastSeenVersion = store.get('lastSeenVersion', '') as string;
+    if (lastSeenVersion && compareVersions(lastSeenVersion, currentVersion) > 0) {
+      store.set('lastSeenVersion', currentVersion);
+    }
+
+    const dismissedVersion = store.get('dismissedUpdateVersion', '') as string;
+    if (dismissedVersion && compareVersions(dismissedVersion, currentVersion) > 0) {
+      store.set('dismissedUpdateVersion', '');
+    }
+
     // Compare versions (simple comparison, assumes semver)
     const hasUpdate = compareVersions(latestVersion, currentVersion) > 0;
-    const dismissedVersion = store.get('dismissedUpdateVersion', '') as string;
 
     return {
-      hasUpdate: hasUpdate && latestVersion !== dismissedVersion,
+      hasUpdate: hasUpdate && latestVersion !== (store.get('dismissedUpdateVersion', '') as string),
       currentVersion,
       latestVersion,
       releaseNotes: release.body || '',
@@ -4539,6 +4596,27 @@ ipcMain.handle('updates:dismissVersion', async (_event, version: string) => {
 
 // Get the last seen version (for showing release notes on first run)
 ipcMain.handle('updates:getLastSeenVersion', async () => {
+  // If the app version was reset (e.g. back to 1.0.0), clear/update persisted version state
+  // so users don't see stale release notes/update dismissals from a higher previous version.
+  const pkgPath = join(__dirname, '..', '..', 'package.json');
+  let currentVersion = '1.0.0';
+  try {
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+    currentVersion = pkg.version.split('+')[0].split('-')[0];
+  } catch {
+    // Fallback to hardcoded version if package.json not accessible
+  }
+
+  const lastSeenVersion = store.get('lastSeenVersion', '') as string;
+  if (lastSeenVersion && compareVersions(lastSeenVersion, currentVersion) > 0) {
+    store.set('lastSeenVersion', currentVersion);
+  }
+
+  const dismissedVersion = store.get('dismissedUpdateVersion', '') as string;
+  if (dismissedVersion && compareVersions(dismissedVersion, currentVersion) > 0) {
+    store.set('dismissedUpdateVersion', '');
+  }
+
   return { version: store.get('lastSeenVersion', '') as string };
 });
 

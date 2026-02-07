@@ -8,19 +8,17 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  padding: 6px;
   border: none;
-  border-radius: 8px;
-  background: var(--bg-secondary, #21262d);
-  color: var(--text-secondary, #8b949e);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--copilot-text-muted, #8b949e);
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .mic-button:hover:not(:disabled) {
-  background: var(--bg-tertiary, #30363d);
-  color: var(--text-primary, #c9d1d9);
+  color: var(--copilot-text, #c9d1d9);
 }
 
 .mic-button:disabled {
@@ -30,46 +28,47 @@
 
 /* Green listening state */
 .mic-button.listening {
-  background: var(--color-success, #238636);
-  color: white;
+  background: var(--copilot-success, #238636);
+  color: var(--copilot-text-inverse, white);
   animation: pulse 1s ease-in-out infinite;
 }
 
 /* Keep old recording class for backward compatibility */
 .mic-button.recording {
-  background: var(--color-success, #238636);
-  color: white;
+  background: var(--copilot-success, #238636);
+  color: var(--copilot-text-inverse, white);
   animation: pulse 1s ease-in-out infinite;
 }
 
 .mic-button.processing {
-  background: var(--color-warning, #d29922);
-  color: white;
+  background: var(--copilot-warning, #d29922);
+  color: var(--copilot-text-inverse, white);
 }
 
 .mic-button.setting-up {
-  background: var(--color-info, #58a6ff);
-  color: white;
+  background: var(--copilot-accent, #58a6ff);
+  color: var(--copilot-text-inverse, white);
 }
 
 .mic-button.error {
-  border: 1px solid var(--color-danger, #f85149);
+  border: 1px solid var(--copilot-error, #f85149);
 }
 
-/* Always listening standby state - purple */
+/* Always listening standby state - uses accent color */
 .mic-button.always-on {
-  background: #8b5cf6;
-  color: white;
-  box-shadow: 0 0 8px rgba(139, 92, 246, 0.4);
-  animation: purple-pulse 2s ease-in-out infinite;
+  background: var(--copilot-accent-muted, #388bfd26);
+  color: var(--copilot-accent, #58a6ff);
+  box-shadow: 0 0 8px var(--copilot-shadow, rgba(0, 0, 0, 0.3));
+  animation: accent-pulse 2s ease-in-out infinite;
 }
 
-@keyframes purple-pulse {
-  0%, 100% {
-    box-shadow: 0 0 8px rgba(139, 92, 246, 0.4);
+@keyframes accent-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 8px var(--copilot-shadow, rgba(0, 0, 0, 0.3));
   }
   50% {
-    box-shadow: 0 0 14px rgba(139, 92, 246, 0.7);
+    box-shadow: 0 0 14px var(--copilot-shadow-strong, rgba(0, 0, 0, 0.5));
   }
 }
 
@@ -98,7 +97,7 @@
 }
 
 .pulse-ring-green {
-  border-color: rgba(255, 255, 255, 0.8);
+  border-color: var(--copilot-text-inverse, rgba(255, 255, 255, 0.8));
 }
 
 .setup-spinner {
@@ -121,7 +120,8 @@
 }
 
 @keyframes pulse {
-  0%, 100% {
+  0%,
+  100% {
     transform: scale(1);
   }
   50% {
@@ -147,14 +147,14 @@
   transform: translateX(-50%);
   margin-bottom: 8px;
   padding: 6px 10px;
-  background: var(--bg-tertiary, #30363d);
-  color: var(--text-primary, #c9d1d9);
+  background: var(--copilot-surface-hover, #30363d);
+  color: var(--copilot-text, #c9d1d9);
   font-size: 12px;
   border-radius: 6px;
   white-space: nowrap;
   pointer-events: none;
   z-index: 100;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 2px 8px var(--copilot-shadow-strong, rgba(0, 0, 0, 0.3));
 }
 
 .mic-tooltip-wide {
@@ -171,20 +171,20 @@
   left: 50%;
   transform: translateX(-50%);
   border: 6px solid transparent;
-  border-top-color: var(--bg-tertiary, #30363d);
+  border-top-color: var(--copilot-surface-hover, #30363d);
 }
 
 .mic-progress-bar {
   margin-top: 6px;
   height: 4px;
-  background: var(--bg-secondary, #21262d);
+  background: var(--copilot-surface, #21262d);
   border-radius: 2px;
   overflow: hidden;
 }
 
 .mic-progress-fill {
   height: 100%;
-  background: var(--color-success, #238636);
+  background: var(--copilot-accent, #238636);
   transition: width 0.3s ease;
   border-radius: 2px;
 }
@@ -196,8 +196,8 @@
   transform: translateX(-50%);
   margin-bottom: 8px;
   padding: 6px 12px;
-  background: var(--color-danger, #f85149);
-  color: white;
+  background: var(--copilot-error, #f85149);
+  color: var(--copilot-text-inverse, white);
   font-size: 12px;
   font-weight: 500;
   border-radius: 6px;
@@ -207,7 +207,7 @@
 }
 
 .mic-listening-status {
-  background: var(--color-success, #238636);
+  background: var(--copilot-success, #238636);
 }
 
 @keyframes fade-in {

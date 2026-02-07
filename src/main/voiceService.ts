@@ -1,12 +1,21 @@
 /**
  * Voice Service - Native whisper.cpp speech recognition for Electron main process
  */
-import { ipcMain, BrowserWindow, app } from 'electron';
+import { ipcMain, BrowserWindow, app, systemPreferences } from 'electron';
 import { join } from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { tmpdir } from 'os';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'fs';
 import { whisperModelManager } from './whisperModelManager';
 
 // @ts-ignore - ffmpeg-static exports the path directly
@@ -14,6 +23,16 @@ import ffmpegPath from 'ffmpeg-static';
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_SAMPLE_RATE = 16000;
+
+async function ensureMicrophonePermission(): Promise<boolean> {
+  if (process.platform !== 'darwin') return true;
+  const status = systemPreferences.getMediaAccessStatus('microphone');
+  if (status === 'granted') return true;
+  if (status === 'not-determined') {
+    return systemPreferences.askForMediaAccess('microphone');
+  }
+  return false;
+}
 const MODEL_EXTENSIONS = ['.bin', '.gguf'];
 
 interface VoiceServiceState {
@@ -34,7 +53,7 @@ class VoiceService {
     isRecording: false,
     error: null,
   };
-  
+
   // Continuous listening state
   private continuousListeningEnabled = false;
   private continuousListeningInterval: NodeJS.Timeout | null = null;
@@ -71,7 +90,7 @@ class VoiceService {
     }
     const files = readdirSync(dirPath);
     for (const file of files) {
-      if (MODEL_EXTENSIONS.some(ext => file.toLowerCase().endsWith(ext))) {
+      if (MODEL_EXTENSIONS.some((ext) => file.toLowerCase().endsWith(ext))) {
         return join(dirPath, file);
       }
     }
@@ -92,15 +111,15 @@ class VoiceService {
 
     // Search paths for the model
     const searchPaths: string[] = [];
-    
+
     // Dev paths
     if (!app.isPackaged) {
       searchPaths.push(join(__dirname, '../../public/whisper-model'));
     }
-    
+
     // Production paths - userData is primary (writable)
     searchPaths.push(join(app.getPath('userData'), 'whisper-model'));
-    
+
     // Also check resources folder (for bundled models)
     if (process.resourcesPath) {
       searchPaths.push(join(process.resourcesPath, 'whisper-model'));
@@ -114,7 +133,9 @@ class VoiceService {
       }
     }
 
-    throw new Error(`Whisper model not found. Checked: ${searchPaths.join(', ')}. Click mic button to download.`);
+    throw new Error(
+      `Whisper model not found. Checked: ${searchPaths.join(', ')}. Click mic button to download.`
+    );
   }
 
   private getWhisperBinaryPath(): string {
@@ -132,24 +153,25 @@ class VoiceService {
       return modelManagerBinary;
     }
 
-    const binaryNames = process.platform === 'win32'
-      ? ['whisper-cli.exe', 'main.exe', 'whisper.exe']
-      : ['whisper-cli', 'main', 'whisper'];
-    
+    const binaryNames =
+      process.platform === 'win32'
+        ? ['whisper-cli.exe', 'main.exe', 'whisper.exe']
+        : ['whisper-cli', 'main', 'whisper'];
+
     const searchPaths: string[] = [];
-    
+
     // Dev paths
     if (!app.isPackaged) {
       searchPaths.push(join(__dirname, '../../public/whisper-cpp'));
       searchPaths.push(join(__dirname, '../../public/whisper-cpp/Release'));
       searchPaths.push(join(__dirname, '../../public/whisper'));
     }
-    
+
     // Production paths - userData first (for downloaded binaries)
     searchPaths.push(join(app.getPath('userData'), 'whisper-cpp'));
     searchPaths.push(join(app.getPath('userData'), 'whisper-cpp/Release'));
     searchPaths.push(join(app.getPath('userData'), 'whisper'));
-    
+
     // Resources folder (for bundled binaries)
     if (process.resourcesPath) {
       searchPaths.push(join(process.resourcesPath, 'whisper-cpp'));
@@ -169,6 +191,21 @@ class VoiceService {
       }
     }
 
+    // Check system PATH (e.g. Homebrew-installed binary)
+    const pathDirs = (process.env.PATH || '').split(process.platform === 'win32' ? ';' : ':');
+    if (process.platform === 'darwin') {
+      pathDirs.push('/opt/homebrew/bin', '/usr/local/bin');
+    }
+    for (const dir of pathDirs) {
+      if (!dir) continue;
+      for (const binaryName of binaryNames) {
+        const candidate = join(dir, binaryName);
+        if (existsSync(candidate)) {
+          return candidate;
+        }
+      }
+    }
+
     throw new Error(`Whisper binary not found. Checked: ${searchPaths.join(', ')}`);
   }
 
@@ -182,7 +219,7 @@ class VoiceService {
     const ffmpegNames = process.platform === 'win32' ? ['ffmpeg.exe'] : ['ffmpeg'];
     const searchPaths = [
       // System PATH
-      ...((process.env.PATH || '').split(process.platform === 'win32' ? ';' : ':')),
+      ...(process.env.PATH || '').split(process.platform === 'win32' ? ';' : ':'),
       // Common Windows locations
       'C:\\ffmpeg\\bin',
       'C:\\Program Files\\ffmpeg\\bin',
@@ -238,13 +275,16 @@ class VoiceService {
   }
 
   private normalizeTranscript(text: string): string {
-    return text
+    const result = text
       .split('\n')
-      .map(line => line.replace(/^\s*\[[0-9:.]+\s*-->\s*[0-9:.]+\]\s*/g, '').trim())
+      .map((line) => line.replace(/^\s*\[[0-9:.]+\s*-->\s*[0-9:.]+\]\s*/g, '').trim())
       .filter(Boolean)
       .join(' ')
       .replace(/\s+/g, ' ')
       .trim();
+    // Whisper outputs [BLANK_AUDIO] when no speech is detected
+    if (/^\[.*BLANK.*\]$/i.test(result)) return '';
+    return result;
   }
 
   private async runTranscription(pcmBuffer: Buffer): Promise<string> {
@@ -267,19 +307,14 @@ class VoiceService {
       writeFileSync(wavPath, wavBuffer);
       console.log('[VoiceService] WAV file written:', wavPath, 'size:', wavBuffer.length);
 
-      const args = [
-        '-m', this.modelPath,
-        '-f', wavPath,
-        '-otxt',
-        '-of', outputBase,
-      ];
+      const args = ['-m', this.modelPath, '-f', wavPath, '-otxt', '-of', outputBase];
 
       console.log('[VoiceService] Running whisper:', this.whisperBinaryPath, args.join(' '));
-      
+
       try {
-        await execFileAsync(this.whisperBinaryPath, args, { 
+        await execFileAsync(this.whisperBinaryPath, args, {
           windowsHide: true,
-          timeout: 60000 // 60 second timeout
+          timeout: 60000, // 60 second timeout
         });
       } catch (execError: any) {
         console.error('[VoiceService] Whisper exec error:', execError.message);
@@ -325,7 +360,7 @@ class VoiceService {
         console.log(`[VoiceService] Whisper binary: ${this.whisperBinaryPath}`);
         this.state.isModelLoaded = true;
         this.state.error = null;
-        
+
         console.log('[VoiceService] Whisper model ready');
         return { success: true };
       } catch (e: any) {
@@ -346,6 +381,16 @@ class VoiceService {
         return { success: false, error: 'Model not loaded' };
       }
 
+      // Request microphone permission on macOS (triggers OS dialog if needed)
+      const micGranted = await ensureMicrophonePermission();
+      if (!micGranted) {
+        return {
+          success: false,
+          error:
+            'Microphone permission denied. Please enable in System Settings > Privacy & Security > Microphone',
+        };
+      }
+
       // If already recording, force reset (handles stuck state)
       if (this.state.isRecording) {
         console.log('[VoiceService] Force resetting stuck recording state');
@@ -356,7 +401,7 @@ class VoiceService {
       try {
         this.resetAudioBuffer();
         this.state.isRecording = true;
-        
+
         console.log('[VoiceService] Recording started (Whisper)');
         return { success: true };
       } catch (e: any) {
@@ -415,86 +460,92 @@ class VoiceService {
     });
 
     // Process and transcribe raw audio data (WebM/Opus from browser)
-    ipcMain.handle('voice:processAndTranscribe', async (_event, audioData: Uint8Array, mimeType: string) => {
-      console.log('[VoiceService] processAndTranscribe called, size:', audioData.length, 'mimeType:', mimeType);
-      
-      // Reset recording state since we're processing
-      this.state.isRecording = false;
-      
-      if (!this.modelPath || !this.whisperBinaryPath) {
+    ipcMain.handle(
+      'voice:processAndTranscribe',
+      async (_event, audioData: Uint8Array, mimeType: string) => {
+        console.log(
+          '[VoiceService] processAndTranscribe called, size:',
+          audioData.length,
+          'mimeType:',
+          mimeType
+        );
+
+        // Reset recording state since we're processing
+        this.state.isRecording = false;
+
+        if (!this.modelPath || !this.whisperBinaryPath) {
+          try {
+            this.modelPath = this.getModelPath();
+            this.whisperBinaryPath = this.getWhisperBinaryPath();
+          } catch (e: any) {
+            return { success: false, error: e.message };
+          }
+        }
+
+        const tempDir = mkdtempSync(join(tmpdir(), 'whisper-'));
+        const extension = mimeType.includes('webm')
+          ? '.webm'
+          : mimeType.includes('ogg')
+            ? '.ogg'
+            : '.mp4';
+        const inputPath = join(tempDir, `input${extension}`);
+        const wavPath = join(tempDir, 'input.wav');
+        const outputBase = join(tempDir, 'output');
+        const outputTextPath = `${outputBase}.txt`;
+
         try {
-          this.modelPath = this.getModelPath();
-          this.whisperBinaryPath = this.getWhisperBinaryPath();
+          // Write the raw audio data
+          writeFileSync(inputPath, Buffer.from(audioData));
+          console.log('[VoiceService] Raw audio written:', inputPath);
+
+          // Use ffmpeg to convert to WAV (16kHz, mono, 16-bit)
+          // ffmpeg is typically available on Windows or can be bundled
+          const ffmpegPath = this.findFfmpeg();
+          if (ffmpegPath) {
+            console.log('[VoiceService] Using ffmpeg for conversion:', ffmpegPath);
+            await execFileAsync(
+              ffmpegPath,
+              ['-i', inputPath, '-ar', '16000', '-ac', '1', '-sample_fmt', 's16', '-y', wavPath],
+              { windowsHide: true }
+            );
+          } else {
+            // Fallback: whisper-cli might support the format directly
+            console.log('[VoiceService] No ffmpeg found, trying whisper directly');
+            // Copy input as-is and hope whisper can handle it
+            writeFileSync(wavPath, Buffer.from(audioData));
+          }
+
+          console.log('[VoiceService] Running whisper on:', wavPath);
+          const args = ['-m', this.modelPath!, '-f', wavPath, '-otxt', '-of', outputBase];
+
+          await execFileAsync(this.whisperBinaryPath!, args, {
+            windowsHide: true,
+            timeout: 60000,
+          });
+
+          if (!existsSync(outputTextPath)) {
+            console.log('[VoiceService] No output file generated');
+            return { success: true, text: '' };
+          }
+
+          const rawText = readFileSync(outputTextPath, 'utf-8');
+          const text = this.normalizeTranscript(rawText);
+          console.log('[VoiceService] Transcription result:', text);
+
+          // Don't send via event - the result is returned directly
+          return { success: true, text };
         } catch (e: any) {
+          console.error('[VoiceService] processAndTranscribe error:', e);
           return { success: false, error: e.message };
+        } finally {
+          try {
+            rmSync(tempDir, { recursive: true, force: true });
+          } catch {
+            /* ignore */
+          }
         }
       }
-
-      const tempDir = mkdtempSync(join(tmpdir(), 'whisper-'));
-      const extension = mimeType.includes('webm') ? '.webm' : mimeType.includes('ogg') ? '.ogg' : '.mp4';
-      const inputPath = join(tempDir, `input${extension}`);
-      const wavPath = join(tempDir, 'input.wav');
-      const outputBase = join(tempDir, 'output');
-      const outputTextPath = `${outputBase}.txt`;
-
-      try {
-        // Write the raw audio data
-        writeFileSync(inputPath, Buffer.from(audioData));
-        console.log('[VoiceService] Raw audio written:', inputPath);
-
-        // Use ffmpeg to convert to WAV (16kHz, mono, 16-bit)
-        // ffmpeg is typically available on Windows or can be bundled
-        const ffmpegPath = this.findFfmpeg();
-        if (ffmpegPath) {
-          console.log('[VoiceService] Using ffmpeg for conversion:', ffmpegPath);
-          await execFileAsync(ffmpegPath, [
-            '-i', inputPath,
-            '-ar', '16000',
-            '-ac', '1',
-            '-sample_fmt', 's16',
-            '-y',
-            wavPath
-          ], { windowsHide: true });
-        } else {
-          // Fallback: whisper-cli might support the format directly
-          console.log('[VoiceService] No ffmpeg found, trying whisper directly');
-          // Copy input as-is and hope whisper can handle it
-          writeFileSync(wavPath, Buffer.from(audioData));
-        }
-
-        console.log('[VoiceService] Running whisper on:', wavPath);
-        const args = [
-          '-m', this.modelPath!,
-          '-f', wavPath,
-          '-otxt',
-          '-of', outputBase,
-        ];
-
-        await execFileAsync(this.whisperBinaryPath!, args, { 
-          windowsHide: true,
-          timeout: 60000
-        });
-
-        if (!existsSync(outputTextPath)) {
-          console.log('[VoiceService] No output file generated');
-          return { success: true, text: '' };
-        }
-
-        const rawText = readFileSync(outputTextPath, 'utf-8');
-        const text = this.normalizeTranscript(rawText);
-        console.log('[VoiceService] Transcription result:', text);
-
-        // Don't send via event - the result is returned directly
-        return { success: true, text };
-      } catch (e: any) {
-        console.error('[VoiceService] processAndTranscribe error:', e);
-        return { success: false, error: e.message };
-      } finally {
-        try {
-          rmSync(tempDir, { recursive: true, force: true });
-        } catch { /* ignore */ }
-      }
-    });
+    );
 
     // Clean up
     ipcMain.handle('voice:dispose', () => {
@@ -520,12 +571,12 @@ class VoiceService {
         } else {
           this.tinyModelPath = tinyCheck.path!;
         }
-        
+
         // Also ensure binary is available
         if (!this.whisperBinaryPath) {
           this.whisperBinaryPath = this.getWhisperBinaryPath();
         }
-        
+
         console.log('[VoiceService] Tiny model ready:', this.tinyModelPath);
         return { success: true, path: this.tinyModelPath };
       } catch (e: any) {
@@ -535,109 +586,121 @@ class VoiceService {
     });
 
     // Process audio for wake word detection (uses tiny model for speed)
-    ipcMain.handle('voice:detectWakeWord', async (_event, audioData: Uint8Array, mimeType: string) => {
-      if (!this.tinyModelPath || !this.whisperBinaryPath) {
-        return { success: false, error: 'Tiny model not loaded' };
-      }
-
-      const tempDir = mkdtempSync(join(tmpdir(), 'whisper-wake-'));
-      const extension = mimeType.includes('webm') ? '.webm' : '.mp4';
-      const inputPath = join(tempDir, `input${extension}`);
-      const wavPath = join(tempDir, 'input.wav');
-      const outputBase = join(tempDir, 'output');
-      const outputTextPath = `${outputBase}.txt`;
-
-      try {
-        writeFileSync(inputPath, Buffer.from(audioData));
-
-        const ffmpegBin = this.findFfmpeg();
-        if (ffmpegBin) {
-          await execFileAsync(ffmpegBin, [
-            '-i', inputPath,
-            '-ar', '16000',
-            '-ac', '1',
-            '-sample_fmt', 's16',
-            '-y',
-            wavPath
-          ], { windowsHide: true, timeout: 10000 });
-        } else {
-          writeFileSync(wavPath, Buffer.from(audioData));
+    ipcMain.handle(
+      'voice:detectWakeWord',
+      async (_event, audioData: Uint8Array, mimeType: string) => {
+        if (!this.tinyModelPath || !this.whisperBinaryPath) {
+          return { success: false, error: 'Tiny model not loaded' };
         }
 
-        // Run whisper-tiny (should be fast ~0.3-0.5s)
-        const args = [
-          '-m', this.tinyModelPath,
-          '-f', wavPath,
-          '-otxt',
-          '-of', outputBase,
-        ];
+        const tempDir = mkdtempSync(join(tmpdir(), 'whisper-wake-'));
+        const extension = mimeType.includes('webm') ? '.webm' : '.mp4';
+        const inputPath = join(tempDir, `input${extension}`);
+        const wavPath = join(tempDir, 'input.wav');
+        const outputBase = join(tempDir, 'output');
+        const outputTextPath = `${outputBase}.txt`;
 
-        await execFileAsync(this.whisperBinaryPath, args, { 
-          windowsHide: true,
-          timeout: 10000 // 10 second timeout for tiny model
-        });
-
-        if (!existsSync(outputTextPath)) {
-          return { success: true, text: '', detected: false };
-        }
-
-        const rawText = readFileSync(outputTextPath, 'utf-8');
-        const text = this.normalizeTranscript(rawText);
-        
-        // Normalize for keyword detection - remove punctuation, extra spaces
-        const normalizedText = text.toLowerCase()
-          .replace(/[.,!?;:'"]/g, '') // Remove punctuation
-          .replace(/\s+/g, ' ')        // Normalize whitespace
-          .trim();
-        
-        // Log what we heard for debugging
-        if (text.trim()) {
-          console.log('[VoiceService] Wake word detection heard:', text, '| normalized:', normalizedText);
-        }
-        
-        // Check for wake words (only with "hey" prefix for intentional activation)
-        // Also check for variations like "hey, copilot" -> "hey copilot"
-        const wakeWordDetected = 
-          normalizedText.includes('hey copilot') ||
-          normalizedText.includes('hey github') ||
-          normalizedText.includes('a]copilot') ||  // Common whisper mishearing
-          (normalizedText.includes('hey') && normalizedText.includes('copilot')) ||
-          (normalizedText.includes('hey') && normalizedText.includes('github'));
-        
-        // Check for stop words
-        const stopWordDetected = 
-          normalizedText.includes('stop listening') ||
-          normalizedText.includes('stop recording') ||
-          normalizedText.includes('stop') ||
-          normalizedText.includes('done');
-
-        // Check for abort words
-        const abortWordDetected = 
-          normalizedText.includes('abort') ||
-          normalizedText.includes('cancel') ||
-          normalizedText.includes('nevermind') ||
-          normalizedText.includes('never mind');
-
-        if (wakeWordDetected || stopWordDetected || abortWordDetected) {
-          console.log('[VoiceService] Keyword detected! wake:', wakeWordDetected, 'stop:', stopWordDetected, 'abort:', abortWordDetected);
-        }
-
-        return { 
-          success: true, 
-          text, 
-          wakeWordDetected,
-          stopWordDetected,
-          abortWordDetected,
-        };
-      } catch (e: any) {
-        // Timeout or other error - just return empty
-        return { success: true, text: '', wakeWordDetected: false, stopWordDetected: false, abortWordDetected: false };
-      } finally {
         try {
-          rmSync(tempDir, { recursive: true, force: true });
-        } catch { /* ignore */ }
+          writeFileSync(inputPath, Buffer.from(audioData));
+
+          const ffmpegBin = this.findFfmpeg();
+          if (ffmpegBin) {
+            await execFileAsync(
+              ffmpegBin,
+              ['-i', inputPath, '-ar', '16000', '-ac', '1', '-sample_fmt', 's16', '-y', wavPath],
+              { windowsHide: true, timeout: 10000 }
+            );
+          } else {
+            writeFileSync(wavPath, Buffer.from(audioData));
+          }
+
+          // Run whisper-tiny (should be fast ~0.3-0.5s)
+          const args = ['-m', this.tinyModelPath, '-f', wavPath, '-otxt', '-of', outputBase];
+
+          await execFileAsync(this.whisperBinaryPath, args, {
+            windowsHide: true,
+            timeout: 10000, // 10 second timeout for tiny model
+          });
+
+          if (!existsSync(outputTextPath)) {
+            return { success: true, text: '', detected: false };
+          }
+
+          const rawText = readFileSync(outputTextPath, 'utf-8');
+          const text = this.normalizeTranscript(rawText);
+
+          // Normalize for keyword detection - remove punctuation, extra spaces
+          const normalizedText = text
+            .toLowerCase()
+            .replace(/[.,!?;:'"]/g, '') // Remove punctuation
+            .replace(/\s+/g, ' ') // Normalize whitespace
+            .trim();
+
+          // Log what we heard for debugging
+          if (text.trim()) {
+            console.log(
+              '[VoiceService] Wake word detection heard:',
+              text,
+              '| normalized:',
+              normalizedText
+            );
+          }
+
+          // Check for wake words (only with "hey" prefix for intentional activation)
+          const wakeWordDetected =
+            normalizedText.includes('hey cooper') ||
+            (normalizedText.includes('hey') && normalizedText.includes('cooper'));
+
+          // Check for stop words
+          const stopWordDetected =
+            normalizedText.includes('stop listening') ||
+            normalizedText.includes('stop recording') ||
+            normalizedText.includes('stop') ||
+            normalizedText.includes('done');
+
+          // Check for abort words
+          const abortWordDetected =
+            normalizedText.includes('abort') ||
+            normalizedText.includes('cancel') ||
+            normalizedText.includes('nevermind') ||
+            normalizedText.includes('never mind');
+
+          if (wakeWordDetected || stopWordDetected || abortWordDetected) {
+            console.log(
+              '[VoiceService] Keyword detected! wake:',
+              wakeWordDetected,
+              'stop:',
+              stopWordDetected,
+              'abort:',
+              abortWordDetected
+            );
+          }
+
+          return {
+            success: true,
+            text,
+            wakeWordDetected,
+            stopWordDetected,
+            abortWordDetected,
+          };
+        } catch (e: any) {
+          // Timeout or other error - just return empty
+          return {
+            success: true,
+            text: '',
+            wakeWordDetected: false,
+            stopWordDetected: false,
+            abortWordDetected: false,
+          };
+        } finally {
+          try {
+            rmSync(tempDir, { recursive: true, force: true });
+          } catch {
+            /* ignore */
+          }
+        }
       }
-    });
+    );
   }
 
   dispose() {

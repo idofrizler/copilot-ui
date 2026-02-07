@@ -406,7 +406,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50"
+      className="fixed top-[var(--titlebar-height)] left-0 right-0 bottom-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50"
       onClick={handleBackdropClick}
       data-testid="file-preview-modal"
     >

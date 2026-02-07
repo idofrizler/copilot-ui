@@ -20,6 +20,7 @@ export * from './WindowControls';
 export * from './WorktreeSessions';
 export * from './Terminal';
 export * from './SettingsModal';
+export * from './TitleBar';
 
 // Existing Components
 export * from './Spinner';

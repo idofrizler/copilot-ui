@@ -22,6 +22,8 @@ import {
   UploadIcon,
   ClockIcon,
   FolderIcon,
+  CopyIcon,
+  CheckIcon,
   FolderOpenIcon,
   CommitIcon,
   FileIcon,
@@ -65,6 +67,8 @@ import {
   HelpCircleIcon,
   ToolActivitySection,
   VoiceKeywordsPanel,
+  VolumeMuteIcon,
+  TitleBar,
 } from './components';
 import {
   Status,
@@ -582,6 +586,7 @@ const App: React.FC = () => {
   const [addCommandScope, setAddCommandScope] = useState<'session' | 'global'>('session');
   const [addCommandValue, setAddCommandValue] = useState('');
   const [showEditedFiles, setShowEditedFiles] = useState(false);
+  const [cwdCopied, setCwdCopied] = useState(false);
   const [filePreviewPath, setFilePreviewPath] = useState<string | null>(null);
   const [isGitRepo, setIsGitRepo] = useState<boolean>(true);
   const [showCommitModal, setShowCommitModal] = useState(false);
@@ -822,6 +827,9 @@ const App: React.FC = () => {
 
   // Settings modal state
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [settingsDefaultSection, setSettingsDefaultSection] = useState<
+    'themes' | 'voice' | 'sounds' | undefined
+  >(undefined);
   const [soundEnabled, setSoundEnabled] = useState(() => {
     const saved = localStorage.getItem('copilot-sound-enabled');
     return saved !== null ? saved === 'true' : true; // Default to enabled
@@ -841,6 +849,80 @@ const App: React.FC = () => {
   const { isRecording } = voiceSpeech;
   const voiceSpeakRef = useRef(voiceSpeech.speak);
   voiceSpeakRef.current = voiceSpeech.speak; // Keep ref updated
+
+  // Voice model initialization state
+  const [voiceModelLoading, setVoiceModelLoading] = useState(false);
+  const [voiceModelLoaded, setVoiceModelLoaded] = useState(false);
+  const [voiceInitError, setVoiceInitError] = useState<string | null>(null);
+  const [voiceDownloadProgress, setVoiceDownloadProgress] = useState<{
+    progress: number;
+    status: string;
+  } | null>(null);
+
+  // Listen for download progress updates
+  useEffect(() => {
+    if (!window.electronAPI?.voiceServer?.onDownloadProgress) return;
+    const cleanup = window.electronAPI.voiceServer.onDownloadProgress(
+      (data: { progress: number; status: string }) => {
+        setVoiceDownloadProgress(data);
+      }
+    );
+    return cleanup;
+  }, []);
+
+  // Check if voice model is already loaded on mount
+  useEffect(() => {
+    if (!window.electronAPI?.voiceServer) return;
+    window.electronAPI.voiceServer.checkModel().then((check) => {
+      if (check.exists && check.binaryExists) {
+        window.electronAPI.voice.loadModel().then((result) => {
+          if (result.success) setVoiceModelLoaded(true);
+        });
+      }
+    });
+  }, []);
+
+  // Voice initialization handler for settings page
+  const handleInitVoice = useCallback(async () => {
+    if (!window.electronAPI?.voiceServer) return;
+    setVoiceModelLoading(true);
+    setVoiceInitError(null);
+    try {
+      const check = await window.electronAPI.voiceServer.checkModel();
+      if (!check.exists || !check.binaryExists) {
+        const dlResult = await window.electronAPI.voiceServer.downloadModel();
+        if (!dlResult.success) {
+          setVoiceInitError(dlResult.error || 'Download failed');
+          setVoiceModelLoading(false);
+          return;
+        }
+      }
+      const loadResult = await window.electronAPI.voice.loadModel();
+      if (loadResult.success) {
+        setVoiceModelLoaded(true);
+      } else {
+        setVoiceInitError(loadResult.error || 'Failed to load model');
+      }
+    } catch (e: any) {
+      setVoiceInitError(e.message || 'Initialization failed');
+    } finally {
+      setVoiceModelLoading(false);
+    }
+  }, []);
+
+  // Open settings modal on voice tab (optionally auto-init)
+  const openSettingsVoice = useCallback(
+    (autoInit = false) => {
+      setSettingsDefaultSection('voice');
+      setShowSettingsModal(true);
+      if (autoInit && !voiceModelLoaded && !voiceModelLoading) {
+        // Trigger init after a short delay so modal renders first
+        setTimeout(() => handleInitVoice(), 100);
+      }
+    },
+    [voiceModelLoaded, voiceModelLoading, handleInitVoice]
+  );
+
   const prevActiveTabIdRef = useRef<string | null>(null);
   const soundEnabledRef = useRef(soundEnabled);
 
@@ -1213,10 +1295,14 @@ const App: React.FC = () => {
     }
   }, [isMobileOrTablet]);
 
-  // Reset textarea height when input is cleared
+  // Reset textarea height when input is cleared, grow when content is set programmatically
   useEffect(() => {
-    if (!inputValue && inputRef.current) {
+    if (!inputRef.current) return;
+    if (!inputValue) {
       inputRef.current.style.height = 'auto';
+    } else {
+      inputRef.current.style.height = 'auto';
+      inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 200) + 'px';
     }
   }, [inputValue]);
 
@@ -4421,58 +4507,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       onInitializeTerminal={handleInitializeTerminal}
     >
       <div className="h-screen w-screen flex flex-col overflow-hidden bg-copilot-bg rounded-xl">
-        {/* Title Bar */}
-        <div className="drag-region flex items-center justify-between px-4 py-2.5 bg-copilot-surface border-b border-copilot-border shrink-0">
-          <div className="flex items-center gap-3">
-            <WindowControls />
-
-            <div className="flex items-center gap-2 ml-2">
-              <img src={logo} alt="Copilot Skins" className="w-4 h-4 rounded-sm" />
-              <span className="text-copilot-text text-sm font-medium">Copilot Skins</span>
-            </div>
-          </div>
-
-          <div className={`flex items-center gap-2 no-drag ${isMobile ? 'hidden' : ''}`}>
-            {/* Model Selector */}
-            <div data-tour="model-selector">
-              <Dropdown
-                value={activeTab?.model || null}
-                options={availableModels.map((model) => ({
-                  id: model.id,
-                  label: model.name,
-                  rightContent: (
-                    <span
-                      className={`ml-2 ${
-                        model.multiplier === 0
-                          ? 'text-copilot-success'
-                          : model.multiplier < 1
-                            ? 'text-copilot-success'
-                            : model.multiplier > 1
-                              ? 'text-copilot-warning'
-                              : 'text-copilot-text-muted'
-                      }`}
-                    >
-                      {model.multiplier === 0 ? 'free' : `${model.multiplier}×`}
-                    </span>
-                  ),
-                }))}
-                onSelect={handleModelChange}
-                placeholder="Loading..."
-                title="Model"
-                minWidth="240px"
-              />
-            </div>
-
-            {/* Settings Button */}
-            <button
-              onClick={() => setShowSettingsModal(true)}
-              className="flex items-center gap-1.5 px-2 py-1 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover rounded transition-colors"
-              title="Settings"
-            >
-              <SettingsIcon size={14} />
-            </button>
-          </div>
-        </div>
+        <TitleBar />
 
         {/* Mobile Header Bar */}
         {isMobile && (
@@ -4600,34 +4635,37 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
             {/* Settings Section - Model & Theme */}
             <div className="border-t border-copilot-border">
               {/* Model Selector */}
-              <AccordionSelect
-                label="Model"
-                icon={<MonitorIcon size={14} />}
-                value={activeTab?.model || null}
-                options={availableModels.map((m) => ({
-                  id: m.id,
-                  label: m.name || m.id,
-                  rightContent: (
-                    <span
-                      className={`text-xs ${
-                        m.multiplier === 0
-                          ? 'text-copilot-success'
-                          : m.multiplier < 1
+              <div className="border-b border-copilot-border">
+                <AccordionSelect
+                  label="Model"
+                  icon={<MonitorIcon size={16} />}
+                  value={activeTab?.model || null}
+                  options={availableModels.map((m) => ({
+                    id: m.id,
+                    label: m.name || m.id,
+                    rightContent: (
+                      <span
+                        className={`text-xs ${
+                          m.multiplier === 0
                             ? 'text-copilot-success'
-                            : m.multiplier > 1
-                              ? 'text-copilot-warning'
-                              : 'text-copilot-text-muted'
-                      }`}
-                    >
-                      {m.multiplier === 0 ? 'free' : `${m.multiplier}×`}
-                    </span>
-                  ),
-                }))}
-                onSelect={(modelId) => {
-                  handleModelChange(modelId);
-                }}
-                testId="mobile-drawer-model-select"
-              />
+                            : m.multiplier < 1
+                              ? 'text-copilot-success'
+                              : m.multiplier > 1
+                                ? 'text-copilot-warning'
+                                : 'text-copilot-text-muted'
+                        }`}
+                      >
+                        {m.multiplier === 0 ? 'free' : `${m.multiplier}×`}
+                      </span>
+                    ),
+                  }))}
+                  onSelect={(modelId) => {
+                    handleModelChange(modelId);
+                  }}
+                  size="md"
+                  testId="mobile-drawer-model-select"
+                />
+              </div>
 
               {/* Settings Button */}
               <button
@@ -5167,6 +5205,51 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   </button>
                 </div>
 
+                {/* Model Selector */}
+                <div className="border-t border-copilot-border" data-tour="model-selector">
+                  <AccordionSelect
+                    label="Model"
+                    icon={<MonitorIcon size={14} />}
+                    value={activeTab?.model || null}
+                    options={availableModels.map((m) => ({
+                      id: m.id,
+                      label: m.name || m.id,
+                      rightContent: (
+                        <span
+                          className={`text-xs ${
+                            m.multiplier === 0
+                              ? 'text-copilot-success'
+                              : m.multiplier < 1
+                                ? 'text-copilot-success'
+                                : m.multiplier > 1
+                                  ? 'text-copilot-warning'
+                                  : 'text-copilot-text-muted'
+                          }`}
+                        >
+                          {m.multiplier === 0 ? 'free' : `${m.multiplier}×`}
+                        </span>
+                      ),
+                    }))}
+                    onSelect={(modelId) => {
+                      handleModelChange(modelId);
+                    }}
+                    testId="sidebar-model-select"
+                  />
+                </div>
+
+                {/* Settings Button */}
+                <div className="border-t border-copilot-border h-[32px] flex items-center">
+                  <button
+                    onClick={() => setShowSettingsModal(true)}
+                    className="w-full h-full flex items-center gap-2 px-3 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                    title="Settings"
+                    data-testid="sidebar-settings-button"
+                  >
+                    <SettingsIcon size={14} />
+                    <span>Settings</span>
+                  </button>
+                </div>
+
                 {/* Build Info */}
                 <div
                   className="border-t border-copilot-border h-[24px] flex items-center px-3 text-[10px] text-copilot-text-muted"
@@ -5243,7 +5326,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
             <div className="flex-1 overflow-y-auto p-4 space-y-2 min-h-0" data-clarity-mask="true">
               {activeTab?.messages.length === 0 && (
                 <div className="flex flex-col items-center justify-center min-h-full text-center -m-4 p-4">
-                  <img src={logo} alt="Copilot Skins" className="w-16 h-16 mb-4" />
+                  <img src={logo} alt="Cooper" className="w-16 h-16 mb-4" />
                   <h2 className="text-copilot-text text-lg font-medium mb-1">
                     How can I help you today?
                   </h2>
@@ -5273,7 +5356,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}
                   >
                     <div
-                      className={`max-w-[85%] rounded-lg px-4 py-2.5 overflow-hidden ${
+                      className={`max-w-[85%] rounded-lg px-4 py-2.5 overflow-hidden relative ${
                         message.role === 'user'
                           ? message.isPendingInjection
                             ? 'bg-copilot-warning text-white border border-dashed border-copilot-warning/50'
@@ -5281,6 +5364,19 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                           : 'bg-copilot-surface text-copilot-text'
                       }`}
                     >
+                      {/* Stop speaking overlay on last assistant message */}
+                      {message.role === 'assistant' &&
+                        index === lastAssistantIndex &&
+                        voiceSpeech.isSpeaking && (
+                          <button
+                            onClick={() => voiceSpeech.stopSpeaking()}
+                            className="absolute top-1.5 right-1.5 flex items-center gap-1 px-2 py-1 text-[10px] font-medium bg-copilot-warning text-white rounded-md hover:bg-copilot-warning/80 transition-colors z-10"
+                            title="Stop reading aloud"
+                          >
+                            <VolumeMuteIcon size={12} />
+                            Stop
+                          </button>
+                        )}
                       {/* Pending injection indicator */}
                       {message.isPendingInjection && (
                         <div className="flex items-center gap-1.5 text-[10px] opacity-80 mb-1.5">
@@ -6418,6 +6514,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     alwaysListening={alwaysListening}
                     onAlwaysListeningError={setAlwaysListeningError}
                     onAbortDetected={cancelVoiceAutoSend}
+                    onOpenSettings={() => openSettingsVoice(true)}
                   />
                 )}
                 {/* File Attach Button */}
@@ -6621,6 +6718,28 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       <span className="text-copilot-text font-mono truncate" title={activeTab?.cwd}>
                         {activeTab?.cwd || 'Unknown'}
                       </span>
+                      {activeTab?.cwd && (
+                        <button
+                          className="shrink-0 p-0.5 rounded hover:bg-copilot-surface text-copilot-text-muted hover:text-copilot-text transition-colors"
+                          title={cwdCopied ? 'Copied!' : 'Copy path'}
+                          aria-label={cwdCopied ? 'Copied!' : 'Copy path'}
+                          onClick={() => {
+                            navigator.clipboard
+                              .writeText(activeTab.cwd)
+                              .then(() => {
+                                setCwdCopied(true);
+                                setTimeout(() => setCwdCopied(false), 2000);
+                              })
+                              .catch(() => {});
+                          }}
+                        >
+                          {cwdCopied ? (
+                            <CheckIcon size={12} className="text-copilot-success" />
+                          ) : (
+                            <CopyIcon size={12} />
+                          )}
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -7113,23 +7232,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                         </div>
                       )}
                     </div>
-
-                    {/* Voice Control Keywords Panel */}
-                    <VoiceKeywordsPanel
-                      isRecording={voiceSpeech.isRecording}
-                      isSpeaking={voiceSpeech.isSpeaking}
-                      isMuted={voiceSpeech.isMuted}
-                      isSupported={voiceSpeech.isSupported}
-                      isModelLoading={voiceSpeech.isModelLoading}
-                      modelLoaded={voiceSpeech.modelLoaded}
-                      error={voiceSpeech.error}
-                      onToggleMute={voiceSpeech.toggleMute}
-                      pushToTalk={pushToTalk}
-                      onTogglePushToTalk={handleTogglePushToTalk}
-                      alwaysListening={alwaysListening}
-                      onToggleAlwaysListening={handleToggleAlwaysListening}
-                      alwaysListeningError={alwaysListeningError}
-                    />
                   </div>
                   {/* End MCP/Skills wrapper */}
                 </div>
@@ -7790,7 +7892,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         {/* Image Lightbox Modal */}
         {lightboxImage && (
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm cursor-pointer"
+            className="fixed top-[var(--titlebar-height)] left-0 right-0 bottom-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm cursor-pointer"
             onClick={() => setLightboxImage(null)}
           >
             <div className="relative max-w-[90vw] max-h-[90vh]">
@@ -7874,9 +7976,33 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         {/* Settings Modal */}
         <SettingsModal
           isOpen={showSettingsModal}
-          onClose={() => setShowSettingsModal(false)}
+          onClose={() => {
+            setShowSettingsModal(false);
+            setSettingsDefaultSection(undefined);
+          }}
           soundEnabled={soundEnabled}
           onSoundEnabledChange={handleSoundEnabledChange}
+          defaultSection={settingsDefaultSection}
+          // Voice settings
+          voiceSupported={voiceSpeech.isSupported}
+          voiceMuted={voiceSpeech.isMuted}
+          onToggleVoiceMute={voiceSpeech.toggleMute}
+          pushToTalk={pushToTalk}
+          onTogglePushToTalk={handleTogglePushToTalk}
+          alwaysListening={alwaysListening}
+          onToggleAlwaysListening={handleToggleAlwaysListening}
+          // Voice status
+          isRecording={voiceSpeech.isRecording}
+          isSpeaking={voiceSpeech.isSpeaking}
+          isModelLoading={voiceModelLoading}
+          modelLoaded={voiceModelLoaded}
+          voiceError={voiceInitError}
+          alwaysListeningError={alwaysListeningError}
+          voiceDownloadProgress={voiceDownloadProgress}
+          onInitVoice={handleInitVoice}
+          availableVoices={voiceSpeech.availableVoices}
+          selectedVoiceURI={voiceSpeech.selectedVoiceURI}
+          onVoiceChange={voiceSpeech.setSelectedVoiceURI}
         />
 
         {/* Welcome Wizard - Spotlight Tour */}
@@ -7945,7 +8071,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
         {/* Note Input Modal */}
         {noteInputModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="fixed top-[var(--titlebar-height)] left-0 right-0 bottom-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
             <div className="bg-copilot-surface border border-copilot-border rounded-lg shadow-xl w-full max-w-md mx-4 p-4">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-medium text-copilot-text">

@@ -5,6 +5,25 @@
  * No external Flask server required.
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { VOICE_KEYWORDS } from './useVoiceSpeech';
+
+// Strip trailing stop/abort keywords from transcript (e.g. user says "hello world. stop.")
+function cleanTranscript(text: string): string {
+  let cleaned = text.trim();
+  // Build pattern from all stop and abort keywords, longest first to match greedily
+  const keywords = [...VOICE_KEYWORDS.stop, ...VOICE_KEYWORDS.abort].sort(
+    (a, b) => b.length - a.length
+  );
+
+  // Strip trailing keyword (with optional punctuation)
+  for (const kw of keywords) {
+    const pattern = new RegExp(`[\\s,.!?]*\\b${kw.replace(/\s+/g, '\\s+')}[.!?]*\\s*$`, 'i');
+    const before = cleaned;
+    cleaned = cleaned.replace(pattern, '').trim();
+    if (cleaned !== before) break; // Only strip one trailing keyword
+  }
+  return cleaned;
+}
 
 interface VoiceState {
   isModelLoaded: boolean;
@@ -44,6 +63,19 @@ export function useVoiceServer(options: UseVoiceServerOptions = {}) {
   useEffect(() => {
     isModelLoadedRef.current = state.isModelLoaded;
   }, [state.isModelLoaded]);
+
+  // Check if model is already loaded on mount (e.g. loaded by App.tsx early init)
+  useEffect(() => {
+    if (state.isModelLoaded) return;
+    const voice = window.electronAPI?.voice;
+    if (!voice) return;
+    voice.getState().then((voiceState) => {
+      if (voiceState.isModelLoaded) {
+        isModelLoadedRef.current = true;
+        setState((prev) => ({ ...prev, isModelLoaded: true }));
+      }
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     isRecordingRef.current = state.isRecording;
@@ -140,6 +172,18 @@ export function useVoiceServer(options: UseVoiceServerOptions = {}) {
     }
 
     // Use ref to get latest value (avoids stale closure issue)
+    if (!isModelLoadedRef.current) {
+      // Double-check with main process - the mount effect may not have resolved yet
+      try {
+        const voiceState = await window.electronAPI.voice.getState();
+        if (voiceState.isModelLoaded) {
+          isModelLoadedRef.current = true;
+          setState((prev) => ({ ...prev, isModelLoaded: true }));
+        }
+      } catch {
+        /* ignore */
+      }
+    }
     if (!isModelLoadedRef.current) {
       const error = 'Voice model not loaded';
       console.error('[useVoiceServer] startRecording error:', error);
@@ -241,12 +285,25 @@ export function useVoiceServer(options: UseVoiceServerOptions = {}) {
             blobType
           );
 
-          // Safeguard: Check blob size
+          // Safeguard: Check blob size - very small blobs indicate mic permission issues
           if (audioBlob.size === 0) {
             console.warn('[useVoiceServer] Empty audio blob');
-            // Reset main process state
             await window.electronAPI.voice.stopRecording();
             onError?.('Recording was empty');
+            setState((prev) => ({ ...prev, isProcessing: false }));
+            return;
+          }
+          if (audioBlob.size < 1500 && recordingDuration > 1) {
+            console.warn(
+              '[useVoiceServer] Audio blob suspiciously small for duration:',
+              recordingDuration,
+              's, size:',
+              audioBlob.size
+            );
+            await window.electronAPI.voice.stopRecording();
+            onError?.(
+              'Microphone may not be working. Check System Settings > Privacy & Security > Microphone and allow this app.'
+            );
             setState((prev) => ({ ...prev, isProcessing: false }));
             return;
           }
@@ -261,8 +318,11 @@ export function useVoiceServer(options: UseVoiceServerOptions = {}) {
           console.log('[useVoiceServer] processAndTranscribe result:', result);
 
           if (result.success && result.text) {
-            setState((prev) => ({ ...prev, transcript: result.text ?? '' }));
-            onTranscript?.(result.text);
+            const cleaned = cleanTranscript(result.text);
+            if (cleaned) {
+              setState((prev) => ({ ...prev, transcript: cleaned }));
+              onTranscript?.(cleaned);
+            }
           } else if (result.error) {
             onError?.(result.error);
           }

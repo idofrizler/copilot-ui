@@ -69,6 +69,25 @@ function applyThemeToDocument(theme: Theme): void {
   root.setAttribute('data-theme', theme.type);
 }
 
+/**
+ * Convert CSS color (rgb/rgba/hex) to hex string for Win32 titleBarOverlay API
+ */
+function cssColorToHex(color: string): string {
+  // Already hex
+  if (color.startsWith('#')) return color.length === 4 || color.length === 7 ? color : color.slice(0, 7);
+
+  // Parse rgb/rgba
+  const match = color.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+  if (match) {
+    const r = parseInt(match[1]).toString(16).padStart(2, '0');
+    const g = parseInt(match[2]).toString(16).padStart(2, '0');
+    const b = parseInt(match[3]).toString(16).padStart(2, '0');
+    return `#${r}${g}${b}`;
+  }
+
+  return '#2d2d2d'; // fallback
+}
+
 interface ThemeProviderProps {
   children: React.ReactNode;
 }
@@ -145,6 +164,16 @@ export function ThemeProvider({ children }: ThemeProviderProps): React.ReactElem
   // Apply theme whenever activeTheme changes
   useEffect(() => {
     applyThemeToDocument(activeTheme);
+
+    // On Windows, update native title bar overlay colors to match theme
+    if (window.electronAPI?.platform === 'win32') {
+      const surface = cssColorToHex(activeTheme.colors.surface);
+      const text = cssColorToHex(activeTheme.colors.text);
+      window.electronAPI.window.updateTitleBarOverlay({
+        color: surface,
+        symbolColor: text,
+      });
+    }
   }, [activeTheme]);
 
   // Set theme and persist

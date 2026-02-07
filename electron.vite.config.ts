@@ -6,7 +6,7 @@ export default defineConfig({
   main: {
     plugins: [
       externalizeDepsPlugin({
-        exclude: ['@github/copilot-sdk', 'electron-store', 'electron-log', 'unzipper'],
+        exclude: ['@github/copilot-sdk', 'electron-store', 'electron-log'],
       }),
     ],
     build: {

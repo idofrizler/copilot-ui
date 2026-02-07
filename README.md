@@ -1,142 +1,70 @@
-# Copilot Skins
+# Cooper
 
 <p align="center">
-  <img src="build/icon.png" alt="Copilot Skins Logo" width="128" height="128">
+  <img src="src/renderer/assets/logo.png" alt="Cooper Logo" width="128" height="128">
 </p>
 
-A native desktop GUI for GitHub Copilot, wrapping the [Copilot SDK](https://github.blog/changelog/2026-01-14-copilot-sdk-in-technical-preview/) and the Copilot agentic logic.
+A native desktop GUI for GitHub Copilot, built on the [Copilot SDK](https://github.blog/changelog/2026-01-14-copilot-sdk-in-technical-preview/).
 
-Watch Copilot Skins building itself in action!
-
-![Copilot Skins Demo](https://github.com/idofrizler/copilot-ui/releases/download/assets/Copilot.Skins.2-4.gif)
+![Cooper Demo](https://github.com/idofrizler/cooper/releases/download/assets/Copilot.Skins.2-4.gif)
 
 ## Features
 
-### 🗂️ Multiple Sessions, Multiple Contexts
-
-CLI gives you one session at a time. Copilot Skins gives you tabs—each with its own working directory, model, and conversation history.
-
-Each session maintains its own working directory, model, allowed commands, and file changes. Switch tabs instantly. No re-explaining context. No restarting sessions.
-
-### 🌳 Git Worktree Sessions
-
-Instead of just a new tab, create a worktree session—a completely isolated git worktree tied to a branch.
-
-Paste a GitHub issue URL. Copilot Skins fetches the issue (title, body, comments), creates a git worktree in `~/.copilot-sessions/` and opens a new session in that worktree.
-
-Work on multiple issues simultaneously without stashing, switching branches, or losing your place. Each worktree is a real directory—run builds, tests, whatever you need.
-
-### 🔁 Ralph Wiggum: Iterative Agent Mode
-
-Named after [Claude Code's ralph-wiggum plugin](https://github.com/anthropics/claude-code/tree/main/plugins/ralph-wiggum), this feature lets the agent run in a loop until a task is actually done.
-
-You prompt with completion criteria → agent works → checks its work → continues if not done → repeats up to N times. Perfect for tasks that need multiple passes to get right.
-
-### 💻 Embedded Terminal
-
-Every session has a terminal panel that runs in the session's working directory. It's a real PTY (xterm.js), not a fake console.
-
-Click "Add to Message" and the terminal's output buffer gets attached to your next prompt. See a build error? One click to show it to the agent. No copy-paste, no explaining—just "fix this" with full context.
-
-### More Features
-
-- 🔐 **Allowed Commands** — Per-session and global command allowlisting with visual management
-- 🔌 **MCP Servers** — Configure Model Context Protocol servers for extended tool capabilities
-- 🎯 **Agent Skills** — Personal and project skills via `SKILL.md` files (compatible with Claude format)
+- 🗂️ **Tabbed Sessions** — Multiple sessions, each with its own working directory, model, and conversation history. No re-explaining context.
+- 🌳 **Git Worktree Sessions** — Paste a GitHub issue URL → Cooper creates an isolated worktree and opens a session in it. Work on multiple issues at once.
+- 🔁 **[Ralph Wiggum](https://github.com/anthropics/claude-code/tree/main/plugins/ralph-wiggum)** — Iterative agent mode. Set completion criteria, let the agent loop until the task is actually done.
+- 💻 **Embedded Terminal** — Real PTY per session. One click to attach terminal output to your next prompt.
+- 🎤 **Voice Commands** — Speech input and audio output for hands-free interaction
+- 🔐 **Allowed Commands** — Per-session and global command allowlisting
+- 🔌 **MCP Servers** — Model Context Protocol servers for extended tool capabilities
+- 🎯 **Agent Skills** — Personal and project skills via `SKILL.md` files
 - 📦 **Context Compaction** — Automatic conversation summarization when approaching token limits
-- 🎨 **Themes** — Custom themes via JSON, including some nostalgic ones (ICQ, Night Owl)
-- 🤖 **Multi-Model** — Switch between GPT-4.1, GPT-5, Claude Opus-4, Sonnet, Haiku, Gemini, and more
+- 🤖 **Model Selection** — GPT-5.2, Opus-4.6, Sonnet, Haiku, Gemini, and more
 
-## Prerequisites
+## Installation
 
-- Node.js 22+ (required for Copilot SDK)
-- GitHub Copilot subscription
-- GitHub CLI authenticated (`gh auth login`)
+You need **Node.js 22+**, a **GitHub Copilot subscription**, and **GitHub CLI** authenticated (`gh auth login`).
 
-### Windows Additional Requirements
+### macOS
 
-Windows requires additional build tools for native modules:
-
-- **Python 3.x** (for node-gyp)
-- **Visual Studio Build Tools 2022** with C++ workload (Spectre libraries not required - automatically patched)
-- **PowerShell 7+** (for running scripts)
-
-**Quick Setup:** Run our automated setup script (requires [winget](https://learn.microsoft.com/en-us/windows/package-manager/winget/)):
-
-```powershell
-# In PowerShell (run as Administrator recommended)
-cd copilot-ui
-pwsh -NoProfile -File .\scripts\setup-windows.ps1
+```bash
+git clone https://github.com/idofrizler/cooper.git && cd cooper && npm install && npm run dist && open release/Cooper-*-arm64.dmg
 ```
 
-This installs Windows prerequisites and npm dependencies automatically. After running, you're ready to go with `npm run dev`!
+### Windows
+
+```powershell
+git clone https://github.com/idofrizler/cooper.git; cd cooper; pwsh -NoProfile -File .\scripts\setup-windows.ps1; npm run dist:win
+```
+
+The setup script installs all Windows-specific prerequisites (Python, VS Build Tools, PowerShell 7+) and npm dependencies automatically.
 
 <details>
-<summary><b>Manual Windows Setup (if automated script fails)</b></summary>
+<summary><b>Manual Windows setup</b></summary>
 
-1. **Install PowerShell 7+:**
+If the automated script fails, install these manually:
 
-   ```powershell
-   winget install Microsoft.PowerShell
-   ```
-
-2. **Install Python:**
-
-   ```powershell
-   winget install Python.Python.3.12
-   ```
-
-3. **Install Visual Studio Build Tools:**
-
-   ```powershell
-   winget install Microsoft.VisualStudio.2022.BuildTools --silent --override "--wait --quiet --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
-   ```
-
-4. **Set PowerShell execution policy:**
-
-   ```powershell
-   Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-   ```
-
-5. **Restart your terminal** for PATH changes to take effect
+1. **PowerShell 7+:** `winget install Microsoft.PowerShell`
+2. **Python 3.x:** `winget install Python.Python.3.12`
+3. **VS Build Tools:** `winget install Microsoft.VisualStudio.2022.BuildTools --silent --override "--wait --quiet --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"`
+4. **Execution policy:** `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`
+5. Restart your terminal, then run `npm install && npm run dist:win`
 
 </details>
 
-## Installation (Agent-first)
+<details>
+<summary><b>Using an AI coding agent to install</b></summary>
 
-If you're using an AI coding agent: **tell it to clone this repo, install deps, and build the installer for your OS**.
+Tell your agent:
 
-Suggested prompt:
+> Clone `https://github.com/idofrizler/cooper.git`, install dependencies, and build an installer for my OS (macOS → `.dmg`, Windows → `.exe`).
 
-> Clone `https://github.com/idofrizler/copilot-ui.git`, install dependencies, and build a signed/unsigned installer for my OS.
->
-> - macOS: output a `.dmg`
-> - Windows: output an `.exe`
-
-### macOS (build a DMG)
-
-```bash
-git clone https://github.com/idofrizler/copilot-ui.git
-cd copilot-ui
-npm install
-npm run dist
-open release/Copilot-Skins-*-arm64.dmg
-```
-
-### Windows (build an EXE)
-
-```powershell
-git clone https://github.com/idofrizler/copilot-ui.git
-cd copilot-ui
-pwsh -NoProfile -File .\scripts\setup-windows.ps1
-npm run dist:win
-```
+</details>
 
 ## Development
 
 ```bash
-npm install
-npm run dev
+npm install && npm run dev
 ```
 
 ## Build
@@ -147,9 +75,7 @@ npm run build
 
 ## How It Works
 
-This app uses the official [GitHub Copilot SDK](https://www.npmjs.com/package/@github/copilot-sdk) to communicate directly with GitHub Copilot. It creates a native Electron window with a React-based chat interface.
-
-The SDK uses your existing GitHub authentication (via `gh` CLI) to authenticate requests.
+Cooper uses the official [GitHub Copilot SDK](https://www.npmjs.com/package/@github/copilot-sdk) to communicate with GitHub Copilot via an Electron + React interface. Authentication is handled through your existing `gh` CLI login.
 
 ## License
 

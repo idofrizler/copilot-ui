@@ -37,7 +37,7 @@ const createMockSessions = (): PreviousSession[] => [
   createMockSession('session-yesterday-2', 'Update API endpoints', 1, '/Users/dev/project-c'),
 
   // Last 7 days (3-6 days ago)
-  createMockSession('session-week-1', 'Feature: Session History', 3, '/Users/dev/copilot-ui'),
+  createMockSession('session-week-1', 'Feature: Session History', 3, '/Users/dev/cooper'),
   createMockSession('session-week-2', 'Write unit tests', 5, '/Users/dev/project-a'),
 
   // Last 30 days (10-25 days ago)
@@ -292,6 +292,41 @@ describe('SessionHistory Component', () => {
       expect(screen.getByText('Last 30 Days')).toBeInTheDocument();
       expect(screen.getByText('Older')).toBeInTheDocument();
     });
+
+    it('orders sessions newest-first within each timeframe', async () => {
+      const newerDate = new Date();
+      const olderDate = new Date(newerDate.getTime() - 60 * 60 * 1000);
+
+      const older = {
+        sessionId: 'today-older',
+        name: 'Older today session',
+        modifiedTime: olderDate.toISOString(),
+      };
+      const newer = {
+        sessionId: 'today-newer',
+        name: 'Newer today session',
+        modifiedTime: newerDate.toISOString(),
+      };
+
+      await renderAndSettle(
+        <SessionHistory
+          isOpen={true}
+          onClose={mockOnClose}
+          sessions={[older, newer]}
+          onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
+        />
+      );
+
+      const newerEl = screen.getByText('Newer today session');
+      const olderEl = screen.getByText('Older today session');
+      expect(
+        newerEl.compareDocumentPosition(olderEl) & Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy();
+    });
   });
 
   describe('Session Display', () => {
@@ -362,7 +397,8 @@ describe('SessionHistory Component', () => {
 
       // Regular session shows name
       expect(screen.getByText('Regular session')).toBeInTheDocument();
-      // Worktree session shows branch name instead of session name
+      // Worktree session shows its session name (and branch as secondary text)
+      expect(screen.getByText('Worktree session')).toBeInTheDocument();
       expect(screen.getByText('feature/my-branch')).toBeInTheDocument();
     });
   });
@@ -409,7 +445,7 @@ describe('SessionHistory Component', () => {
       );
 
       const searchInput = screen.getByPlaceholderText('Search sessions...');
-      await user.type(searchInput, 'copilot-ui');
+      await user.type(searchInput, 'cooper');
 
       // Should show session with matching path
       expect(screen.getByText('Feature: Session History')).toBeInTheDocument();
@@ -779,7 +815,8 @@ describe('SessionHistory Component', () => {
         />
       );
 
-      // Branch name should be displayed instead of session name
+      // Session name should be displayed (branch is shown as secondary text)
+      expect(screen.getByText('Worktree session')).toBeInTheDocument();
       expect(screen.getByText('feature-branch')).toBeInTheDocument();
     });
 
