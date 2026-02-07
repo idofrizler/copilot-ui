@@ -29,6 +29,7 @@ interface CreateWorktreeSessionProps {
       useRalphWiggum?: boolean;
       ralphMaxIterations?: number;
       useLisaSimpson?: boolean;
+      yoloMode?: boolean;
     }
   ) => void;
 }
@@ -53,6 +54,7 @@ export const CreateWorktreeSession: React.FC<CreateWorktreeSessionProps> = ({
   const [useRalphWiggum, setUseRalphWiggum] = useState(false);
   const [ralphMaxIterations, setRalphMaxIterations] = useState(5);
   const [useLisaSimpson, setUseLisaSimpson] = useState(false);
+  const [yoloMode, setYoloMode] = useState(false);
   const [showIssueSection, setShowIssueSection] = useState(false);
 
   useEffect(() => {
@@ -67,6 +69,7 @@ export const CreateWorktreeSession: React.FC<CreateWorktreeSessionProps> = ({
       setUseRalphWiggum(false);
       setRalphMaxIterations(5);
       setUseLisaSimpson(false);
+      setYoloMode(false);
       setShowIssueSection(false);
       checkGitVersion();
     }
@@ -159,6 +162,7 @@ export const CreateWorktreeSession: React.FC<CreateWorktreeSessionProps> = ({
                 useRalphWiggum,
                 ralphMaxIterations,
                 useLisaSimpson,
+                yoloMode,
               }
             : undefined;
         onSessionCreated(result.session.worktreePath, result.session.branch, autoStartInfo);
@@ -311,6 +315,19 @@ export const CreateWorktreeSession: React.FC<CreateWorktreeSessionProps> = ({
                               />
                             </div>
                           )}
+                          <label className="flex items-center gap-2 cursor-pointer mt-3">
+                            <input
+                              type="checkbox"
+                              checked={yoloMode}
+                              onChange={(e) => setYoloMode(e.target.checked)}
+                              className="w-4 h-4 accent-copilot-accent"
+                              disabled={isCreating}
+                            />
+                            <span className="text-sm text-copilot-text">Yolo mode</span>
+                            <span className="text-xs text-copilot-text-muted">
+                              — auto-approve all actions
+                            </span>
+                          </label>
                         </div>
                       )}
                     </>

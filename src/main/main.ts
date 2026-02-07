@@ -197,6 +197,7 @@ interface StoredSession {
   reviewNote?: string;
   untrackedFiles?: string[];
   fileViewMode?: 'flat' | 'tree';
+  yoloMode?: boolean;
 }
 
 const store = new Store({
@@ -534,6 +535,7 @@ interface SessionState {
   alwaysAllowed: Set<string>; // Per-session always-allowed executables
   allowedPaths: Set<string>; // Per-session allowed out-of-scope paths (parent directories)
   isProcessing: boolean; // Whether the session is currently waiting for a response
+  yoloMode: boolean; // Auto-approve all permission requests without prompting
 }
 const sessions = new Map<string, SessionState>();
 let activeSessionId: string | null = null;
@@ -729,6 +731,7 @@ interface EarlyResumedSession {
   alwaysAllowed?: string[];
   untrackedFiles?: string[];
   fileViewMode?: 'flat' | 'tree';
+  yoloMode?: boolean;
   messages?: { role: 'user' | 'assistant'; content: string }[]; // Pre-loaded messages
 }
 let earlyResumedSessions: EarlyResumedSession[] = [];
@@ -772,6 +775,7 @@ async function startEarlySessionResumption(): Promise<void> {
         alwaysAllowed,
         untrackedFiles,
         fileViewMode,
+        yoloMode,
       } = storedSession;
       const sessionCwd = cwd || (app.isPackaged ? app.getPath('home') : process.cwd());
       const sessionModel = model || (store.get('model') as string) || 'gpt-5.2';
@@ -840,6 +844,7 @@ async function startEarlySessionResumption(): Promise<void> {
           alwaysAllowed: alwaysAllowedSet,
           allowedPaths: new Set(),
           isProcessing: false,
+          yoloMode: yoloMode || false,
         });
 
         console.log(`Early resumed session ${sessionId}`);
@@ -869,6 +874,7 @@ async function startEarlySessionResumption(): Promise<void> {
           alwaysAllowed: storedAlwaysAllowed,
           untrackedFiles: untrackedFiles || [],
           fileViewMode: fileViewMode || 'flat',
+          yoloMode: yoloMode || false,
           messages,
         };
         earlyResumedSessions.push(resumed);
@@ -1091,6 +1097,12 @@ async function handlePermissionRequest(
   const globalSafeCommands = new Set((store.get('globalSafeCommands') as string[]) || []);
 
   console.log(`[${ourSessionId}] Permission request:`, request.kind);
+
+  // Yolo mode: auto-approve all requests without prompting
+  if (sessionState?.yoloMode) {
+    console.log(`[${ourSessionId}] Yolo mode: auto-approved ${request.kind}`);
+    return { kind: 'approved' };
+  }
 
   // For shell commands, check each executable individually
   if (request.kind === 'shell' && req.fullCommandText) {
@@ -1518,6 +1530,7 @@ Browser tools available: browser_navigate, browser_click, browser_fill, browser_
     alwaysAllowed: new Set(),
     allowedPaths: new Set(),
     isProcessing: false,
+    yoloMode: false,
   });
   activeSessionId = sessionId;
 
@@ -1781,6 +1794,7 @@ async function initCopilot(): Promise<void> {
           alwaysAllowed: alwaysAllowedSet,
           allowedPaths: new Set(),
           isProcessing: false,
+          yoloMode: storedSession?.yoloMode || false,
         });
 
         const resumed = {
@@ -1792,6 +1806,7 @@ async function initCopilot(): Promise<void> {
           alwaysAllowed: storedAlwaysAllowed,
           untrackedFiles: storedSession?.untrackedFiles || [],
           fileViewMode: storedSession?.fileViewMode || 'flat',
+          yoloMode: storedSession?.yoloMode || false,
         };
         resumedSessions.push(resumed);
         console.log(
@@ -2364,6 +2379,45 @@ ipcMain.handle(
     console.log('Permission resolved:', data.requestId, result.kind);
     pending.resolve(result);
     return { success: true };
+  }
+);
+
+// Handle yolo mode toggle
+ipcMain.handle(
+  'copilot:setYoloMode',
+  async (_event, data: { sessionId: string; enabled: boolean }) => {
+    const sessionState = sessions.get(data.sessionId);
+    if (sessionState) {
+      sessionState.yoloMode = data.enabled;
+      console.log(`[${data.sessionId}] Yolo mode ${data.enabled ? 'enabled' : 'disabled'}`);
+
+      // If enabling yolo mode, auto-approve any pending confirmations
+      if (data.enabled) {
+        const pendingIds = Array.from(pendingPermissions.keys()).filter((id) => {
+          const pending = pendingPermissions.get(id);
+          return pending?.sessionId === data.sessionId;
+        });
+        for (const id of pendingIds) {
+          const pending = pendingPermissions.get(id);
+          if (pending) {
+            pendingPermissions.delete(id);
+            pending.resolve({ kind: 'approved' });
+            console.log(`[${data.sessionId}] Yolo mode: flushed pending permission ${id}`);
+          }
+        }
+        // Notify renderer to clear pending confirmations
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('copilot:yoloModeChanged', {
+            sessionId: data.sessionId,
+            enabled: true,
+            flushedCount: pendingIds.length,
+          });
+        }
+      }
+
+      return { success: true };
+    }
+    return { success: false };
   }
 );
 
@@ -3989,6 +4043,7 @@ ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string
     alwaysAllowed: new Set(),
     allowedPaths: new Set(),
     isProcessing: false,
+    yoloMode: false,
   });
   activeSessionId = sessionId;
 

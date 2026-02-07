@@ -1145,6 +1145,7 @@ const App: React.FC = () => {
         reviewNote: t.reviewNote,
         untrackedFiles: t.untrackedFiles,
         fileViewMode: t.fileViewMode,
+        yoloMode: t.yoloMode,
       }));
       window.electronAPI.copilot.saveOpenSessions(openSessions);
     }
@@ -1503,6 +1504,7 @@ const App: React.FC = () => {
               lisaConfig,
               markedForReview: s.markedForReview,
               reviewNote: s.reviewNote,
+              yoloMode: s.yoloMode,
             };
           });
 
@@ -1577,6 +1579,7 @@ const App: React.FC = () => {
             currentIntentTimestamp: null,
             gitBranchRefresh: 0,
             lisaConfig,
+            yoloMode: s.yoloMode,
           },
         ];
       });
@@ -2395,6 +2398,17 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       }
     );
 
+    const unsubscribeYoloModeChanged = window.electronAPI.copilot.onYoloModeChanged((data) => {
+      if (data.enabled && data.flushedCount > 0) {
+        // Clear pending confirmations that were flushed by the backend
+        setTabs((prev) =>
+          prev.map((tab) =>
+            tab.id === data.sessionId ? { ...tab, pendingConfirmations: [] } : tab
+          )
+        );
+      }
+    });
+
     return () => {
       unsubscribeReady();
       unsubscribeDelta();
@@ -2409,6 +2423,7 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       unsubscribeUsageInfo();
       unsubscribeCompactionStart();
       unsubscribeCompactionComplete();
+      unsubscribeYoloModeChanged();
     };
   }, []);
 
@@ -3932,6 +3947,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       useRalphWiggum?: boolean;
       ralphMaxIterations?: number;
       useLisaSimpson?: boolean;
+      yoloMode?: boolean;
     }
   ) => {
     try {
@@ -3960,6 +3976,11 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         await window.electronAPI.copilot.addAlwaysAllowed(result.sessionId, cmd);
       }
 
+      // Enable yolo mode if requested
+      if (autoStart?.yoloMode) {
+        await window.electronAPI.copilot.setYoloMode(result.sessionId, true);
+      }
+
       const newTab: TabState = {
         id: result.sessionId,
         name: `${branch} (worktree)`,
@@ -3978,6 +3999,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         currentIntent: null,
         currentIntentTimestamp: null,
         gitBranchRefresh: 0,
+        yoloMode: autoStart?.yoloMode || false,
       };
       setTabs((prev) => [...prev, newTab]);
       setActiveTabId(result.sessionId);
@@ -5031,61 +5053,59 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
             {/* Allowed Commands - pinned to bottom */}
             <div className="mt-auto border-t border-copilot-border">
               <div className="flex items-center">
+                {!activeTab?.yoloMode && (
+                  <button
+                    onClick={() => {
+                      setShowAllowedCommands(!showAllowedCommands);
+                      if (!showAllowedCommands) {
+                        refreshAlwaysAllowed();
+                      }
+                    }}
+                    className="flex-1 flex items-center gap-3 px-4 py-3 text-sm text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                  >
+                    <ChevronRightIcon
+                      size={14}
+                      className={`transition-transform ${showAllowedCommands ? '-rotate-90' : ''}`}
+                    />
+                    <span>Allowed Commands</span>
+                    {(activeTab?.alwaysAllowed.length || 0) > 0 && (
+                      <span className="ml-auto text-copilot-accent">
+                        {activeTab?.alwaysAllowed.length || 0}
+                      </span>
+                    )}
+                  </button>
+                )}
+                {activeTab?.yoloMode && (
+                  <span className="flex-1 text-xs text-copilot-error/70 pl-4">
+                    All actions auto-approved — no confirmations will be shown
+                  </span>
+                )}
                 <button
-                  onClick={() => {
-                    setShowAllowedCommands(!showAllowedCommands);
-                    if (!showAllowedCommands) {
-                      refreshAlwaysAllowed();
+                  onClick={async () => {
+                    if (!activeTab) return;
+                    const newValue = !activeTab.yoloMode;
+                    await window.electronAPI.copilot.setYoloMode(activeTab.id, newValue);
+                    updateTab(activeTab.id, { yoloMode: newValue });
+                    if (newValue) {
+                      updateTab(activeTab.id, { pendingConfirmations: [] });
                     }
                   }}
-                  className="flex-1 flex items-center gap-3 px-4 py-3 text-sm text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                  className={`shrink-0 px-4 py-3 text-sm transition-colors ${
+                    activeTab?.yoloMode
+                      ? 'font-bold text-copilot-error'
+                      : 'text-copilot-text-muted hover:text-copilot-text'
+                  }`}
+                  title={
+                    activeTab?.yoloMode
+                      ? 'YOLO mode ON — all actions auto-approved. Click to disable.'
+                      : 'Enable YOLO mode — auto-approve all actions without confirmation'
+                  }
                 >
-                  <ChevronRightIcon
-                    size={14}
-                    className={`transition-transform ${showAllowedCommands ? '-rotate-90' : ''}`}
-                  />
-                  <span>Allowed Commands</span>
-                  {(activeTab?.alwaysAllowed.length || 0) > 0 && (
-                    <span className="ml-auto text-copilot-accent">
-                      {activeTab?.alwaysAllowed.length || 0}
-                    </span>
-                  )}
-                </button>
-                <button
-                  onClick={() => {
-                    setRightDrawerOpen(false);
-                    setSettingsDefaultSection('commands');
-                    setShowSettingsModal(true);
-                  }}
-                  className="shrink-0 mr-3 p-1.5 text-copilot-text-muted hover:text-copilot-accent transition-colors"
-                  title="Global commands (Settings)"
-                >
-                  <GlobeIcon size={14} />
+                  YOLO
                 </button>
               </div>
-              {showAllowedCommands && (
+              {!activeTab?.yoloMode && showAllowedCommands && (
                 <div className="px-4 pb-3">
-                  <div className="flex flex-col gap-2 mb-2">
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={addCommandValue}
-                        onChange={(e) => setAddCommandValue(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleAddAlwaysAllowed();
-                        }}
-                        placeholder="npm, git..."
-                        className="flex-1 min-w-0 px-2 py-1.5 text-xs bg-copilot-surface border border-copilot-border rounded text-copilot-text placeholder:text-copilot-text-muted"
-                      />
-                      <button
-                        onClick={handleAddAlwaysAllowed}
-                        disabled={!addCommandValue.trim()}
-                        className="px-2 py-1.5 text-xs bg-copilot-accent text-copilot-text rounded disabled:opacity-50 shrink-0"
-                      >
-                        Add
-                      </button>
-                    </div>
-                  </div>
                   <div className="max-h-32 overflow-y-auto space-y-1">
                     {(activeTab?.alwaysAllowed.length || 0) === 0 ? (
                       <div className="text-xs text-copilot-text-muted">No session commands</div>
@@ -5108,6 +5128,17 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       ))
                     )}
                   </div>
+                  <button
+                    onClick={() => {
+                      setRightDrawerOpen(false);
+                      setSettingsDefaultSection('commands');
+                      setShowSettingsModal(true);
+                    }}
+                    className="flex items-center gap-2 w-full mt-2 pt-2 text-xs text-copilot-text-muted hover:text-copilot-accent transition-colors border-t border-copilot-border"
+                  >
+                    <GlobeIcon size={12} />
+                    <span>Global Allowed</span>
+                  </button>
                 </div>
               )}
             </div>
@@ -7233,83 +7264,58 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               {/* Allowed Commands - pinned to bottom */}
               <div className="mt-auto border-t border-copilot-border" data-tour="allowed-commands">
                 <div className="flex items-center">
-                  <button
-                    onClick={() => {
-                      setShowAllowedCommands(!showAllowedCommands);
-                      if (!showAllowedCommands) {
-                        refreshAlwaysAllowed();
-                      } else {
-                        setShowAddAllowedCommand(false);
-                      }
-                    }}
-                    className="flex-1 flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
-                  >
-                    <ChevronRightIcon
-                      size={8}
-                      className={`transition-transform ${showAllowedCommands ? '-rotate-90' : ''}`}
-                    />
-                    <span>Allowed Commands</span>
-                    {(activeTab?.alwaysAllowed.length || 0) > 0 && (
-                      <span className="text-copilot-accent">
-                        ({activeTab?.alwaysAllowed.length || 0})
-                      </span>
-                    )}
-                  </button>
-                  <button
-                    onClick={() => {
-                      setSettingsDefaultSection('commands');
-                      setShowSettingsModal(true);
-                    }}
-                    className="shrink-0 mr-1 p-1 text-copilot-text-muted hover:text-copilot-accent transition-colors"
-                    title="Global commands (Settings)"
-                  >
-                    <GlobeIcon size={12} />
-                  </button>
-                  <div className="relative mr-1">
-                    <IconButton
-                      icon={<PlusIcon size={12} />}
+                  {!activeTab?.yoloMode && (
+                    <button
                       onClick={() => {
-                        setShowAddAllowedCommand(!showAddAllowedCommand);
+                        setShowAllowedCommands(!showAllowedCommands);
                         if (!showAllowedCommands) {
-                          setShowAllowedCommands(true);
                           refreshAlwaysAllowed();
                         }
                       }}
-                      variant="success"
-                      size="sm"
-                      title="Add allowed command"
-                    />
-                  </div>
-                </div>
-                {showAddAllowedCommand && activeTab && (
-                  <div className="px-3 pb-2">
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={addCommandValue}
-                        onChange={(e) => setAddCommandValue(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleAddAlwaysAllowed();
-                          if (e.key === 'Escape') {
-                            setShowAddAllowedCommand(false);
-                            setAddCommandValue('');
-                          }
-                        }}
-                        placeholder="e.g., npm, git, python"
-                        className="flex-1 px-2 py-1 text-[10px] bg-copilot-surface border border-copilot-border rounded text-copilot-text placeholder:text-copilot-text-muted focus:outline-none focus:border-copilot-accent"
-                        autoFocus
+                      className="flex-1 flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                    >
+                      <ChevronRightIcon
+                        size={8}
+                        className={`transition-transform ${showAllowedCommands ? '-rotate-90' : ''}`}
                       />
-                      <button
-                        onClick={handleAddAlwaysAllowed}
-                        disabled={!addCommandValue.trim()}
-                        className="px-2 py-1 text-[10px] bg-copilot-accent text-copilot-text rounded hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        Add
-                      </button>
-                    </div>
-                  </div>
-                )}
-                {showAllowedCommands && activeTab && (
+                      <span>Allowed Commands</span>
+                      {(activeTab?.alwaysAllowed.length || 0) > 0 && (
+                        <span className="text-copilot-accent">
+                          ({activeTab?.alwaysAllowed.length || 0})
+                        </span>
+                      )}
+                    </button>
+                  )}
+                  {activeTab?.yoloMode && (
+                    <span className="flex-1 text-[10px] text-copilot-error/70 pl-3">
+                      All actions auto-approved — no confirmations will be shown
+                    </span>
+                  )}
+                  <button
+                    onClick={async () => {
+                      if (!activeTab) return;
+                      const newValue = !activeTab.yoloMode;
+                      await window.electronAPI.copilot.setYoloMode(activeTab.id, newValue);
+                      updateTab(activeTab.id, { yoloMode: newValue });
+                      if (newValue) {
+                        updateTab(activeTab.id, { pendingConfirmations: [] });
+                      }
+                    }}
+                    className={`shrink-0 px-3 py-2 text-xs transition-colors ${
+                      activeTab?.yoloMode
+                        ? 'font-bold text-copilot-error'
+                        : 'text-copilot-text-muted hover:text-copilot-text'
+                    }`}
+                    title={
+                      activeTab?.yoloMode
+                        ? 'YOLO mode ON — all actions auto-approved. Click to disable.'
+                        : 'Enable YOLO mode — auto-approve all actions without confirmation'
+                    }
+                  >
+                    YOLO
+                  </button>
+                </div>
+                {!activeTab?.yoloMode && showAllowedCommands && activeTab && (
                   <div className="max-h-48 overflow-y-auto">
                     {activeTab.alwaysAllowed.length === 0 ? (
                       <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
@@ -7377,6 +7383,16 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                         })()}
                       </div>
                     )}
+                    <button
+                      onClick={() => {
+                        setSettingsDefaultSection('commands');
+                        setShowSettingsModal(true);
+                      }}
+                      className="flex items-center gap-2 w-full px-3 py-1.5 text-[10px] text-copilot-text-muted hover:text-copilot-accent hover:bg-copilot-surface-hover transition-colors border-t border-copilot-border"
+                    >
+                      <GlobeIcon size={10} />
+                      <span>Global Allowed</span>
+                    </button>
                   </div>
                 )}
               </div>

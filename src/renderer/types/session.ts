@@ -207,4 +207,5 @@ export interface TabState {
   draftInput?: DraftInput; // Per-session textarea draft state
   markedForReview?: boolean; // Whether session is marked for follow-up review
   reviewNote?: string; // Optional user note displayed at bottom of conversation
+  yoloMode?: boolean; // Auto-approve all permission requests without prompting
 }

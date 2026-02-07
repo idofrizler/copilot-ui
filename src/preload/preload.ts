@@ -67,6 +67,7 @@ const electronAPI = {
         editedFiles?: string[];
         alwaysAllowed?: string[];
         name?: string;
+        yoloMode?: boolean;
       }[]
     ): Promise<{ success: boolean }> => {
       return ipcRenderer.invoke('copilot:saveOpenSessions', sessions);
@@ -315,6 +316,19 @@ const electronAPI = {
       decision: 'approved' | 'always' | 'global' | 'denied';
     }): Promise<{ success: boolean }> => {
       return ipcRenderer.invoke('copilot:permissionResponse', data);
+    },
+    setYoloMode: (sessionId: string, enabled: boolean): Promise<{ success: boolean }> => {
+      return ipcRenderer.invoke('copilot:setYoloMode', { sessionId, enabled });
+    },
+    onYoloModeChanged: (
+      callback: (data: { sessionId: string; enabled: boolean; flushedCount: number }) => void
+    ): (() => void) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        data: { sessionId: string; enabled: boolean; flushedCount: number }
+      ): void => callback(data);
+      ipcRenderer.on('copilot:yoloModeChanged', handler);
+      return () => ipcRenderer.removeListener('copilot:yoloModeChanged', handler);
     },
     getAlwaysAllowed: (sessionId: string): Promise<string[]> => {
       return ipcRenderer.invoke('copilot:getAlwaysAllowed', sessionId);
