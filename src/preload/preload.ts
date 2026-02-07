@@ -71,6 +71,13 @@ const electronAPI = {
     ): Promise<{ success: boolean }> => {
       return ipcRenderer.invoke('copilot:saveOpenSessions', sessions);
     },
+    // Persist a single session's mark/note immediately
+    saveSessionMark: (
+      sessionId: string,
+      mark: { markedForReview?: boolean; reviewNote?: string }
+    ): Promise<{ success: boolean }> => {
+      return ipcRenderer.invoke('copilot:saveSessionMark', { sessionId, mark });
+    },
     renameSession: (sessionId: string, name: string): Promise<{ success: boolean }> => {
       return ipcRenderer.invoke('copilot:renameSession', { sessionId, name });
     },

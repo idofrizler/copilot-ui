@@ -4264,11 +4264,23 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab) return;
     const newMarked = !tab.markedForReview;
+    const newReviewNote = newMarked ? tab.reviewNote : undefined;
     updateTab(tabId, {
       markedForReview: newMarked,
       // Clear note if unmarking
-      reviewNote: newMarked ? tab.reviewNote : undefined,
+      reviewNote: newReviewNote,
     });
+    // Persist mark immediately to avoid races on app quit
+    try {
+      window.electronAPI.copilot.saveSessionMark(tabId, {
+        markedForReview: newMarked,
+        reviewNote: newReviewNote,
+      }).catch((e) => {
+        console.error('Failed to persist session mark:', e);
+      });
+    } catch (e) {
+      console.error('Failed to call saveSessionMark:', e);
+    }
     setContextMenu(null);
   };
 
@@ -4282,13 +4294,23 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
   const handleSaveNote = () => {
     if (!noteInputModal) return;
     const note = noteInputValue.trim();
-    updateTab(noteInputModal.tabId, {
+    const tabId = noteInputModal.tabId;
+    const existingMarked = tabs.find((t) => t.id === tabId)?.markedForReview;
+    const newMarked = note ? true : existingMarked;
+    updateTab(tabId, {
       reviewNote: note || undefined,
       // Auto-mark for review when adding a note
-      markedForReview: note
-        ? true
-        : tabs.find((t) => t.id === noteInputModal.tabId)?.markedForReview,
+      markedForReview: newMarked,
     });
+    // Persist mark/note immediately
+    try {
+      window.electronAPI.copilot.saveSessionMark(tabId, {
+        markedForReview: newMarked,
+        reviewNote: note || undefined,
+      }).catch((e) => console.error('Failed to persist session mark:', e));
+    } catch (e) {
+      console.error('Failed to call saveSessionMark:', e);
+    }
     setNoteInputModal(null);
     setNoteInputValue('');
     // Scroll to show the note banner at the bottom
@@ -4301,6 +4323,13 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
   const handleClearNote = (tabId: string) => {
     updateTab(tabId, { reviewNote: undefined });
+    try {
+      window.electronAPI.copilot.saveSessionMark(tabId, { reviewNote: undefined }).catch((e) =>
+        console.error('Failed to persist session mark:', e)
+      );
+    } catch (e) {
+      console.error('Failed to call saveSessionMark:', e);
+    }
   };
 
   const handleResumePreviousSession = async (prevSession: PreviousSession) => {

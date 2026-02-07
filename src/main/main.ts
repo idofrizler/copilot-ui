@@ -2440,6 +2440,32 @@ ipcMain.handle(
   }
 );
 
+// Persist a single session's mark/note immediately
+ipcMain.handle('copilot:saveSessionMark', async (_event, args: { sessionId: string; mark: { markedForReview?: boolean; reviewNote?: string } }) => {
+  try {
+    const { sessionId, mark } = args;
+    const sessionMarks = (store.get('sessionMarks') as Record<string, { markedForReview?: boolean; reviewNote?: string }>) || {};
+
+    // If nothing to save (both undefined or empty), remove existing mark
+    const hasMark = typeof mark.markedForReview !== 'undefined' || (typeof mark.reviewNote === 'string' && mark.reviewNote !== '');
+    if (!hasMark) {
+      delete sessionMarks[sessionId];
+    } else {
+      sessionMarks[sessionId] = {
+        ...(sessionMarks[sessionId] || {}),
+        markedForReview: typeof mark.markedForReview !== 'undefined' ? mark.markedForReview : sessionMarks[sessionId]?.markedForReview,
+        reviewNote: typeof mark.reviewNote !== 'undefined' ? mark.reviewNote : sessionMarks[sessionId]?.reviewNote,
+      };
+    }
+
+    store.set('sessionMarks', sessionMarks);
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to save session mark:', error);
+    return { success: false };
+  }
+});
+
 // Fetch image from URL and save to temp
 ipcMain.handle('copilot:fetchImageFromUrl', async (_event, url: string) => {
   try {
