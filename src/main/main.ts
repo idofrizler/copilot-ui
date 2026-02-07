@@ -350,9 +350,23 @@ const copilotClients = new Map<string, CopilotClient>();
 const inFlightCopilotClients = new Map<string, Promise<CopilotClient>>();
 
 // Resolve CLI path for packaged apps
-function getCliPath(): string | undefined {
+function getCliPath(): string {
   if (!app.isPackaged) {
-    return undefined; // Use default "copilot" from PATH in dev
+    // In dev, the SDK's import.meta.resolve doesn't work in bundled code,
+    // and passing index.js would spawn it with Electron (process.execPath)
+    // which lacks newer Node.js globals. Use the native platform binary instead.
+    const platform = process.platform;
+    const arch = process.arch;
+    const cliName = platform === 'win32' ? 'copilot.exe' : 'copilot';
+    return join(
+      __dirname,
+      '..',
+      '..',
+      'node_modules',
+      '@github',
+      `copilot-${platform}-${arch}`,
+      cliName
+    );
   }
 
   // When packaged, the copilot binary is in the unpacked asar
@@ -801,8 +815,7 @@ async function startEarlySessionResumption(): Promise<void> {
               sessionId,
               toolCallId: event.data.toolCallId,
               toolName: event.data.toolName,
-              input:
-                event.data.arguments || (event.data as Record<string, unknown>),
+              input: event.data.arguments || (event.data as Record<string, unknown>),
             });
           } else if (event.type === 'tool.execution_complete') {
             console.log(`[${sessionId}] Tool end FULL:`, JSON.stringify(event.data, null, 2));
@@ -811,8 +824,7 @@ async function startEarlySessionResumption(): Promise<void> {
               sessionId,
               toolCallId: event.data.toolCallId,
               toolName: completeData.toolName,
-              input:
-                completeData.arguments || completeData,
+              input: completeData.arguments || completeData,
               output: event.data.result?.content || completeData.output,
             });
           }
@@ -1744,8 +1756,7 @@ async function initCopilot(): Promise<void> {
               sessionId,
               toolCallId: event.data.toolCallId,
               toolName: event.data.toolName,
-              input:
-                event.data.arguments || (event.data as Record<string, unknown>),
+              input: event.data.arguments || (event.data as Record<string, unknown>),
             });
           } else if (event.type === 'tool.execution_complete') {
             console.log(`[${sessionId}] Tool end FULL:`, JSON.stringify(event.data, null, 2));
@@ -1754,8 +1765,7 @@ async function initCopilot(): Promise<void> {
               sessionId,
               toolCallId: event.data.toolCallId,
               toolName: completeData.toolName,
-              input:
-                completeData.arguments || completeData,
+              input: completeData.arguments || completeData,
               output: event.data.result?.content || completeData.output,
             });
           }
