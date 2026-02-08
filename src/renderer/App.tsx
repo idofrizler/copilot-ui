@@ -767,8 +767,8 @@ const App: React.FC = () => {
   const [showCreateWorktree, setShowCreateWorktree] = useState(false);
   const [worktreeRepoPath, setWorktreeRepoPath] = useState('');
 
-  // Terminal panel state - track which session has terminal open
-  const [terminalOpenForSession, setTerminalOpenForSession] = useState<string | null>(null);
+  // Terminal panel state - track which sessions have terminal open (per-session state)
+  const [terminalOpenSessions, setTerminalOpenSessions] = useState<Set<string>>(new Set());
   // Track which sessions have had a terminal initialized (so we keep them alive)
   const [terminalInitializedSessions, setTerminalInitializedSessions] = useState<Set<string>>(
     new Set()
@@ -4212,9 +4212,11 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       next.delete(tabId);
       return next;
     });
-    if (terminalOpenForSession === tabId) {
-      setTerminalOpenForSession(null);
-    }
+    setTerminalOpenSessions((prev) => {
+      const next = new Set(prev);
+      next.delete(tabId);
+      return next;
+    });
 
     // If closing the last tab, delete it and create a new one
     if (tabs.length === 1) {
@@ -4651,7 +4653,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
   // Callbacks for TerminalProvider
   const handleOpenTerminal = useCallback(() => {
     if (activeTab) {
-      setTerminalOpenForSession(activeTab.id);
+      setTerminalOpenSessions((prev) => new Set(prev).add(activeTab.id));
       trackEvent(TelemetryEvents.FEATURE_TERMINAL_OPENED);
     }
   }, [activeTab]);
@@ -4665,7 +4667,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
   return (
     <TerminalProvider
       sessionId={activeTab?.id || null}
-      isTerminalOpen={terminalOpenForSession === activeTab?.id}
+      isTerminalOpen={activeTab ? terminalOpenSessions.has(activeTab.id) : false}
       onOpenTerminal={handleOpenTerminal}
       onInitializeTerminal={handleInitializeTerminal}
     >
@@ -5504,17 +5506,21 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
             {activeTab && (
               <button
                 onClick={() => {
-                  if (terminalOpenForSession === activeTab.id) {
-                    setTerminalOpenForSession(null);
+                  if (terminalOpenSessions.has(activeTab.id)) {
+                    setTerminalOpenSessions((prev) => {
+                      const next = new Set(prev);
+                      next.delete(activeTab.id);
+                      return next;
+                    });
                   } else {
-                    setTerminalOpenForSession(activeTab.id);
+                    setTerminalOpenSessions((prev) => new Set(prev).add(activeTab.id));
                     // Track that this session has had a terminal initialized
                     setTerminalInitializedSessions((prev) => new Set(prev).add(activeTab.id));
                     trackEvent(TelemetryEvents.FEATURE_TERMINAL_OPENED);
                   }
                 }}
                 className={`shrink-0 flex items-center gap-2 px-4 py-2 text-xs border-b border-copilot-border ${
-                  terminalOpenForSession === activeTab.id
+                  terminalOpenSessions.has(activeTab.id)
                     ? 'text-copilot-accent bg-copilot-surface'
                     : 'text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface'
                 }`}
@@ -5524,7 +5530,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 <span className="font-medium">Terminal</span>
                 <ChevronDownIcon
                   size={12}
-                  className={`transition-transform duration-200 ${terminalOpenForSession === activeTab.id ? 'rotate-180' : ''}`}
+                  className={`transition-transform duration-200 ${terminalOpenSessions.has(activeTab.id) ? 'rotate-180' : ''}`}
                 />
               </button>
             )}
@@ -5537,8 +5543,14 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   key={tab.id}
                   sessionId={tab.id}
                   cwd={tab.cwd}
-                  isOpen={terminalOpenForSession === tab.id && activeTabId === tab.id}
-                  onClose={() => setTerminalOpenForSession(null)}
+                  isOpen={terminalOpenSessions.has(tab.id) && activeTabId === tab.id}
+                  onClose={() =>
+                    setTerminalOpenSessions((prev) => {
+                      const next = new Set(prev);
+                      next.delete(tab.id);
+                      return next;
+                    })
+                  }
                   onSendToAgent={handleSendTerminalOutput}
                 />
               ))}

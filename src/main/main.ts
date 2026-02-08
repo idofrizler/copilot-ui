@@ -153,7 +153,7 @@ async function writeMcpConfig(config: MCPConfigFile): Promise<void> {
 import { getAllSkills } from './skills';
 
 // Copilot Instructions - imported from instructions module
-import { getAllInstructions } from './instructions';
+import { getAllInstructions, getGitRoot } from './instructions';
 
 // Set up file logging only - no IPC to renderer (causes errors)
 log.transports.file.level = 'info';
@@ -4114,14 +4114,19 @@ ipcMain.handle('skills:getAll', async (_event, cwd?: string) => {
 
 // Copilot Instructions handlers
 ipcMain.handle('instructions:getAll', async (_event, cwd?: string) => {
-  let projectCwd = cwd;
-  if (!projectCwd && sessions.size > 0) {
+  let workingDir = cwd;
+  if (!workingDir && sessions.size > 0) {
     const firstSession = sessions.values().next().value;
     if (firstSession) {
-      projectCwd = firstSession.cwd;
+      workingDir = firstSession.cwd;
     }
   }
-  const result = await getAllInstructions(projectCwd);
+
+  // Detect git root for proper instruction discovery
+  const gitRoot = workingDir ? await getGitRoot(workingDir) : null;
+  const projectRoot = gitRoot || workingDir;
+
+  const result = await getAllInstructions(projectRoot, workingDir);
   console.log(`Found ${result.instructions.length} instructions (${result.errors.length} errors)`);
   return result;
 });
