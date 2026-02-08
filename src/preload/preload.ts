@@ -582,6 +582,12 @@ const electronAPI = {
     ): Promise<{ success: boolean; error?: string }> => {
       return ipcRenderer.invoke('git:checkoutBranch', { cwd, branchName });
     },
+    switchBranch: (
+      cwd: string,
+      branchName: string
+    ): Promise<{ success: boolean; error?: string }> => {
+      return ipcRenderer.invoke('git:switchBranch', { cwd, branchName });
+    },
     mergeToMain: (
       cwd: string,
       deleteBranch: boolean,

@@ -3511,6 +3511,64 @@ ipcMain.handle('git:checkoutBranch', async (_event, data: { cwd: string; branchN
   }
 });
 
+// Git operations - switch to an existing branch
+ipcMain.handle('git:switchBranch', async (_event, data: { cwd: string; branchName: string }) => {
+  try {
+    const branch = (data.branchName || '').trim();
+    if (!branch) {
+      return { success: false, error: 'Branch name is required' };
+    }
+
+    // Check if branch exists locally
+    let branchExistsLocally = false;
+    try {
+      const { stdout } = await execAsync(`git branch --list "${branch.replace(/"/g, '\\"')}"`, {
+        cwd: data.cwd,
+      });
+      branchExistsLocally = stdout.trim().length > 0;
+    } catch {
+      // Ignore errors checking local branches
+    }
+
+    if (branchExistsLocally) {
+      // Branch exists locally, just switch to it
+      try {
+        await execAsync(`git switch "${branch.replace(/"/g, '\\"')}"`, { cwd: data.cwd });
+        return { success: true };
+      } catch (switchError) {
+        // git switch might not be available, try checkout
+        try {
+          await execAsync(`git checkout "${branch.replace(/"/g, '\\"')}"`, { cwd: data.cwd });
+          return { success: true };
+        } catch (checkoutError) {
+          // Return the actual error (likely uncommitted changes)
+          return { success: false, error: String(checkoutError) };
+        }
+      }
+    } else {
+      // Branch doesn't exist locally, create from remote tracking
+      try {
+        await execAsync(
+          `git checkout -b "${branch.replace(/"/g, '\\"')}" "origin/${branch.replace(/"/g, '\\"')}"`,
+          { cwd: data.cwd }
+        );
+        return { success: true };
+      } catch (trackingError) {
+        // Try just checking out - git might auto-track
+        try {
+          await execAsync(`git checkout "${branch.replace(/"/g, '\\"')}"`, { cwd: data.cwd });
+          return { success: true };
+        } catch (checkoutError) {
+          return { success: false, error: String(checkoutError) };
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Git switch branch failed:', error);
+    return { success: false, error: String(error) };
+  }
+});
+
 // Git operations - merge worktree branch to main/master
 ipcMain.handle(
   'git:mergeToMain',
