@@ -4548,7 +4548,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
     try {
       const result = await window.electronAPI.copilot.setModel(activeTab.id, model);
-      // Update the tab in-place: swap session ID and model, preserve everything else
+      // Update the tab in-place: swap session ID and model, preserve draftInput
       setTabs((prev) =>
         prev.map((t) =>
           t.id === activeTab.id
@@ -4557,6 +4557,12 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 id: result.sessionId,
                 model: result.model,
                 cwd: result.cwd || t.cwd,
+                draftInput: {
+                  text: inputValue,
+                  imageAttachments: [...imageAttachments],
+                  fileAttachments: [...fileAttachments],
+                  terminalAttachment: terminalAttachment ? { ...terminalAttachment } : null,
+                },
               }
             : t
         )
