@@ -544,8 +544,16 @@ let sessionCounter = 0;
 // Track registered session handlers to prevent duplicates
 const registeredSessionHandlers = new Map<
   string,
-  { session: CopilotSession; unsubscribe: () => void }
+  { session: CopilotSession; unsubscribe: () => void; handlerId: number }
 >();
+
+// Counter for unique handler IDs (for debugging)
+let handlerCounter = 0;
+
+// Track last event per session to deduplicate (SDK/CLI can send duplicate notifications)
+// Key: sessionId, Value: { eventType, timestamp }
+const lastEventPerSession = new Map<string, { eventType: string; timestamp: number }>();
+const EVENT_DEDUP_WINDOW_MS = 50; // Events within 50ms of same type are considered duplicates
 
 // Registers event forwarding from a CopilotSession to the renderer via IPC.
 // Used after createSession and resumeSession to wire up the session.
@@ -553,9 +561,15 @@ function registerSessionEventForwarding(sessionId: string, session: CopilotSessi
   // If we already have a handler for this session ID, unsubscribe the old one first
   const existing = registeredSessionHandlers.get(sessionId);
   if (existing) {
+    console.log(
+      `[${sessionId}] Unsubscribing handler #${existing.handlerId} (old session: ${existing.session === session ? 'SAME' : 'DIFFERENT'})`
+    );
     existing.unsubscribe();
+    registeredSessionHandlers.delete(sessionId);
   }
 
+  const handlerId = ++handlerCounter;
+  console.log(`[${sessionId}] Registering handler #${handlerId}`);
   const unsubscribe = session.on((event) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
 
@@ -563,10 +577,36 @@ function registerSessionEventForwarding(sessionId: string, session: CopilotSessi
     // This prevents duplicate events when model changes cause a new session object to be created
     const currentState = sessions.get(sessionId);
     if (currentState && currentState.session !== session) {
+      console.log(`[${sessionId}] handler #${handlerId} BLOCKED stale event:`, event.type);
       return; // This is an old session object, ignore its events
     }
 
-    console.log(`[${sessionId}] Event:`, event.type);
+    // Deduplicate certain events - SDK/CLI can send duplicate notifications during model changes
+    // Only dedup events where duplicates cause visible problems (e.g., duplicate messages)
+    // Don't dedup streaming events (message_delta) as rapid-fire is expected
+    const eventsToDedupe = [
+      'assistant.message',
+      'user.message',
+      'session.resume',
+      'session.idle',
+      'assistant.turn_start',
+      'assistant.turn_end',
+    ];
+    if (eventsToDedupe.includes(event.type)) {
+      const now = Date.now();
+      const lastEvent = lastEventPerSession.get(sessionId);
+      if (
+        lastEvent &&
+        lastEvent.eventType === event.type &&
+        now - lastEvent.timestamp < EVENT_DEDUP_WINDOW_MS
+      ) {
+        console.log(`[${sessionId}] handler #${handlerId} DEDUP blocked:`, event.type);
+        return;
+      }
+      lastEventPerSession.set(sessionId, { eventType: event.type, timestamp: now });
+    }
+
+    console.log(`[${sessionId}] handler #${handlerId} Event:`, event.type);
 
     if (event.type === 'assistant.message_delta') {
       mainWindow.webContents.send('copilot:delta', { sessionId, content: event.data.deltaContent });
@@ -647,7 +687,7 @@ function registerSessionEventForwarding(sessionId: string, session: CopilotSessi
   });
 
   // Store the handler info so we can unsubscribe later
-  registeredSessionHandlers.set(sessionId, { session, unsubscribe });
+  registeredSessionHandlers.set(sessionId, { session, unsubscribe, handlerId });
 }
 
 // Keep-alive interval (5 minutes) to prevent session timeout
@@ -2353,6 +2393,14 @@ ipcMain.handle('copilot:setModel', async (_event, data: { sessionId: string; mod
 
     console.log(`Changing model for session ${data.sessionId} to ${data.model}`);
 
+    // Unsubscribe old event handler BEFORE calling resumeSession
+    // Events fire during resumeSession() and we don't want duplicates
+    const existingHandler = registeredSessionHandlers.get(data.sessionId);
+    if (existingHandler) {
+      existingHandler.unsubscribe();
+      registeredSessionHandlers.delete(data.sessionId);
+    }
+
     const mcpConfig = await readMcpConfig();
     const browserTools = createBrowserTools(data.sessionId);
 
@@ -2369,8 +2417,7 @@ ipcMain.handle('copilot:setModel', async (_event, data: { sessionId: string; mod
 
       const resumedSessionId = resumedSession.sessionId;
 
-      // Always register event forwarding on the new session object
-      // (resumeSession returns a new CopilotSession instance even if ID is same)
+      // Register event forwarding on the new session object
       registerSessionEventForwarding(resumedSessionId, resumedSession);
 
       // Clean up old session entry if ID changed
