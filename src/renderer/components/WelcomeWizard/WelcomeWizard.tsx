@@ -194,7 +194,7 @@ export const WelcomeWizard: React.FC<WelcomeWizardProps> = ({ isOpen, onClose, o
       width="600px"
       testId="welcome-wizard"
     >
-      <Modal.Body className="p-6" data-clarity-mask="true">
+      <Modal.Body className="p-6">
         <div className="space-y-6">
           {/* Progress indicator */}
           <div className="flex items-center justify-center gap-2">
