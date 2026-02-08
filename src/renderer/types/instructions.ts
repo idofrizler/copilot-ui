@@ -3,8 +3,8 @@
 export interface Instruction {
   name: string;
   path: string;
-  type: 'personal' | 'project' | 'organization';
-  scope: 'repository' | 'path-specific';
+  type: 'personal' | 'project' | 'cwd' | 'custom-dir' | 'agent';
+  scope: 'repository' | 'path-specific' | 'agent-primary' | 'agent-additional';
 }
 
 export interface InstructionsResult {

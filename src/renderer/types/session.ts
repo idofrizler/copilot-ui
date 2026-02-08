@@ -36,6 +36,7 @@ export interface ModelInfo {
   name: string;
   multiplier: number;
   capabilities?: ModelCapabilities;
+  source?: 'api' | 'fallback'; // 'api' = from listModels(), 'fallback' = hardcoded (not in API yet)
 }
 
 // Image attachment for messages

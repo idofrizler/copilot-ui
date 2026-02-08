@@ -578,6 +578,9 @@ const App: React.FC = () => {
   const [inputValue, setInputValue] = useState('');
   const [tabs, setTabs] = useState<TabState[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  // Drag-and-drop state for session reordering
+  const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
+  const [dragOverTabId, setDragOverTabId] = useState<string | null>(null);
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
   const [favoriteModels, setFavoriteModels] = useState<string[]>([]);
   const [previousSessions, setPreviousSessions] = useState<PreviousSession[]>([]);
@@ -764,8 +767,8 @@ const App: React.FC = () => {
   const [showCreateWorktree, setShowCreateWorktree] = useState(false);
   const [worktreeRepoPath, setWorktreeRepoPath] = useState('');
 
-  // Terminal panel state - track which session has terminal open
-  const [terminalOpenForSession, setTerminalOpenForSession] = useState<string | null>(null);
+  // Terminal panel state - track which sessions have terminal open (per-session state)
+  const [terminalOpenSessions, setTerminalOpenSessions] = useState<Set<string>>(new Set());
   // Track which sessions have had a terminal initialized (so we keep them alive)
   const [terminalInitializedSessions, setTerminalInitializedSessions] = useState<Set<string>>(
     new Set()
@@ -4209,9 +4212,11 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       next.delete(tabId);
       return next;
     });
-    if (terminalOpenForSession === tabId) {
-      setTerminalOpenForSession(null);
-    }
+    setTerminalOpenSessions((prev) => {
+      const next = new Set(prev);
+      next.delete(tabId);
+      return next;
+    });
 
     // If closing the last tab, delete it and create a new one
     if (tabs.length === 1) {
@@ -4306,6 +4311,50 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     } catch (error) {
       console.error('Failed to switch session:', error);
     }
+  };
+
+  // Drag-and-drop handlers for session reordering
+  const handleTabDragStart = (e: React.DragEvent, tabId: string) => {
+    setDraggedTabId(tabId);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', tabId);
+  };
+
+  const handleTabDragOver = (e: React.DragEvent, tabId: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (tabId !== draggedTabId) {
+      setDragOverTabId(tabId);
+    }
+  };
+
+  const handleTabDragLeave = () => {
+    setDragOverTabId(null);
+  };
+
+  const handleTabDrop = (e: React.DragEvent, targetTabId: string) => {
+    e.preventDefault();
+    if (!draggedTabId || draggedTabId === targetTabId) {
+      setDraggedTabId(null);
+      setDragOverTabId(null);
+      return;
+    }
+    setTabs((prev) => {
+      const draggedIndex = prev.findIndex((t) => t.id === draggedTabId);
+      const targetIndex = prev.findIndex((t) => t.id === targetTabId);
+      if (draggedIndex === -1 || targetIndex === -1) return prev;
+      const newTabs = [...prev];
+      const [removed] = newTabs.splice(draggedIndex, 1);
+      newTabs.splice(targetIndex, 0, removed);
+      return newTabs;
+    });
+    setDraggedTabId(null);
+    setDragOverTabId(null);
+  };
+
+  const handleTabDragEnd = () => {
+    setDraggedTabId(null);
+    setDragOverTabId(null);
   };
 
   // Context menu handlers for session right-click
@@ -4611,7 +4660,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
   // Callbacks for TerminalProvider
   const handleOpenTerminal = useCallback(() => {
     if (activeTab) {
-      setTerminalOpenForSession(activeTab.id);
+      setTerminalOpenSessions((prev) => new Set(prev).add(activeTab.id));
       trackEvent(TelemetryEvents.FEATURE_TERMINAL_OPENED);
     }
   }, [activeTab]);
@@ -4625,7 +4674,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
   return (
     <TerminalProvider
       sessionId={activeTab?.id || null}
-      isTerminalOpen={terminalOpenForSession === activeTab?.id}
+      isTerminalOpen={activeTab ? terminalOpenSessions.has(activeTab.id) : false}
       onOpenTerminal={handleOpenTerminal}
       onInitializeTerminal={handleInitializeTerminal}
     >
@@ -4711,6 +4760,12 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               {tabs.map((tab) => (
                 <button
                   key={tab.id}
+                  draggable={!tab.isRenaming}
+                  onDragStart={(e) => handleTabDragStart(e, tab.id)}
+                  onDragOver={(e) => handleTabDragOver(e, tab.id)}
+                  onDragLeave={handleTabDragLeave}
+                  onDrop={(e) => handleTabDrop(e, tab.id)}
+                  onDragEnd={handleTabDragEnd}
                   onClick={() => {
                     handleSwitchTab(tab.id);
                     setLeftDrawerOpen(false);
@@ -4719,7 +4774,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     tab.id === activeTabId
                       ? 'bg-copilot-surface text-copilot-text border-l-2 border-l-copilot-accent'
                       : 'text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface border-l-2 border-l-transparent'
-                  }`}
+                  } ${draggedTabId === tab.id ? 'opacity-50' : ''} ${dragOverTabId === tab.id ? 'border-t-2 border-t-copilot-accent' : ''}`}
                 >
                   {/* Status indicator */}
                   {tab.pendingConfirmations.length > 0 ? (
@@ -4770,16 +4825,22 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     rightContent: (
                       <span
                         className={`text-xs ${
-                          m.multiplier === 0
-                            ? 'text-copilot-success'
-                            : m.multiplier < 1
+                          m.source === 'fallback'
+                            ? 'text-copilot-text-muted italic'
+                            : m.multiplier === 0
                               ? 'text-copilot-success'
-                              : m.multiplier > 1
-                                ? 'text-copilot-warning'
-                                : 'text-copilot-text-muted'
+                              : m.multiplier < 1
+                                ? 'text-copilot-success'
+                                : m.multiplier > 1
+                                  ? 'text-copilot-warning'
+                                  : 'text-copilot-text-muted'
                         }`}
                       >
-                        {m.multiplier === 0 ? 'free' : `${m.multiplier}×`}
+                        {m.source === 'fallback'
+                          ? 'unlisted'
+                          : m.multiplier === 0
+                            ? 'free'
+                            : `${m.multiplier}×`}
                       </span>
                     ),
                   }))}
@@ -5221,13 +5282,19 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 {tabs.map((tab) => (
                   <div
                     key={tab.id}
+                    draggable={!tab.isRenaming}
+                    onDragStart={(e) => handleTabDragStart(e, tab.id)}
+                    onDragOver={(e) => handleTabDragOver(e, tab.id)}
+                    onDragLeave={handleTabDragLeave}
+                    onDrop={(e) => handleTabDrop(e, tab.id)}
+                    onDragEnd={handleTabDragEnd}
                     onClick={() => handleSwitchTab(tab.id)}
                     onContextMenu={(e) => handleTabContextMenu(e, tab.id)}
                     className={`group w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors text-left cursor-pointer ${
                       tab.id === activeTabId
                         ? 'bg-copilot-surface text-copilot-text border-l-2 border-l-copilot-accent'
                         : 'text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface border-l-2 border-l-transparent'
-                    }`}
+                    } ${draggedTabId === tab.id ? 'opacity-50' : ''} ${dragOverTabId === tab.id ? 'border-t-2 border-t-copilot-accent' : ''}`}
                   >
                     {/* Status indicator - priority: pending > processing > marked > unread > idle */}
                     {tab.pendingConfirmations.length > 0 ? (
@@ -5384,16 +5451,22 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       rightContent: (
                         <span
                           className={`text-xs ${
-                            m.multiplier === 0
-                              ? 'text-copilot-success'
-                              : m.multiplier < 1
+                            m.source === 'fallback'
+                              ? 'text-copilot-text-muted italic'
+                              : m.multiplier === 0
                                 ? 'text-copilot-success'
-                                : m.multiplier > 1
-                                  ? 'text-copilot-warning'
-                                  : 'text-copilot-text-muted'
+                                : m.multiplier < 1
+                                  ? 'text-copilot-success'
+                                  : m.multiplier > 1
+                                    ? 'text-copilot-warning'
+                                    : 'text-copilot-text-muted'
                           }`}
                         >
-                          {m.multiplier === 0 ? 'free' : `${m.multiplier}×`}
+                          {m.source === 'fallback'
+                            ? 'unlisted'
+                            : m.multiplier === 0
+                              ? 'free'
+                              : `${m.multiplier}×`}
                         </span>
                       ),
                     }))}
@@ -5452,17 +5525,21 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
             {activeTab && (
               <button
                 onClick={() => {
-                  if (terminalOpenForSession === activeTab.id) {
-                    setTerminalOpenForSession(null);
+                  if (terminalOpenSessions.has(activeTab.id)) {
+                    setTerminalOpenSessions((prev) => {
+                      const next = new Set(prev);
+                      next.delete(activeTab.id);
+                      return next;
+                    });
                   } else {
-                    setTerminalOpenForSession(activeTab.id);
+                    setTerminalOpenSessions((prev) => new Set(prev).add(activeTab.id));
                     // Track that this session has had a terminal initialized
                     setTerminalInitializedSessions((prev) => new Set(prev).add(activeTab.id));
                     trackEvent(TelemetryEvents.FEATURE_TERMINAL_OPENED);
                   }
                 }}
                 className={`shrink-0 flex items-center gap-2 px-4 py-2 text-xs border-b border-copilot-border ${
-                  terminalOpenForSession === activeTab.id
+                  terminalOpenSessions.has(activeTab.id)
                     ? 'text-copilot-accent bg-copilot-surface'
                     : 'text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface'
                 }`}
@@ -5472,7 +5549,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 <span className="font-medium">Terminal</span>
                 <ChevronDownIcon
                   size={12}
-                  className={`transition-transform duration-200 ${terminalOpenForSession === activeTab.id ? 'rotate-180' : ''}`}
+                  className={`transition-transform duration-200 ${terminalOpenSessions.has(activeTab.id) ? 'rotate-180' : ''}`}
                 />
               </button>
             )}
@@ -5485,8 +5562,14 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   key={tab.id}
                   sessionId={tab.id}
                   cwd={tab.cwd}
-                  isOpen={terminalOpenForSession === tab.id && activeTabId === tab.id}
-                  onClose={() => setTerminalOpenForSession(null)}
+                  isOpen={terminalOpenSessions.has(tab.id) && activeTabId === tab.id}
+                  onClose={() =>
+                    setTerminalOpenSessions((prev) => {
+                      const next = new Set(prev);
+                      next.delete(tab.id);
+                      return next;
+                    })
+                  }
                   onSendToAgent={handleSendTerminalOutput}
                 />
               ))}
