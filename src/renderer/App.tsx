@@ -4749,9 +4749,9 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
             {/* Session List */}
             <div className="flex-1 overflow-y-auto">
               {tabs.map((tab) => (
-                <div
+                <button
                   key={tab.id}
-                  draggable
+                  draggable={!tab.isRenaming}
                   onDragStart={(e) => handleTabDragStart(e, tab.id)}
                   onDragOver={(e) => handleTabDragOver(e, tab.id)}
                   onDragLeave={handleTabDragLeave}
@@ -4761,7 +4761,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     handleSwitchTab(tab.id);
                     setLeftDrawerOpen(false);
                   }}
-                  className={`w-full flex items-center gap-3 px-4 py-3 text-sm transition-colors text-left cursor-pointer ${
+                  className={`w-full flex items-center gap-3 px-4 py-3 text-sm transition-colors text-left ${
                     tab.id === activeTabId
                       ? 'bg-copilot-surface text-copilot-text border-l-2 border-l-copilot-accent'
                       : 'text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface border-l-2 border-l-transparent'
@@ -4778,7 +4778,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     <span className="shrink-0 w-2 h-2 rounded-full bg-transparent" />
                   )}
                   <span className="truncate flex-1">{tab.name}</span>
-                </div>
+                </button>
               ))}
             </div>
 
