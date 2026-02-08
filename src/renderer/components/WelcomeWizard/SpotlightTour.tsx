@@ -41,7 +41,7 @@ const tourSteps: TourStep[] = [
     title: 'Embedded Terminal',
     description: 'Click here to open the terminal.',
     descriptionAfterClick: 'Use "Add to Message" to attach terminal output to your prompt!',
-    position: 'top',
+    position: 'bottom',
     requiresClick: true,
     cleanupOnNext: '[data-tour="terminal-toggle"]',
     highlightPadding: { top: 4, right: 6, bottom: 4, left: 4 },
@@ -55,8 +55,8 @@ const tourSteps: TourStep[] = [
     description: 'Click this to reveal the agent loop modes.',
     descriptionAfterClick:
       'Ralph Wiggum runs iterative loops. Lisa Simpson does multi-phase analysis. Try them!',
-    position: 'bottom',
-    positionAfterClick: 'bottom',
+    position: 'top',
+    positionAfterClick: 'top',
     requiresClick: true,
     cleanupOnNext: '[data-tour="agent-modes"]',
     highlightPadding: { top: 4, right: 4, bottom: 4, left: 4 },
@@ -67,7 +67,7 @@ const tourSteps: TourStep[] = [
     title: 'Model Selection',
     description:
       'Switch between GPT-4.1, Claude Opus-4, Sonnet, Gemini, and more models per session.',
-    position: 'bottom',
+    position: 'top',
   },
   {
     selector: '[data-tour="edited-files"]',
