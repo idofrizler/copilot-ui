@@ -4547,68 +4547,21 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     setStatus('connecting');
 
     try {
-      // If current tab has messages, create a new tab with the new model instead of replacing
-      if (activeTab.messages.length > 0) {
-        const result = await window.electronAPI.copilot.createSession();
-        trackEvent(TelemetryEvents.SESSION_CREATED);
-        // Now change the model on the new session
-        const modelResult = await window.electronAPI.copilot.setModel(result.sessionId, model);
-        trackEvent(TelemetryEvents.FEATURE_MODEL_CHANGED);
-
-        const newTab: TabState = {
-          id: modelResult.sessionId,
-          name: generateTabName(),
-          messages: [],
-          model: modelResult.model,
-          cwd: modelResult.cwd || result.cwd,
-          isProcessing: false,
-          activeTools: [],
-          hasUnreadCompletion: false,
-          pendingConfirmations: [],
-          needsTitle: true,
-          alwaysAllowed: [],
-          editedFiles: [],
-          untrackedFiles: [],
-          fileViewMode: 'flat',
-          currentIntent: null,
-          currentIntentTimestamp: null,
-          gitBranchRefresh: 0,
-        };
-        setTabs((prev) => [...prev, newTab]);
-        setActiveTabId(modelResult.sessionId);
-        setStatus('connected');
-        return;
-      }
-
-      // Empty tab - replace the session with the new model
       const result = await window.electronAPI.copilot.setModel(activeTab.id, model);
       trackEvent(TelemetryEvents.FEATURE_MODEL_CHANGED);
-      // Update the tab with new session ID and model, clear messages
-      setTabs((prev) => {
-        const updated = prev.filter((t) => t.id !== activeTab.id);
-        return [
-          ...updated,
-          {
-            id: result.sessionId,
-            name: activeTab.name,
-            messages: [],
-            model: result.model,
-            cwd: result.cwd || activeTab.cwd,
-            isProcessing: false,
-            activeTools: [],
-            hasUnreadCompletion: false,
-            pendingConfirmations: [],
-            needsTitle: true,
-            alwaysAllowed: [],
-            editedFiles: [],
-            untrackedFiles: [],
-            fileViewMode: 'flat',
-            currentIntent: null,
-            currentIntentTimestamp: null,
-            gitBranchRefresh: 0,
-          },
-        ];
-      });
+      // Update the tab in-place: swap session ID and model, preserve everything else
+      setTabs((prev) =>
+        prev.map((t) =>
+          t.id === activeTab.id
+            ? {
+                ...t,
+                id: result.sessionId,
+                model: result.model,
+                cwd: result.cwd || t.cwd,
+              }
+            : t
+        )
+      );
       setActiveTabId(result.sessionId);
       setStatus('connected');
     } catch (error) {

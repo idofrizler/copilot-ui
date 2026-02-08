@@ -541,6 +541,93 @@ const sessions = new Map<string, SessionState>();
 let activeSessionId: string | null = null;
 let sessionCounter = 0;
 
+// Registers event forwarding from a CopilotSession to the renderer via IPC.
+// Used after createSession and resumeSession to wire up the session.
+function registerSessionEventForwarding(sessionId: string, session: CopilotSession): void {
+  session.on((event) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+
+    console.log(`[${sessionId}] Event:`, event.type);
+
+    if (event.type === 'assistant.message_delta') {
+      mainWindow.webContents.send('copilot:delta', { sessionId, content: event.data.deltaContent });
+    } else if (event.type === 'assistant.message') {
+      mainWindow.webContents.send('copilot:message', { sessionId, content: event.data.content });
+    } else if (event.type === 'session.idle') {
+      const currentSessionState = sessions.get(sessionId);
+      if (currentSessionState) currentSessionState.isProcessing = false;
+      mainWindow.webContents.send('copilot:idle', { sessionId });
+      requestUserAttention();
+    } else if (event.type === 'tool.execution_start') {
+      console.log(`[${sessionId}] Tool start FULL:`, JSON.stringify(event.data, null, 2));
+      mainWindow.webContents.send('copilot:tool-start', {
+        sessionId,
+        toolCallId: event.data.toolCallId,
+        toolName: event.data.toolName,
+        input: event.data.arguments || (event.data as Record<string, unknown>),
+      });
+    } else if (event.type === 'tool.execution_complete') {
+      console.log(`[${sessionId}] Tool end FULL:`, JSON.stringify(event.data, null, 2));
+      const completeData = event.data as Record<string, unknown>;
+      mainWindow.webContents.send('copilot:tool-end', {
+        sessionId,
+        toolCallId: event.data.toolCallId,
+        toolName: completeData.toolName,
+        input: completeData.arguments || completeData,
+        output: event.data.result?.content || completeData.output,
+      });
+    } else if (event.type === 'session.error') {
+      console.log(`[${sessionId}] Session error:`, event.data);
+      const errorMessage = event.data?.message || JSON.stringify(event.data);
+
+      // Auto-repair tool_result errors (duplicate or orphaned after compaction)
+      if (
+        errorMessage.includes('multiple `tool_result` blocks') ||
+        errorMessage.includes('each tool_use must have a single result') ||
+        errorMessage.includes('unexpected `tool_use_id`') ||
+        errorMessage.includes('Each `tool_result` block must have a corresponding `tool_use`')
+      ) {
+        log.info(`[${sessionId}] Detected tool_result corruption error, attempting auto-repair...`);
+        repairDuplicateToolResults(sessionId).then((repaired) => {
+          if (repaired) {
+            mainWindow?.webContents.send('copilot:error', {
+              sessionId,
+              message: 'Session repaired. Please resend your last message.',
+              isRepaired: true,
+            });
+          } else {
+            mainWindow?.webContents.send('copilot:error', { sessionId, message: errorMessage });
+          }
+        });
+        return;
+      }
+
+      mainWindow.webContents.send('copilot:error', { sessionId, message: errorMessage });
+    } else if (event.type === 'session.usage_info') {
+      mainWindow.webContents.send('copilot:usageInfo', {
+        sessionId,
+        tokenLimit: event.data.tokenLimit,
+        currentTokens: event.data.currentTokens,
+        messagesLength: event.data.messagesLength,
+      });
+    } else if (event.type === 'session.compaction_start') {
+      console.log(`[${sessionId}] Compaction started`);
+      mainWindow.webContents.send('copilot:compactionStart', { sessionId });
+    } else if (event.type === 'session.compaction_complete') {
+      console.log(`[${sessionId}] Compaction complete:`, event.data);
+      mainWindow.webContents.send('copilot:compactionComplete', {
+        sessionId,
+        success: event.data.success,
+        preCompactionTokens: event.data.preCompactionTokens,
+        postCompactionTokens: event.data.postCompactionTokens,
+        tokensRemoved: event.data.tokensRemoved,
+        summaryContent: event.data.summaryContent,
+        error: event.data.error,
+      });
+    }
+  });
+}
+
 // Keep-alive interval (5 minutes) to prevent session timeout
 const SESSION_KEEPALIVE_INTERVAL = 5 * 60 * 1000;
 let keepAliveTimer: NodeJS.Timeout | null = null;
@@ -607,89 +694,7 @@ async function resumeDisconnectedSession(
       handlePermissionRequest(request, invocation, sessionId),
   });
 
-  // Set up event handler for resumed session
-  resumedSession.on((event) => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-
-    log.info(`[${sessionId}] Event:`, event.type);
-
-    if (event.type === 'assistant.message_delta') {
-      mainWindow.webContents.send('copilot:delta', { sessionId, content: event.data.deltaContent });
-    } else if (event.type === 'assistant.message') {
-      mainWindow.webContents.send('copilot:message', { sessionId, content: event.data.content });
-    } else if (event.type === 'session.idle') {
-      const currentSessionState = sessions.get(sessionId);
-      if (currentSessionState) currentSessionState.isProcessing = false;
-      mainWindow.webContents.send('copilot:idle', { sessionId });
-      requestUserAttention();
-    } else if (event.type === 'tool.execution_start') {
-      log.info(`[${sessionId}] Tool start FULL:`, JSON.stringify(event.data, null, 2));
-      mainWindow.webContents.send('copilot:tool-start', {
-        sessionId,
-        toolCallId: event.data.toolCallId,
-        toolName: event.data.toolName,
-        input: event.data.arguments || (event.data as Record<string, unknown>),
-      });
-    } else if (event.type === 'tool.execution_complete') {
-      log.info(`[${sessionId}] Tool end FULL:`, JSON.stringify(event.data, null, 2));
-      const completeData = event.data as Record<string, unknown>;
-      mainWindow.webContents.send('copilot:tool-end', {
-        sessionId,
-        toolCallId: event.data.toolCallId,
-        toolName: completeData.toolName,
-        input: completeData.arguments || completeData,
-        output: event.data.result?.content || completeData.output,
-      });
-    } else if (event.type === 'session.error') {
-      log.info(`[${sessionId}] Session error:`, event.data);
-      const errorMessage = event.data?.message || JSON.stringify(event.data);
-
-      // Auto-repair tool_result errors (duplicate or orphaned after compaction)
-      if (
-        errorMessage.includes('multiple `tool_result` blocks') ||
-        errorMessage.includes('each tool_use must have a single result') ||
-        errorMessage.includes('unexpected `tool_use_id`') ||
-        errorMessage.includes('Each `tool_result` block must have a corresponding `tool_use`')
-      ) {
-        log.info(`[${sessionId}] Detected tool_result corruption error, attempting auto-repair...`);
-        repairDuplicateToolResults(sessionId).then((repaired) => {
-          if (repaired) {
-            mainWindow?.webContents.send('copilot:error', {
-              sessionId,
-              message: 'Session repaired. Please resend your last message.',
-              isRepaired: true,
-            });
-          } else {
-            mainWindow?.webContents.send('copilot:error', { sessionId, message: errorMessage });
-          }
-        });
-        return;
-      }
-
-      mainWindow.webContents.send('copilot:error', { sessionId, message: errorMessage });
-    } else if (event.type === 'session.usage_info') {
-      mainWindow.webContents.send('copilot:usageInfo', {
-        sessionId,
-        tokenLimit: event.data.tokenLimit,
-        currentTokens: event.data.currentTokens,
-        messagesLength: event.data.messagesLength,
-      });
-    } else if (event.type === 'session.compaction_start') {
-      log.info(`[${sessionId}] Compaction started`);
-      mainWindow.webContents.send('copilot:compactionStart', { sessionId });
-    } else if (event.type === 'session.compaction_complete') {
-      log.info(`[${sessionId}] Compaction complete:`, event.data);
-      mainWindow.webContents.send('copilot:compactionComplete', {
-        sessionId,
-        success: event.data.success,
-        preCompactionTokens: event.data.preCompactionTokens,
-        postCompactionTokens: event.data.postCompactionTokens,
-        tokensRemoved: event.data.tokensRemoved,
-        summaryContent: event.data.summaryContent,
-        error: event.data.error,
-      });
-    }
-  });
+  registerSessionEventForwarding(sessionId, resumedSession);
 
   // Update session state with new session object
   sessionState.session = resumedSession;
@@ -1483,90 +1488,7 @@ Browser tools available: browser_navigate, browser_click, browser_fill, browser_
 
   const sessionId = newSession.sessionId; // Use SDK's session ID
 
-  // Set up event handler for this session
-  newSession.on((event) => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-
-    // Always forward events - frontend routes by sessionId
-    console.log(`[${sessionId}] Event:`, event.type);
-
-    if (event.type === 'assistant.message_delta') {
-      mainWindow.webContents.send('copilot:delta', { sessionId, content: event.data.deltaContent });
-    } else if (event.type === 'assistant.message') {
-      mainWindow.webContents.send('copilot:message', { sessionId, content: event.data.content });
-    } else if (event.type === 'session.idle') {
-      const currentSessionState = sessions.get(sessionId);
-      if (currentSessionState) currentSessionState.isProcessing = false;
-      mainWindow.webContents.send('copilot:idle', { sessionId });
-      requestUserAttention();
-    } else if (event.type === 'tool.execution_start') {
-      console.log(`[${sessionId}] Tool start FULL:`, JSON.stringify(event.data, null, 2));
-      mainWindow.webContents.send('copilot:tool-start', {
-        sessionId,
-        toolCallId: event.data.toolCallId,
-        toolName: event.data.toolName,
-        input: event.data.arguments || (event.data as Record<string, unknown>),
-      });
-    } else if (event.type === 'tool.execution_complete') {
-      console.log(`[${sessionId}] Tool end FULL:`, JSON.stringify(event.data, null, 2));
-      const completeData = event.data as Record<string, unknown>;
-      mainWindow.webContents.send('copilot:tool-end', {
-        sessionId,
-        toolCallId: event.data.toolCallId,
-        toolName: completeData.toolName,
-        input: completeData.arguments || completeData,
-        output: event.data.result?.content || completeData.output,
-      });
-    } else if (event.type === 'session.error') {
-      console.log(`[${sessionId}] Session error:`, event.data);
-      const errorMessage = event.data?.message || JSON.stringify(event.data);
-
-      // Auto-repair tool_result errors (duplicate or orphaned after compaction)
-      if (
-        errorMessage.includes('multiple `tool_result` blocks') ||
-        errorMessage.includes('each tool_use must have a single result') ||
-        errorMessage.includes('unexpected `tool_use_id`') ||
-        errorMessage.includes('Each `tool_result` block must have a corresponding `tool_use`')
-      ) {
-        log.info(`[${sessionId}] Detected tool_result corruption error, attempting auto-repair...`);
-        repairDuplicateToolResults(sessionId).then((repaired) => {
-          if (repaired) {
-            mainWindow?.webContents.send('copilot:error', {
-              sessionId,
-              message: 'Session repaired. Please resend your last message.',
-              isRepaired: true,
-            });
-          } else {
-            mainWindow?.webContents.send('copilot:error', { sessionId, message: errorMessage });
-          }
-        });
-        return;
-      }
-
-      mainWindow.webContents.send('copilot:error', { sessionId, message: errorMessage });
-    } else if (event.type === 'session.usage_info') {
-      mainWindow.webContents.send('copilot:usageInfo', {
-        sessionId,
-        tokenLimit: event.data.tokenLimit,
-        currentTokens: event.data.currentTokens,
-        messagesLength: event.data.messagesLength,
-      });
-    } else if (event.type === 'session.compaction_start') {
-      console.log(`[${sessionId}] Compaction started`);
-      mainWindow.webContents.send('copilot:compactionStart', { sessionId });
-    } else if (event.type === 'session.compaction_complete') {
-      console.log(`[${sessionId}] Compaction complete:`, event.data);
-      mainWindow.webContents.send('copilot:compactionComplete', {
-        sessionId,
-        success: event.data.success,
-        preCompactionTokens: event.data.preCompactionTokens,
-        postCompactionTokens: event.data.postCompactionTokens,
-        tokensRemoved: event.data.tokensRemoved,
-        summaryContent: event.data.summaryContent,
-        error: event.data.error,
-      });
-    }
-  });
+  registerSessionEventForwarding(sessionId, newSession);
 
   sessions.set(sessionId, {
     session: newSession,
@@ -2477,16 +2399,41 @@ ipcMain.handle('copilot:setModel', async (_event, data: { sessionId: string; mod
 
   const sessionState = sessions.get(data.sessionId);
   if (sessionState) {
-    // Destroy old session before creating new one
+    const { cwd, client } = sessionState;
+
+    // Destroy local session state (conversation history is preserved on server)
     console.log(`Destroying session ${data.sessionId} before model change to ${data.model}`);
     await sessionState.session.destroy();
     sessions.delete(data.sessionId);
 
-    // Create replacement session with new model (keep same cwd)
-    const newSessionId = await createNewSession(data.model, sessionState.cwd);
-    const newSessionState = sessions.get(newSessionId)!;
-    console.log(`Sessions after model change: ${sessions.size} active`);
-    return { sessionId: newSessionId, model: data.model, cwd: newSessionState.cwd };
+    const mcpConfig = await readMcpConfig();
+    const browserTools = createBrowserTools(data.sessionId);
+
+    // Resume the same session with the new model — preserves conversation context
+    const resumedSession = await client.resumeSession(data.sessionId, {
+      model: data.model,
+      mcpServers: mcpConfig.mcpServers,
+      tools: browserTools,
+      onPermissionRequest: (request, invocation) =>
+        handlePermissionRequest(request, invocation, resumedSession.sessionId),
+    });
+
+    const resumedSessionId = resumedSession.sessionId;
+    registerSessionEventForwarding(resumedSessionId, resumedSession);
+
+    sessions.set(resumedSessionId, {
+      session: resumedSession,
+      client,
+      model: data.model,
+      cwd,
+      alwaysAllowed: new Set(sessionState.alwaysAllowed),
+      allowedPaths: new Set(sessionState.allowedPaths),
+      isProcessing: false,
+    });
+    activeSessionId = resumedSessionId;
+
+    console.log(`Session ${resumedSessionId} resumed with model ${data.model}`);
+    return { sessionId: resumedSessionId, model: data.model, cwd };
   }
 
   return { model: data.model };
