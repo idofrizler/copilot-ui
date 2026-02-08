@@ -68,6 +68,7 @@
     },
     "dmg": {
       "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "backgroundColor": "#ffffff",
       "contents": [
         {
           "x": 130,
