@@ -53,7 +53,7 @@ export const CodeBlockWithCopy: React.FC<CodeBlockWithCopyProps> = ({
   const showRunButton = isCliCommand && terminal !== null;
 
   return (
-    <div className="relative group" data-clarity-mask="true">
+    <div className="relative group">
       <pre
         className={`bg-copilot-bg rounded p-2 my-2 overflow-x-auto text-xs max-w-full ${isDiagram ? 'ascii-diagram' : ''}`}
       >

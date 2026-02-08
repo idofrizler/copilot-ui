@@ -426,7 +426,7 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Session History" width="650px">
-      <Modal.Body className="p-0" data-clarity-mask="true">
+      <Modal.Body className="p-0">
         {/* Success/Error Messages */}
         {successMessage && (
           <div className="text-copilot-success text-sm p-2 m-3 mb-0 bg-copilot-success/10 rounded">

@@ -25,7 +25,7 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({
       width="550px"
       testId="release-notes-modal"
     >
-      <Modal.Body className="max-h-[60vh] overflow-y-auto" data-clarity-mask="true">
+      <Modal.Body className="max-h-[60vh] overflow-y-auto">
         <div className="space-y-4">
           <div className="flex items-center gap-2 mb-4">
             <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center">

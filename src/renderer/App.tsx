@@ -3,7 +3,6 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import logo from './assets/logo.png';
 import { useTheme } from './context/ThemeContext';
-import { trackEvent, TelemetryEvents } from './utils/telemetry';
 import {
   Spinner,
   GitBranchWidget,
@@ -1332,7 +1331,6 @@ const App: React.FC = () => {
         const serverCount = Object.keys(config.mcpServers || {}).length;
         console.log('Loaded MCP servers:', Object.keys(config.mcpServers || {}));
         if (serverCount > 0) {
-          trackEvent(TelemetryEvents.FEATURE_MCP_CONNECTED);
         }
       } catch (error) {
         console.error('Failed to load MCP config:', error);
@@ -1448,7 +1446,6 @@ const App: React.FC = () => {
         // Create initial session
         try {
           const result = await window.electronAPI.copilot.createSession();
-          trackEvent(TelemetryEvents.SESSION_CREATED);
           const newTab: TabState = {
             id: result.sessionId,
             name: generateTabName(),
@@ -3900,7 +3897,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       const result = await window.electronAPI.copilot.createSession({
         cwd: folderResult.path,
       });
-      trackEvent(TelemetryEvents.SESSION_CREATED);
       const newTab: TabState = {
         id: result.sessionId,
         name: generateTabName(),
@@ -3974,8 +3970,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       const result = await window.electronAPI.copilot.createSession({
         cwd: worktreePath,
       });
-      trackEvent(TelemetryEvents.SESSION_CREATED);
-      trackEvent(TelemetryEvents.FEATURE_WORKTREE_CREATED);
 
       // Pre-approve file writes, mkdir (for evidence folders), and GitHub web fetches for all worktree sessions
       // This enables smooth operation in both Ralph Wiggum and Lisa Simpson modes
@@ -4247,7 +4241,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         }
 
         const result = await window.electronAPI.copilot.createSession();
-        trackEvent(TelemetryEvents.SESSION_CREATED);
         const newTab: TabState = {
           id: result.sessionId,
           name: generateTabName(),
@@ -4555,7 +4548,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
     try {
       const result = await window.electronAPI.copilot.setModel(activeTab.id, model);
-      trackEvent(TelemetryEvents.FEATURE_MODEL_CHANGED);
       // Update the tab in-place: swap session ID and model, preserve everything else
       setTabs((prev) =>
         prev.map((t) =>
@@ -4614,7 +4606,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
   const handleOpenTerminal = useCallback(() => {
     if (activeTab) {
       setTerminalOpenSessions((prev) => new Set(prev).add(activeTab.id));
-      trackEvent(TelemetryEvents.FEATURE_TERMINAL_OPENED);
     }
   }, [activeTab]);
 
@@ -5592,7 +5583,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                             setRalphEnabled(enabling);
                             if (enabling) {
                               setLisaEnabled(false);
-                              trackEvent(TelemetryEvents.FEATURE_RALPH_ENABLED);
                             }
                           }}
                           className={`flex-1 p-2 rounded-lg border transition-all ${
@@ -5617,7 +5607,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                             setLisaEnabled(enabling);
                             if (enabling) {
                               setRalphEnabled(false);
-                              trackEvent(TelemetryEvents.FEATURE_LISA_ENABLED);
                             }
                           }}
                           className={`flex-1 p-2 rounded-lg border transition-all ${
@@ -5745,7 +5734,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
             )}
 
             {/* Messages Area - Conversation Only */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-2 min-h-0" data-clarity-mask="true">
+            <div className="flex-1 overflow-y-auto p-4 space-y-2 min-h-0">
               {activeTab?.messages.length === 0 && (
                 <div className="flex flex-col items-center justify-center min-h-full text-center -m-4 p-4">
                   <img src={logo} alt="Cooper" className="w-16 h-16 mb-4" />
@@ -6722,7 +6711,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       } else {
                         setTerminalOpenSessions((prev) => new Set(prev).add(activeTab.id));
                         setTerminalInitializedSessions((prev) => new Set(prev).add(activeTab.id));
-                        trackEvent(TelemetryEvents.FEATURE_TERMINAL_OPENED);
                       }
                     }
                   }}
@@ -6773,7 +6761,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   autoFocus
                   rows={1}
                   style={{ height: 'auto' }}
-                  data-clarity-mask="true"
                   onInput={(e) => {
                     const target = e.target as HTMLTextAreaElement;
                     target.style.height = 'auto';
@@ -7085,7 +7072,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       )}
                     </div>
                     {showEditedFiles && activeTab && (
-                      <div className="max-h-48 overflow-y-auto" data-clarity-mask="true">
+                      <div className="max-h-48 overflow-y-auto">
                         {activeTab.editedFiles.length === 0 ? (
                           <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
                             No files edited
@@ -7545,7 +7532,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           }}
           title="Commit & Push Changes"
         >
-          <Modal.Body data-clarity-mask="true">
+          <Modal.Body>
             {activeTab &&
               (() => {
                 // Compute files to commit (excluding untracked files)
@@ -7757,7 +7744,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                           placeholder="Enter commit message..."
                           autoFocus
                           disabled={isGeneratingMessage}
-                          data-clarity-mask="true"
                         />
                         {isGeneratingMessage && (
                           <div className="absolute inset-0 flex items-center justify-center">
@@ -7995,7 +7981,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           title={editingMcpServer ? 'Edit MCP Server' : 'Add MCP Server'}
           width="450px"
         >
-          <Modal.Body className="space-y-4" data-clarity-mask="true">
+          <Modal.Body className="space-y-4">
             {/* Server Name */}
             <div>
               <label className="text-xs text-copilot-text-muted mb-1 block">Server Name</label>
@@ -8115,7 +8101,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           title="MCP Configuration"
           width="600px"
         >
-          <Modal.Body data-clarity-mask="true">
+          <Modal.Body>
             <div className="mb-3">
               <pre className="bg-copilot-bg border border-copilot-border rounded p-3 text-xs text-copilot-text font-mono overflow-auto max-h-96 whitespace-pre-wrap">
                 {JSON.stringify({ mcpServers }, null, 2)}
