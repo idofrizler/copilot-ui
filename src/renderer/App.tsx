@@ -4524,6 +4524,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           currentIntent: null,
           currentIntentTimestamp: null,
           gitBranchRefresh: 0,
+          // New tab starts fresh - draft stays with original session
         };
         setTabs((prev) => [...prev, newTab]);
         setActiveTabId(modelResult.sessionId);
@@ -4534,7 +4535,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       // Empty tab - replace the session with the new model
       const result = await window.electronAPI.copilot.setModel(activeTab.id, model);
       trackEvent(TelemetryEvents.FEATURE_MODEL_CHANGED);
-      // Update the tab with new session ID and model, clear messages
+      // Update the tab with new session ID and model, clear messages but preserve input
       setTabs((prev) => {
         const updated = prev.filter((t) => t.id !== activeTab.id);
         return [
@@ -4557,6 +4558,13 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
             currentIntent: null,
             currentIntentTimestamp: null,
             gitBranchRefresh: 0,
+            // Preserve current input when switching models
+            draftInput: {
+              text: inputValue,
+              imageAttachments: [...imageAttachments],
+              fileAttachments: [...fileAttachments],
+              terminalAttachment: terminalAttachment ? { ...terminalAttachment } : null,
+            },
           },
         ];
       });
