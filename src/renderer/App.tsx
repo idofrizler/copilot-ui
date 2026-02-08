@@ -5420,7 +5420,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     />
                   </button>
                   {openTopBarSelector === 'models' && (
-                    <div className="absolute top-full left-0 z-50 mt-0.5 w-72 max-h-80 overflow-y-auto bg-copilot-bg border border-copilot-border rounded-lg shadow-lg">
+                    <div className="absolute top-full left-0 z-50 mt-0.5 w-72 max-h-80 overflow-y-auto bg-copilot-surface border border-copilot-border rounded-lg shadow-lg">
                       {sortedModels.map((m, idx) => {
                         const isFav = favoriteModels.includes(m.id);
                         return (
@@ -5511,7 +5511,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     />
                   </button>
                   {openTopBarSelector === 'agents' && (
-                    <div className="absolute top-full left-0 z-50 mt-0.5 w-56 bg-copilot-bg border border-copilot-border rounded-lg shadow-lg">
+                    <div className="absolute top-full left-0 z-50 mt-0.5 w-56 bg-copilot-surface border border-copilot-border rounded-lg shadow-lg">
                       <div className="px-4 py-6 text-center">
                         <ZapIcon size={20} className="mx-auto text-copilot-text-muted mb-2" />
                         <p className="text-xs text-copilot-text-muted">Coming soon</p>
@@ -5565,7 +5565,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   </button>
                   {openTopBarSelector === 'loops' && (
                     <div
-                      className="absolute top-full left-0 z-50 mt-0.5 w-80 bg-copilot-bg border border-copilot-border rounded-lg shadow-lg p-3"
+                      className={`absolute top-full z-50 mt-0.5 w-80 max-w-[calc(100vw-2rem)] bg-copilot-surface border border-copilot-border rounded-lg shadow-lg p-3 ${isMobile ? 'right-0' : 'left-0'}`}
                       data-tour="agent-modes-panel"
                     >
                       <div className="flex items-center gap-2 mb-3">
