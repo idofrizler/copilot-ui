@@ -5,8 +5,6 @@ import logo from './assets/logo.png';
 import { useTheme } from './context/ThemeContext';
 import {
   Spinner,
-  GitBranchWidget,
-  WindowControls,
   Dropdown,
   Modal,
   Button,
@@ -15,62 +13,53 @@ import {
   ChevronRightIcon,
   CloseIcon,
   PlusIcon,
-  MoonIcon,
-  SunIcon,
   MonitorIcon,
-  UploadIcon,
   ClockIcon,
   FolderIcon,
   CopyIcon,
   CheckIcon,
-  FolderOpenIcon,
   CommitIcon,
   FileIcon,
   EditIcon,
   StopIcon,
-  TrashIcon,
   GlobeIcon,
   RalphIcon,
   LisaIcon,
   TerminalIcon,
-  PaletteIcon,
   BookIcon,
   ImageIcon,
   HistoryIcon,
   GitBranchIcon,
   TerminalPanel,
   TerminalOutputShrinkModal,
-  CreateWorktreeSession,
   ChoiceSelector,
   PaperclipIcon,
-  MicrophoneIcon,
   MicButton,
   SessionHistory,
   FilePreviewModal,
   UpdateAvailableModal,
-  WelcomeWizard,
   SpotlightTour,
   ReleaseNotesModal,
-  SearchableBranchSelect,
   CodeBlockWithCopy,
   RepeatIcon,
   StarIcon,
   StarFilledIcon,
   WarningIcon,
-  ArchiveIcon,
-  UnarchiveIcon,
   SidebarDrawer,
-  AccordionSelect,
   MenuIcon,
   ZapIcon,
   SettingsModal,
   SettingsIcon,
   HelpCircleIcon,
-  ToolActivitySection,
-  VoiceKeywordsPanel,
   VolumeMuteIcon,
   TitleBar,
 } from './components';
+import { GitBranchWidget, CommitModal, useCommitModal } from './features/git';
+import { CreateWorktreeSession } from './features/sessions';
+import { ToolActivitySection } from './features/chat';
+import { buildLisaPhasePrompt } from './features/agent-loops';
+import { enrichSessionsWithWorktreeData } from './features/sessions';
+import { getCleanEditedFiles } from './features/git';
 import {
   Status,
   Message,
@@ -109,471 +98,6 @@ import { useClickOutside, useResponsive, useVoiceSpeech } from './hooks';
 import buildInfo from './build-info.json';
 import { TerminalProvider } from './context/TerminalContext';
 
-// Helper function to deduplicate and filter edited files
-const getCleanEditedFiles = (files: string[]): string[] => {
-  return Array.from(new Set(files.filter((f) => f?.trim())));
-};
-
-const enrichSessionsWithWorktreeData = async (
-  sessions: PreviousSession[]
-): Promise<PreviousSession[]> => {
-  try {
-    const worktreeSessions = await window.electronAPI.worktree.listSessions();
-    const worktreeMap = new Map(worktreeSessions.sessions.map((wt) => [wt.worktreePath, wt]));
-
-    return sessions.map((session) => {
-      const worktree = session.cwd ? worktreeMap.get(session.cwd) : null;
-      if (worktree) {
-        return {
-          ...session,
-          worktree: {
-            id: worktree.id,
-            branch: worktree.branch,
-            worktreePath: worktree.worktreePath,
-            status: worktree.status,
-            diskUsage: worktree.diskUsage,
-          },
-        };
-      }
-      // Worktree no longer exists - clear stale worktree data
-      if (session.worktree) {
-        const { worktree: _, ...sessionWithoutWorktree } = session;
-        return sessionWithoutWorktree;
-      }
-      return session;
-    });
-  } catch (error) {
-    console.error('Failed to enrich sessions with worktree data:', error);
-    return sessions;
-  }
-};
-function buildLisaPhasePrompt(
-  phase: LisaPhase,
-  visitCount: number,
-  originalPrompt: string,
-  lastResponse: string,
-  reviewerFeedback?: string
-): string {
-  const phaseEmoji: Record<LisaPhase, string> = {
-    plan: '📋',
-    'plan-review': '👀',
-    execute: '💻',
-    'code-review': '👀',
-    validate: '🧪',
-    'final-review': '👀',
-  };
-  const phaseName: Record<LisaPhase, string> = {
-    plan: 'PLANNER',
-    'plan-review': 'PLAN REVIEW',
-    execute: 'CODE',
-    'code-review': 'CODE REVIEW',
-    validate: 'TEST',
-    'final-review': 'FINAL REVIEW',
-  };
-
-  const feedbackSection = reviewerFeedback
-    ? `\n---\n\n## Reviewer Feedback (ADDRESS THIS):\n\n${reviewerFeedback}\n`
-    : '';
-
-  // Show visit count only if revisiting (more than once)
-  const visitLabel = visitCount > 1 ? ` (Visit #${visitCount})` : '';
-
-  // Common instruction for all phases - no git commits during the loop
-  const noCommitWarning = `
-⚠️ **IMPORTANT: DO NOT commit or push changes during this loop!**
-- Do NOT run \`git add\`, \`git commit\`, or \`git push\`
-- The user will commit changes after the loop completes
-- Only make code changes to files, do not stage or commit them
-`;
-
-  const phaseInstructions: Record<LisaPhase, string> = {
-    plan: `## 📋 PLANNER PHASE${visitLabel}
-${noCommitWarning}
-You are the **Planner** agent. Your job is to create a comprehensive plan for the task.
-
-### CRITICAL: Address ALL Original Requirements
-- Read the original user request carefully - EVERY item mentioned must be addressed
-- If the user asked for multiple things, create tasks for EACH one
-- Do not skip, simplify, or "save for later" any part of the original request
-- If something is unclear, make reasonable assumptions and document them
-
-### Your Responsibilities:
-1. **Analyze** the user's request thoroughly - enumerate EVERY requirement
-2. **Create plan.md** in the current working directory with:
-   - Problem statement (list ALL requirements from the original ask)
-   - Proposed approach  
-   - Detailed workplan with checkboxes for EACH requirement
-   - Acceptance criteria (what "done" looks like for EACH item)
-   - Architecture decisions and rationale
-   - Testing strategy
-3. **Be specific** - break down into atomic, verifiable tasks
-4. **Consider edge cases** and error handling
-5. **Map each task back** to the original requirement it addresses
-
-### Output Requirements:
-- Create/update \`plan.md\` file
-- The plan MUST cover 100% of what the user asked for
-- The plan should be detailed enough for the Coder to implement without ambiguity
-- Include clear acceptance criteria for the Reviewer to verify
-
-When your plan is complete and ready for review, output exactly:
-${LISA_PHASE_COMPLETE_SIGNAL}`,
-
-    'plan-review': `## 👀 PLAN REVIEW${visitLabel}
-${noCommitWarning}
-You are the **Reviewer** agent. The Planner has created a plan. Your job is to review it BEFORE any code is written.
-
-### BE STRICT - Your job is to catch problems EARLY
-
-### Review plan.md for:
-1. **Completeness** - Does it cover ALL aspects of the user's ORIGINAL request?
-   - Go back and read the original task - is EVERY requirement addressed?
-   - If anything is missing, REJECT immediately
-2. **Clarity** - Is each task specific and unambiguous?
-   - Vague tasks like "implement feature" are NOT acceptable - REJECT
-3. **Architecture** - Is the proposed approach sound? Any concerns?
-   - Will this approach actually work? Question assumptions
-4. **Acceptance criteria** - Are they clear and verifiable?
-   - Each requirement needs a way to verify it's done
-5. **Risk assessment** - Are edge cases and error handling considered?
-6. **Scope** - Is the scope appropriate? Not too big, not missing things?
-
-### Default to REJECT
-- If you have ANY doubts, REJECT and ask for clarification
-- A flawed plan leads to wasted coding time - be thorough now
-- Don't approve just to move forward - demand quality
-
-### Your Decision:
-- APPROVE only if the plan is comprehensive, clear, and addresses 100% of the original request
-- REJECT if ANYTHING is missing, unclear, or concerning
-
-### Output Requirements:
-If APPROVING (plan is ready for implementation):
-${LISA_REVIEW_APPROVE_SIGNAL}
-
-If REJECTING (plan needs improvements):
-${LISA_REVIEW_REJECT_PREFIX}plan</lisa-review>
-
-**Always include specific feedback** - what's missing, what's unclear, what needs to change.`,
-
-    execute: `## 💻 CODER PHASE${visitLabel}
-${noCommitWarning}
-You are the **Coder** agent. The plan has been reviewed and approved. Now implement it.
-
-### Your Responsibilities:
-1. **Read plan.md** and understand the requirements
-2. **Implement** each task in the plan systematically
-3. **Update plan.md** by checking off completed items as you go
-4. **Document** any significant decisions or deviations from the plan
-5. **Build** and verify the code compiles without errors
-6. **Self-test** - do basic sanity checks as you code
-
-### Output Requirements:
-- All code changes saved to files (DO NOT commit)
-- plan.md updated with completed checkboxes
-- Build passes without errors
-- Note any deviations from the plan and why
-
-When all planned items are implemented and the build passes, output exactly:
-${LISA_PHASE_COMPLETE_SIGNAL}`,
-
-    'code-review': `## 👀 CODE REVIEW${visitLabel}
-${noCommitWarning}
-You are the **Reviewer** agent. The Coder has implemented the plan. Review the code BEFORE testing.
-
-### BE STRICT - Don't let bad code through to testing
-
-### Review the code changes for:
-1. **Correctness** - Does it implement what the plan specified?
-   - Check EVERY item in plan.md - was it actually implemented?
-   - If any task is incomplete or wrong, REJECT
-2. **Code quality** - Clean code, good naming, no duplication
-   - Sloppy code gets REJECTED - demand clean implementation
-3. **Security** - Any vulnerabilities introduced?
-4. **Architecture** - Does it fit the codebase patterns?
-   - Hacky solutions get REJECTED - demand proper architecture
-5. **Error handling** - Are edge cases handled?
-6. **Performance** - Any obvious performance issues?
-
-### Use git diff to see changes:
-Run \`git diff\` to see all changes made by the Coder.
-
-### Default to REJECT
-- If the implementation is incomplete, REJECT
-- If the code is messy or hacky, REJECT
-- If error handling is missing, REJECT
-- Don't approve mediocre work - demand quality
-
-### Your Decision:
-- APPROVE only if code is complete, clean, and production-ready
-- REJECT if ANY issues are found - don't let problems slide
-
-### Output Requirements:
-If APPROVING (code is ready for testing):
-${LISA_REVIEW_APPROVE_SIGNAL}
-
-If REJECTING (specify which phase):
-${LISA_REVIEW_REJECT_PREFIX}execute</lisa-review>
-OR
-${LISA_REVIEW_REJECT_PREFIX}plan</lisa-review>
-
-**Always include specific feedback** - what's wrong, line numbers, what needs to change.`,
-
-    validate: `## 🧪 TEST PHASE${visitLabel}
-${noCommitWarning}
-You are the **Tester** agent. Code has been reviewed. Now thoroughly validate it works.
-
-### CRITICAL: Screenshots Must Be of the RUNNING APPLICATION
-- Screenshots MUST show the actual application UI with the new features
-- Screenshots must demonstrate the feature being USED (user interactions simulated)
-- DO NOT take screenshots of: code files, plan.md, terminal output, or documentation
-- Every screenshot should show what a USER would see when using the feature
-- Simulate realistic user workflows - click buttons, fill forms, navigate menus
-
-### Your Responsibilities:
-1. **Create test plan** in \`evidence/test-plan.md\`
-2. **Run existing tests** - \`npm test\` or equivalent
-3. **Write new tests** if appropriate for the changes - mock dependencies as needed
-4. **Visual testing with Playwright** - THIS IS REQUIRED:
-   - Launch and automate the ACTUAL APPLICATION
-   - Navigate to the new features and interact with them
-   - Simulate real user actions (clicks, typing, navigation)
-   - **Capture screenshots of the APPLICATION UI using Playwright**
-   - Example: \`await page.screenshot({ path: 'evidence/screenshots/01-feature.png' })\`
-   - Example: \`await page.screenshot({ path: 'evidence/screenshots/01-feature.png' })\`
-5. **Create evidence folder** at \`evidence/\` containing:
-   - \`test-plan.md\` - what you're testing and how
-   - \`test-results.md\` - pass/fail summary, any errors
-   - \`screenshots/\` - Playwright-captured screenshots showing the feature
-   - \`ux-notes.md\` - observations about the user experience
-   - \`checklist.md\` - verification of each acceptance criterion
-6. **Generate HTML summary** at \`evidence/summary.html\`:
-   - Create a polished, readable HTML page summarizing all evidence
-   - Include inline CSS for styling (no external dependencies)
-   - Structure:
-     * **Header**: Task title, completion date, status badge
-     * **Executive Summary**: Brief description of what was implemented
-     * **Test Results**: Table showing all tests run with pass/fail status
-     * **Screenshots Gallery**: Interactive lightbox gallery with keyboard navigation
-       - Thumbnail container: \`<div id="gallery" style="display:flex; overflow-x:auto; gap:16px; padding:16px 0; scroll-snap-type:x mandatory;">\`
-       - Each thumbnail with onclick: \`<div class="thumb" style="flex:0 0 auto; scroll-snap-align:start; cursor:pointer;" onclick="openLightbox(INDEX)">\`
-       - Thumbnail image: \`<img src="screenshots/filename.png" alt="Description" style="height:250px; border-radius:8px;">\`
-       - Caption below each thumbnail
-       - **REQUIRED: Add this lightbox overlay HTML/CSS/JS at end of body:**
-         \`\`\`html
-         <div id="lightbox" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:1000; align-items:center; justify-content:center;">
-           <button onclick="closeLightbox()" style="position:absolute; top:20px; right:20px; background:none; border:none; color:white; font-size:32px; cursor:pointer;">&times;</button>
-           <button onclick="prevImage()" style="position:absolute; left:20px; top:50%; transform:translateY(-50%); background:rgba(255,255,255,0.2); border:none; color:white; font-size:32px; padding:16px 20px; cursor:pointer; border-radius:8px;">&lsaquo;</button>
-           <img id="lightbox-img" style="max-width:90vw; max-height:85vh; border-radius:8px;">
-           <button onclick="nextImage()" style="position:absolute; right:20px; top:50%; transform:translateY(-50%); background:rgba(255,255,255,0.2); border:none; color:white; font-size:32px; padding:16px 20px; cursor:pointer; border-radius:8px;">&rsaquo;</button>
-           <div id="lightbox-caption" style="position:absolute; bottom:40px; color:white; text-align:center; width:100%; font-size:16px;"></div>
-           <div id="lightbox-counter" style="position:absolute; top:20px; left:20px; color:white; font-size:14px;"></div>
-         </div>
-         <script>
-           const images=[...document.querySelectorAll('#gallery .thumb img')].map(img=>({src:img.src,caption:img.alt||''}));
-           let currentIndex=0;
-           function openLightbox(i){currentIndex=i;updateLightbox();document.getElementById('lightbox').style.display='flex';}
-           function closeLightbox(){document.getElementById('lightbox').style.display='none';}
-           function updateLightbox(){document.getElementById('lightbox-img').src=images[currentIndex].src;document.getElementById('lightbox-caption').textContent=images[currentIndex].caption;document.getElementById('lightbox-counter').textContent=(currentIndex+1)+'/'+images.length;}
-           function nextImage(){currentIndex=(currentIndex+1)%images.length;updateLightbox();}
-           function prevImage(){currentIndex=(currentIndex-1+images.length)%images.length;updateLightbox();}
-           document.addEventListener('keydown',e=>{if(document.getElementById('lightbox').style.display==='flex'){if(e.key==='Escape')closeLightbox();if(e.key==='ArrowRight')nextImage();if(e.key==='ArrowLeft')prevImage();}});
-           document.getElementById('lightbox').addEventListener('click',e=>{if(e.target.id==='lightbox')closeLightbox();});
-         </script>
-         \`\`\`
-       - Click thumbnail to open in overlay; use ←/→ arrow keys or buttons to navigate; Escape or backdrop click closes
-     * **Code Changes Summary**: Files modified, lines added/removed
-     * **Acceptance Criteria Checklist**: Visual checklist with ✅/❌
-     * **UX Notes**: Any observations about user experience
-     * **Reviewer Notes Section**: Space for final review comments
-   - Make it visually appealing - use colors, spacing, and clear typography
-   - This HTML should convince a reviewer that the feature is complete and well-tested
-
-### CRITICAL: Test the ACTUAL FEATURE, Not Random Functionality
-
-**Focus your testing on the SPECIFIC scenarios described in the issue:**
-1. **Read the original issue carefully** - What exact UI/behavior was reported as broken?
-2. **Reproduce the bug scenario** - Create test conditions that match the reported issue
-   - If the issue mentions "long error messages", inject/mock long error messages
-   - If the issue mentions a specific modal/overlay, test THAT modal, not a different one
-   - If the issue mentions specific user actions, simulate THOSE actions
-3. **Don't substitute unrelated tests** - Testing one modal doesn't prove a different modal works
-4. **Mock/inject data as needed** - If testing requires specific conditions (errors, edge cases), create tooling to inject that data
-
-**Screenshots MUST show:**
-- The specific UI component mentioned in the issue
-- The exact scenario that was broken (e.g., "long Git error" means show a long Git error)
-- Before/after states of the REPORTED bug, not generic app states
-
-**Anti-patterns to AVOID:**
-- ❌ Testing whatever modal/component is easiest to open
-- ❌ Using existing unrelated E2E tests as evidence  
-- ❌ Generic "app works" screenshots
-- ❌ Skipping the actual bug scenario because it's "hard to reproduce"
-
-**If the bug scenario is hard to reproduce:**
-- Create mock data injection using \`page.evaluate()\`
-- Set component state directly via React internals
-- Build test fixtures that simulate the conditions
-- This effort IS part of proper testing - do not skip it
-
-### Testing Approach:
-- Even if something seems hard to test, find creative ways to verify it
-- Mock external dependencies, APIs, or complex components as needed
-- **Use Playwright for UI testing** - it works with BOTH web apps AND Electron desktop apps
-- For non-visual changes, write unit tests with appropriate mocks
-- **Do not skip testing** - find a way or explain why it's truly impossible
-
-### ELECTRON APP SCREENSHOTS - USE YOUR BROWSER TOOLS
-**CRITICAL**: If the target application is an Electron desktop app:
-- You have native \`browser_*\` tools (browser_navigate, browser_screenshot, etc.) powered by Playwright
-- Playwright natively supports Electron apps - there is NO barrier to capturing screenshots
-- Do NOT say "I cannot take screenshots of desktop apps" - you CAN and MUST use Playwright
-- Use \`browser_navigate\` to connect to the app, then \`browser_screenshot\` to capture it
-- If the app is already running, you can connect Playwright to its existing window
-
-### Screenshot Requirements (CRITICAL - using Playwright):
-Screenshots are the PRIMARY evidence that the feature works. Be THOROUGH.
-
-**QUANTITY**: Capture EVERY meaningful step in the feature flow. A typical feature should have 8-15+ screenshots minimum:
-- Initial state BEFORE any changes (baseline)
-- Each UI element/component that was added or modified
-- Each step of the user workflow (click by click)
-- Form inputs, selections, hover states
-- Loading states, transitions, animations (multiple frames if needed)
-- Success states, confirmations, results
-- Error states and edge cases
-- Different data scenarios (empty, one item, many items)
-
-**QUALITY**: Screenshots MUST show the ACTUAL FEATURE being implemented:
-- Capture the specific UI components mentioned in the requirements
-- Show the feature from a user's perspective - what would a user see?
-- Include enough context (surrounding UI) to understand where the feature lives
-- If feature has multiple modes/states, capture ALL of them
-
-**NAMING**: Use descriptive sequential names: \`01-initial-state.png\`, \`02-button-clicked.png\`, \`03-modal-opened.png\`, etc.
-
-**INVALID (will be REJECTED by reviewer)**:
-- Code editor screenshots
-- Terminal/console output  
-- File contents or plan.md
-- Generic app screenshots not showing the specific feature
-- Only 1-3 basic screenshots for a multi-step feature
-
-**VALID**:
-- App windows showing the NEW feature
-- Dialogs, modals, menus that were added
-- UI components in various states
-- Complete user workflows step-by-step
-
-Use Playwright: \`await page.screenshot({ path: 'evidence/screenshots/XX-description.png' })\`
-
-When validation is complete with all evidence gathered, output exactly:
-${LISA_PHASE_COMPLETE_SIGNAL}`,
-
-    'final-review': `## 👀 FINAL REVIEW${visitLabel}
-${noCommitWarning}
-You are the **Reviewer** agent. This is the FINAL review before completion.
-
-### BE EXTREMELY STRICT - This is the last line of defense
-
-### Default stance: REJECT unless everything is perfect
-- Your job is to find problems, not approve quickly
-- If ANYTHING is subpar, REJECT - don't let it slide
-- The user is counting on you to maintain quality
-
-### You MUST review ALL artifacts:
-
-1. **Review plan.md**:
-   - Are ALL tasks checked off? If not → REJECT to Coder
-   - Go back to ORIGINAL REQUEST - was everything addressed?
-   - Any task not done? → REJECT
-
-2. **Review code changes** (\`git diff\`):
-   - Final quality check - is this production-ready?
-   - Any shortcuts or hacks? → REJECT to Coder
-
-3. **Review evidence folder** - THIS IS CRITICAL:
-   - **Open \`evidence/summary.html\`** - this is the main evidence document
-     * Is it present? If not → REJECT to Tester
-     * Is it complete with all sections? If not → REJECT to Tester
-   - **USE THE VIEW TOOL** to look at \`evidence/screenshots/*.png\`
-   - **VALIDATE SCREENSHOTS THOROUGHLY**:
-     * Screenshots must show the APPLICATION UI, not code or docs
-     * If screenshots show code files, plan.md, or terminal → REJECT to Tester
-     * Screenshots must demonstrate the SPECIFIC FEATURE being implemented
-     * **COUNT THE SCREENSHOTS** - a proper feature review needs 8-15+ screenshots minimum:
-       - If only 1-5 basic screenshots exist → REJECT to Tester (demand comprehensive coverage)
-       - Each step of the user workflow should have its own screenshot
-       - Different states (empty, populated, error, success) should all be captured
-     * **CHECK SCREENSHOT CONTENT** - Do they actually show the new feature?
-       - Generic app screenshots are NOT acceptable
-       - Must see the specific UI components/changes from the requirements
-       - Must show the complete user flow, step by step
-   - Analyze each screenshot for UX quality:
-     * Is the UI visually correct?
-     * Is the layout good?
-     * Any visual bugs or glitches?
-     * Is it user-friendly?
-   - Review \`evidence/test-results.md\` - did all tests pass?
-   - Review \`evidence/ux-notes.md\` - any concerns noted?
-
-4. **Enforce proper testing - NO EXCUSES**:
-   - Were tests written for the changes? If not → REJECT to Tester
-   - Were Playwright screenshots of the APP captured? If not → REJECT to Tester
-   - **Playwright works with Electron apps** - "desktop app can't be screenshotted" is NOT a valid excuse
-   - The agent has \`browser_*\` tools that use Playwright and work with Electron - REJECT if these weren't used
-   - Is \`evidence/summary.html\` present and complete? If not → REJECT to Tester
-   - "This can't be tested" is NOT acceptable - REJECT and demand creative solutions
-   - Mocking and stubbing are always possible - demand them
-
-5. **Make final decision**:
-   - REJECT if missing summary.html
-   - REJECT if screenshots don't show the actual app UI
-   - REJECT if screenshots show code/terminal/docs instead of features
-   - REJECT if tests are missing
-   - REJECT if UX is poor
-   - REJECT if any task is incomplete
-   - APPROVE only if EVERYTHING is perfect
-
-### IMPORTANT: Actually view the screenshots!
-Use: \`view evidence/screenshots/[filename].png\` for each screenshot.
-If screenshots don't show the APPLICATION UI → REJECT to Tester immediately.
-If no screenshots exist → REJECT to Tester immediately.
-
-### Output Requirements:
-If APPROVING (everything is genuinely complete and high quality):
-${LISA_REVIEW_APPROVE_SIGNAL}
-
-If REJECTING (specify which phase and detailed feedback):
-${LISA_REVIEW_REJECT_PREFIX}validate</lisa-review>
-OR
-${LISA_REVIEW_REJECT_PREFIX}execute</lisa-review>
-OR
-${LISA_REVIEW_REJECT_PREFIX}plan</lisa-review>
-
-**Include detailed feedback on what was reviewed and the decision rationale.**`,
-  };
-
-  return `${phaseEmoji[phase]} **Lisa Simpson Loop - ${phaseName[phase]}**
-${feedbackSection}
----
-
-## Original Task:
-
-${originalPrompt}
-
----
-
-## Previous Response (context):
-
-${lastResponse.slice(0, 2000)}${lastResponse.length > 2000 ? '\n\n... (truncated)' : ''}
-
----
-
-${phaseInstructions[phase]}`;
-}
-
 const App: React.FC = () => {
   const [status, setStatus] = useState<Status>('connecting');
   const [inputValue, setInputValue] = useState('');
@@ -595,31 +119,10 @@ const App: React.FC = () => {
   const [cwdCopied, setCwdCopied] = useState(false);
   const [filePreviewPath, setFilePreviewPath] = useState<string | null>(null);
   const [isGitRepo, setIsGitRepo] = useState<boolean>(true);
-  const [showCommitModal, setShowCommitModal] = useState(false);
-  const [commitMessage, setCommitMessage] = useState('');
-  const [isCommitting, setIsCommitting] = useState(false);
-  const [commitError, setCommitError] = useState<string | null>(null);
-  const [commitAction, setCommitAction] = useState<'push' | 'merge' | 'pr'>('push');
-  const [removeWorktreeAfterMerge, setRemoveWorktreeAfterMerge] = useState(false);
-  const [pendingMergeInfo, setPendingMergeInfo] = useState<{
-    incomingFiles: string[];
-    targetBranch: string;
-  } | null>(null);
-  const [mainAheadInfo, setMainAheadInfo] = useState<{
-    isAhead: boolean;
-    commits: string[];
-    targetBranch?: string;
-  } | null>(null);
-  const [isMergingMain, setIsMergingMain] = useState(false);
-  const [conflictedFiles, setConflictedFiles] = useState<string[]>([]);
+  const commitModal = useCommitModal();
   const [allowMode, setAllowMode] = useState<'once' | 'session' | 'global'>('once');
   const [showAllowDropdown, setShowAllowDropdown] = useState(false);
   const allowDropdownRef = useRef<HTMLDivElement>(null);
-
-  // Target branch selection state
-  const [targetBranch, setTargetBranch] = useState<string | null>(null);
-  const [availableBranches, setAvailableBranches] = useState<string[]>([]);
-  const [isLoadingBranches, setIsLoadingBranches] = useState(false);
 
   // Close allow dropdown when clicking outside
   const closeAllowDropdown = useCallback(() => {
@@ -3570,8 +3073,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     }
   };
 
-  const [isGeneratingMessage, setIsGeneratingMessage] = useState(false);
-
   const handleToggleEditedFiles = async () => {
     const newShowState = !showEditedFiles;
     setShowEditedFiles(newShowState);
@@ -3645,239 +3146,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     };
     checkGitRepo();
   }, [activeTab?.cwd]);
-
-  const handleOpenCommitModal = async () => {
-    if (!activeTab) return;
-
-    setCommitError(null);
-    setIsCommitting(false);
-    setCommitMessage('Checking files...');
-    setIsGeneratingMessage(true);
-    setMainAheadInfo(null);
-    setShowCommitModal(true);
-    setIsLoadingBranches(true);
-
-    try {
-      // Load branches and persisted target branch in parallel with other checks
-      const branchesPromise = window.electronAPI.git.listBranches(activeTab.cwd);
-      const savedTargetBranchPromise = window.electronAPI.settings.getTargetBranch(activeTab.cwd);
-
-      // Get ALL changed files in the repo, not just the ones we tracked
-      const changedResult = await window.electronAPI.git.getChangedFiles(
-        activeTab.cwd,
-        activeTab.editedFiles,
-        true // includeAll: get all changed files, including package-lock.json etc.
-      );
-
-      const actualChangedFiles = changedResult.success
-        ? changedResult.files
-        : activeTab.editedFiles;
-
-      // Update the tab's editedFiles list with all changed files
-      if (changedResult.success) {
-        updateTab(activeTab.id, { editedFiles: actualChangedFiles });
-      }
-
-      // Load branches
-      try {
-        const branchesResult = await branchesPromise;
-        if (branchesResult.success) {
-          setAvailableBranches(branchesResult.branches);
-        }
-      } catch {
-        // Ignore branch loading errors
-      }
-      setIsLoadingBranches(false);
-
-      // Load persisted target branch first, then check if it's ahead
-      let effectiveTargetBranch = 'main';
-      try {
-        const savedTargetResult = await savedTargetBranchPromise;
-        if (savedTargetResult.success && savedTargetResult.targetBranch) {
-          effectiveTargetBranch = savedTargetResult.targetBranch;
-          setTargetBranch(savedTargetResult.targetBranch);
-        } else {
-          setTargetBranch('main');
-        }
-      } catch {
-        setTargetBranch('main');
-      }
-
-      // Now check if target branch is ahead using the persisted target branch
-      const checkTargetAhead = async () => {
-        try {
-          const mainAheadResult = await window.electronAPI.git.checkMainAhead(
-            activeTab.cwd,
-            effectiveTargetBranch
-          );
-          if (mainAheadResult.success && mainAheadResult.isAhead) {
-            setMainAheadInfo({
-              isAhead: true,
-              commits: mainAheadResult.commits,
-              targetBranch: effectiveTargetBranch,
-            });
-          }
-        } catch {
-          // Ignore errors checking target branch ahead
-        }
-      };
-
-      // If no files have changes, allow merge/PR without commit
-      if (actualChangedFiles.length === 0) {
-        setCommitMessage('');
-        setIsGeneratingMessage(false);
-        // Default to merge when no files, since "push" alone doesn't make sense
-        if (commitAction === 'push') {
-          setCommitAction('merge');
-        }
-        await checkTargetAhead();
-        return;
-      }
-
-      // Get diff for actual changed files
-      setCommitMessage('Generating commit message...');
-      const diffResult = await window.electronAPI.git.getDiff(activeTab.cwd, actualChangedFiles);
-      if (diffResult.success && diffResult.diff) {
-        // Generate AI commit message from diff
-        const message = await window.electronAPI.git.generateCommitMessage(diffResult.diff);
-        setCommitMessage(message);
-      } else {
-        // Fallback to simple message
-        const fileNames = actualChangedFiles.map((f) => f.split(/[/\\]/).pop()).join(', ');
-        setCommitMessage(`Update ${fileNames}`);
-      }
-
-      // Check if target branch is ahead
-      await checkTargetAhead();
-    } catch (error) {
-      console.error('Failed to generate commit message:', error);
-      const fileNames = activeTab.editedFiles.map((f) => f.split(/[/\\]/).pop()).join(', ');
-      setCommitMessage(`Update ${fileNames}`);
-    } finally {
-      setIsGeneratingMessage(false);
-    }
-  };
-
-  const handleCommitAndPush = async () => {
-    if (!activeTab) return;
-
-    // Filter out untracked files from the commit
-    const filesToCommit = activeTab.editedFiles.filter(
-      (f) => !(activeTab.untrackedFiles || []).includes(f)
-    );
-    const hasFilesToCommit = filesToCommit.length > 0;
-    const effectiveTargetBranch = targetBranch || 'main';
-
-    // Require commit message only if there are files to commit
-    if (hasFilesToCommit && !commitMessage.trim()) return;
-
-    // If no files and just "push" action, nothing to do
-    if (!hasFilesToCommit && commitAction === 'push') return;
-
-    setIsCommitting(true);
-    setCommitError(null);
-
-    try {
-      // Only commit and push if there are files to commit
-      if (hasFilesToCommit) {
-        const result = await window.electronAPI.git.commitAndPush(
-          activeTab.cwd,
-          filesToCommit, // Use filtered list without stashed files
-          commitMessage.trim(),
-          commitAction === 'merge'
-        );
-
-        if (!result.success) {
-          setCommitError(result.error || 'Commit failed');
-          setIsCommitting(false);
-          return;
-        }
-
-        // If merge synced with main and brought in changes, notify user to test first
-        if (result.mainSyncedWithChanges && commitAction === 'merge') {
-          setPendingMergeInfo({
-            incomingFiles: result.incomingFiles || [],
-            targetBranch: effectiveTargetBranch,
-          });
-          // Clear only the committed files, keep untracked files in editedFiles
-          const remainingEditedFiles = activeTab.untrackedFiles || [];
-          updateTab(activeTab.id, {
-            editedFiles: remainingEditedFiles,
-            gitBranchRefresh: (activeTab.gitBranchRefresh || 0) + 1,
-          });
-          setShowCommitModal(false);
-          setCommitMessage('');
-          setIsCommitting(false);
-          return;
-        }
-      }
-
-      // Handle merge/PR actions (whether or not there was a commit)
-      if (commitAction === 'pr') {
-        const prResult = await window.electronAPI.git.createPullRequest(
-          activeTab.cwd,
-          commitMessage.split('\n')[0] || undefined,
-          undefined, // draft
-          effectiveTargetBranch,
-          activeTab.untrackedFiles || []
-        );
-        if (prResult.success && prResult.prUrl) {
-          window.open(prResult.prUrl, '_blank');
-        } else if (!prResult.success) {
-          setCommitError(prResult.error || 'Failed to create PR');
-          setIsCommitting(false);
-          return;
-        }
-      }
-
-      // If merge was selected and removeWorktreeAfterMerge is checked, remove the worktree and close session
-      const isWorktreePath = activeTab.cwd.includes('.copilot-sessions');
-      if (commitAction === 'merge') {
-        const mergeResult = await window.electronAPI.git.mergeToMain(
-          activeTab.cwd,
-          false,
-          effectiveTargetBranch,
-          activeTab.untrackedFiles || []
-        );
-        if (!mergeResult.success) {
-          setCommitError(mergeResult.error || 'Merge failed');
-          setIsCommitting(false);
-          return;
-        }
-
-        if (removeWorktreeAfterMerge && isWorktreePath) {
-          // Find the worktree session by path
-          const sessionId = activeTab.cwd.split(/[/\\]/).pop() || '';
-          if (sessionId) {
-            await window.electronAPI.worktree.removeSession({ sessionId, force: true });
-            // Close this tab
-            handleCloseTab(activeTab.id);
-            setShowCommitModal(false);
-            setCommitMessage('');
-            setCommitAction('push');
-            setRemoveWorktreeAfterMerge(false);
-            setIsCommitting(false);
-            return;
-          }
-        }
-      }
-
-      // Clear only the committed files, keep untracked files in editedFiles
-      const remainingEditedFiles = activeTab.untrackedFiles || [];
-      updateTab(activeTab.id, {
-        editedFiles: remainingEditedFiles,
-        gitBranchRefresh: (activeTab.gitBranchRefresh || 0) + 1,
-      });
-      setShowCommitModal(false);
-      setCommitMessage('');
-      setCommitAction('push');
-      setRemoveWorktreeAfterMerge(false);
-    } catch (error) {
-      setCommitError(String(error));
-    } finally {
-      setIsCommitting(false);
-    }
-  };
 
   const handleNewTab = async () => {
     // Always show folder picker when creating a new session
@@ -7064,7 +6332,9 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       {isGitRepo && (
                         <IconButton
                           icon={<CommitIcon size={12} />}
-                          onClick={handleOpenCommitModal}
+                          onClick={() =>
+                            activeTab && commitModal.handleOpenCommitModal(activeTab, updateTab)
+                          }
                           variant="accent"
                           size="sm"
                           title="Commit and push"
@@ -7083,7 +6353,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                           cleanedEditedFiles.map((filePath) => {
                             const isConflicted =
                               isGitRepo &&
-                              conflictedFiles.some(
+                              commitModal.conflictedFiles.some(
                                 (cf) =>
                                   filePath.endsWith(cf) ||
                                   cf.endsWith(filePath.split(/[/\\]/).pop() || '')
@@ -7524,456 +6794,53 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         </div>
 
         {/* Commit Modal */}
-        <Modal
-          isOpen={showCommitModal && !!activeTab}
-          onClose={() => {
-            setShowCommitModal(false);
-            setMainAheadInfo(null);
-            setConflictedFiles([]);
+        <CommitModal
+          showCommitModal={commitModal.showCommitModal}
+          activeTab={activeTab}
+          commitMessage={commitModal.commitMessage}
+          isCommitting={commitModal.isCommitting}
+          commitError={commitModal.commitError}
+          commitAction={commitModal.commitAction}
+          removeWorktreeAfterMerge={commitModal.removeWorktreeAfterMerge}
+          isGeneratingMessage={commitModal.isGeneratingMessage}
+          mainAheadInfo={commitModal.mainAheadInfo}
+          isMergingMain={commitModal.isMergingMain}
+          conflictedFiles={commitModal.conflictedFiles}
+          targetBranch={commitModal.targetBranch}
+          availableBranches={commitModal.availableBranches}
+          isLoadingBranches={commitModal.isLoadingBranches}
+          pendingMergeInfo={commitModal.pendingMergeInfo}
+          onClose={commitModal.closeCommitModal}
+          onCommitMessageChange={commitModal.setCommitMessage}
+          onCommitActionChange={commitModal.setCommitAction}
+          onRemoveWorktreeChange={commitModal.setRemoveWorktreeAfterMerge}
+          onCommitAndPush={() =>
+            activeTab && commitModal.handleCommitAndPush(activeTab, updateTab, handleCloseTab)
+          }
+          onMergeMainIntoBranch={() =>
+            activeTab && commitModal.handleMergeMainIntoBranch(activeTab, updateTab)
+          }
+          onTargetBranchSelect={(branch) =>
+            activeTab && commitModal.handleTargetBranchSelect(activeTab, branch)
+          }
+          onFilePreview={(filePath) => setFilePreviewPath(filePath)}
+          onUntrackFile={(filePath) => {
+            if (activeTab) {
+              const newUntracked = [...(activeTab.untrackedFiles || []), filePath];
+              updateTab(activeTab.id, { untrackedFiles: newUntracked });
+            }
           }}
-          title="Commit & Push Changes"
-        >
-          <Modal.Body>
-            {activeTab &&
-              (() => {
-                // Compute files to commit (excluding untracked files)
-                const filesToCommit = activeTab.editedFiles.filter(
-                  (f) => !(activeTab.untrackedFiles || []).includes(f)
-                );
-                const untrackedFilesList = (activeTab.untrackedFiles || []).filter((f) =>
-                  activeTab.editedFiles.includes(f)
-                );
-                const hasFilesToCommit = filesToCommit.length > 0;
-
-                return (
-                  <>
-                    {/* Files to commit */}
-                    <div className="mb-3">
-                      {hasFilesToCommit ? (
-                        <>
-                          <div className="text-xs text-copilot-text-muted mb-2">
-                            Files to commit ({filesToCommit.length}):
-                          </div>
-                          <div className="bg-copilot-bg rounded border border-copilot-surface max-h-32 overflow-y-auto">
-                            {filesToCommit.map((filePath) => {
-                              const fileName = filePath.split(/[/\\]/).pop() || '';
-                              const isConflicted = conflictedFiles.some(
-                                (cf) => filePath.endsWith(cf) || cf.endsWith(fileName)
-                              );
-                              return (
-                                <div
-                                  key={filePath}
-                                  className={`group flex items-center gap-2 px-3 py-1.5 text-xs font-mono hover:bg-copilot-surface transition-colors ${isConflicted ? 'text-copilot-error' : 'text-copilot-success'}`}
-                                >
-                                  <button
-                                    onClick={() => setFilePreviewPath(filePath)}
-                                    className="flex items-center gap-2 flex-1 min-w-0 text-left"
-                                    title={
-                                      isConflicted
-                                        ? `${filePath} (conflict) - Click to preview diff`
-                                        : `${filePath} - Click to preview diff`
-                                    }
-                                  >
-                                    <FileIcon
-                                      size={10}
-                                      className={`shrink-0 ${isConflicted ? 'text-copilot-error' : 'text-copilot-success'}`}
-                                    />
-                                    <span className="truncate">{filePath}</span>
-                                    {isConflicted && (
-                                      <span className="text-[10px] text-copilot-error">!</span>
-                                    )}
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      const newUntracked = [
-                                        ...(activeTab.untrackedFiles || []),
-                                        filePath,
-                                      ];
-                                      updateTab(activeTab.id, { untrackedFiles: newUntracked });
-                                    }}
-                                    className="shrink-0 p-0.5 opacity-0 group-hover:opacity-100 text-copilot-text-muted hover:text-copilot-text transition-all"
-                                    title="Untrack file (exclude from commit)"
-                                  >
-                                    <ArchiveIcon size={10} />
-                                  </button>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </>
-                      ) : (
-                        <div className="text-xs text-copilot-text-muted italic">
-                          No files to commit. You can still merge or create a PR for already
-                          committed changes.
-                        </div>
-                      )}
-
-                      {/* Untracked files section */}
-                      {untrackedFilesList.length > 0 && (
-                        <div className="mt-3">
-                          <div className="text-xs text-copilot-text-muted mb-2 flex items-center gap-1">
-                            <ArchiveIcon size={10} />
-                            Untracked files ({untrackedFilesList.length}) - not included in commit:
-                          </div>
-                          <div className="bg-copilot-bg/50 rounded border border-copilot-surface/50 max-h-24 overflow-y-auto">
-                            {untrackedFilesList.map((filePath) => (
-                              <div
-                                key={filePath}
-                                className="group flex items-center gap-2 px-3 py-1.5 text-xs font-mono text-copilot-text-muted/50"
-                              >
-                                <FileIcon size={10} className="shrink-0" />
-                                <span className="truncate line-through">{filePath}</span>
-                                <button
-                                  onClick={() => {
-                                    const newUntracked = (activeTab.untrackedFiles || []).filter(
-                                      (f) => f !== filePath
-                                    );
-                                    updateTab(activeTab.id, { untrackedFiles: newUntracked });
-                                  }}
-                                  className="ml-auto shrink-0 p-0.5 opacity-0 group-hover:opacity-100 text-copilot-text-muted hover:text-copilot-text transition-all"
-                                  title="Restore file (include in commit)"
-                                >
-                                  <UnarchiveIcon size={10} />
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Warning if origin/main is ahead */}
-                    {mainAheadInfo?.isAhead && (
-                      <div className="mb-3 bg-copilot-warning/10 border border-copilot-warning/30 rounded p-3">
-                        <div className="flex items-start gap-2">
-                          <span className="text-copilot-warning text-sm">⚠️</span>
-                          <div className="flex-1">
-                            <div className="text-xs text-copilot-warning font-medium mb-1">
-                              origin/{mainAheadInfo.targetBranch || targetBranch || 'main'} is{' '}
-                              {mainAheadInfo.commits.length} commit
-                              {mainAheadInfo.commits.length > 1 ? 's' : ''} ahead
-                            </div>
-                            <div className="text-xs text-copilot-text-muted mb-2">
-                              Merge the latest changes into your branch to stay up to date.
-                            </div>
-                            <button
-                              onClick={async () => {
-                                if (!activeTab) return;
-                                setIsMergingMain(true);
-                                setCommitError(null);
-                                try {
-                                  const result = await window.electronAPI.git.mergeMainIntoBranch(
-                                    activeTab.cwd,
-                                    targetBranch || undefined
-                                  );
-                                  if (!result.success) {
-                                    setCommitError(result.error || 'Failed to merge');
-                                    return;
-                                  }
-                                  // Show warning if stash pop had issues
-                                  if (result.warning) {
-                                    setCommitError(result.warning);
-                                  }
-                                  // Set conflicted files if any
-                                  if (result.conflictedFiles && result.conflictedFiles.length > 0) {
-                                    setConflictedFiles(result.conflictedFiles);
-                                  } else {
-                                    setConflictedFiles([]);
-                                  }
-                                  // Refresh the changed files list
-                                  const changedResult =
-                                    await window.electronAPI.git.getChangedFiles(
-                                      activeTab.cwd,
-                                      activeTab.editedFiles,
-                                      true
-                                    );
-                                  if (changedResult.success) {
-                                    updateTab(activeTab.id, { editedFiles: changedResult.files });
-                                  }
-                                  // Re-check if target branch is still ahead
-                                  const mainAheadResult =
-                                    await window.electronAPI.git.checkMainAhead(
-                                      activeTab.cwd,
-                                      targetBranch || undefined
-                                    );
-                                  if (mainAheadResult.success && mainAheadResult.isAhead) {
-                                    setMainAheadInfo({
-                                      isAhead: true,
-                                      commits: mainAheadResult.commits,
-                                      targetBranch: mainAheadResult.targetBranch,
-                                    });
-                                  } else {
-                                    setMainAheadInfo(null);
-                                  }
-                                } catch (error) {
-                                  setCommitError(String(error));
-                                } finally {
-                                  setIsMergingMain(false);
-                                }
-                              }}
-                              disabled={isMergingMain || isCommitting}
-                              className="px-3 py-1 text-xs bg-copilot-warning/20 hover:bg-copilot-warning/30 text-copilot-warning border border-copilot-warning/30 rounded disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
-                            >
-                              {isMergingMain ? (
-                                <>
-                                  <span className="w-3 h-3 border border-copilot-warning/30 border-t-copilot-warning rounded-full animate-spin"></span>
-                                  Merging...
-                                </>
-                              ) : (
-                                <>
-                                  Merge origin/
-                                  {mainAheadInfo.targetBranch || targetBranch || 'main'} into branch
-                                </>
-                              )}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Commit message - only show if there are files to commit */}
-                    {hasFilesToCommit && (
-                      <div className="mb-3 relative">
-                        <label className="text-xs text-copilot-text-muted mb-2 block">
-                          Commit message:
-                        </label>
-                        <textarea
-                          value={commitMessage}
-                          onChange={(e) => setCommitMessage(e.target.value)}
-                          className={`w-full bg-copilot-bg border border-copilot-border rounded px-3 py-2 text-sm text-copilot-text placeholder-copilot-text-muted focus:border-copilot-accent outline-none resize-none ${isGeneratingMessage ? 'opacity-50' : ''}`}
-                          rows={3}
-                          placeholder="Enter commit message..."
-                          autoFocus
-                          disabled={isGeneratingMessage}
-                        />
-                        {isGeneratingMessage && (
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <span className="w-4 h-4 border-2 border-copilot-accent/30 border-t-copilot-accent rounded-full animate-spin"></span>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Target branch selector - always visible at top */}
-                    <div className="mb-4">
-                      <SearchableBranchSelect
-                        label="Target branch:"
-                        value={targetBranch}
-                        branches={availableBranches}
-                        onSelect={async (branch) => {
-                          setTargetBranch(branch);
-                          // Persist the selection
-                          if (activeTab) {
-                            await window.electronAPI.settings.setTargetBranch(
-                              activeTab.cwd,
-                              branch
-                            );
-                          }
-                          // Re-check if target branch is ahead
-                          if (activeTab) {
-                            try {
-                              const mainAheadResult = await window.electronAPI.git.checkMainAhead(
-                                activeTab.cwd,
-                                branch
-                              );
-                              if (mainAheadResult.success && mainAheadResult.isAhead) {
-                                setMainAheadInfo({
-                                  isAhead: true,
-                                  commits: mainAheadResult.commits,
-                                  targetBranch: branch,
-                                });
-                              } else {
-                                setMainAheadInfo(null);
-                              }
-                            } catch {
-                              // Ignore errors
-                            }
-                          }
-                        }}
-                        isLoading={isLoadingBranches}
-                        disabled={isCommitting}
-                        placeholder="Select target branch..."
-                      />
-                    </div>
-
-                    {/* Options */}
-                    <div className="mb-4 flex items-center gap-2">
-                      <span className="text-xs text-copilot-text-muted">
-                        {hasFilesToCommit ? 'After push:' : 'Action:'}
-                      </span>
-                      <Dropdown
-                        value={commitAction}
-                        options={
-                          hasFilesToCommit
-                            ? [
-                                { id: 'push' as const, label: 'Nothing' },
-                                { id: 'merge' as const, label: 'Merge to target branch' },
-                                { id: 'pr' as const, label: 'Create PR' },
-                              ]
-                            : [
-                                { id: 'merge' as const, label: 'Merge to target branch' },
-                                { id: 'pr' as const, label: 'Create PR' },
-                              ]
-                        }
-                        onSelect={(id) => {
-                          setCommitAction(id);
-                          if (id !== 'merge') setRemoveWorktreeAfterMerge(false);
-                        }}
-                        disabled={isCommitting}
-                        align="left"
-                        minWidth="160px"
-                      />
-                    </div>
-
-                    {/* Remove worktree option - only visible when merge is selected and in a worktree */}
-                    {commitAction === 'merge' && activeTab?.cwd.includes('.copilot-sessions') && (
-                      <div className="mb-4 flex items-center gap-2">
-                        <label className="flex items-center gap-2 text-xs text-copilot-text-muted cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={removeWorktreeAfterMerge}
-                            onChange={(e) => setRemoveWorktreeAfterMerge(e.target.checked)}
-                            className="rounded border-copilot-border bg-copilot-bg accent-copilot-accent"
-                            disabled={isCommitting}
-                          />
-                          Remove worktree after merge
-                        </label>
-                      </div>
-                    )}
-
-                    {/* Error message */}
-                    {commitError && (
-                      <div className="mb-3 px-3 py-2 bg-copilot-error-muted border border-copilot-error rounded text-xs text-copilot-error max-h-32 overflow-y-auto break-words whitespace-pre-wrap">
-                        {commitError}
-                      </div>
-                    )}
-
-                    {/* Actions */}
-                    <Modal.Footer>
-                      <Button
-                        variant="ghost"
-                        onClick={() => setShowCommitModal(false)}
-                        disabled={isCommitting}
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        variant="primary"
-                        onClick={handleCommitAndPush}
-                        disabled={
-                          (hasFilesToCommit && !commitMessage.trim()) ||
-                          isCommitting ||
-                          isGeneratingMessage ||
-                          (!hasFilesToCommit && commitAction === 'push')
-                        }
-                        isLoading={isCommitting}
-                        leftIcon={!isCommitting ? <CommitIcon size={12} /> : undefined}
-                      >
-                        {isCommitting
-                          ? 'Processing...'
-                          : !hasFilesToCommit
-                            ? commitAction === 'pr'
-                              ? 'Create PR'
-                              : 'Merge'
-                            : commitAction === 'pr'
-                              ? 'Commit & Create PR'
-                              : commitAction === 'merge'
-                                ? 'Commit & Merge'
-                                : 'Commit & Push'}
-                      </Button>
-                    </Modal.Footer>
-                  </>
-                );
-              })()}
-          </Modal.Body>
-        </Modal>
-
-        {/* Incoming Changes Modal - shown when merge from target branch brought changes */}
-        <Modal
-          isOpen={!!pendingMergeInfo && !!activeTab}
-          onClose={() => setPendingMergeInfo(null)}
-          title="Target Branch Had Changes"
-          width="500px"
-        >
-          <Modal.Body>
-            <div className="mb-4">
-              <div className="text-sm text-copilot-text mb-2">
-                Your branch has been synced with the latest changes from{' '}
-                {pendingMergeInfo?.targetBranch || targetBranch || 'main'}. The following files were
-                updated:
-              </div>
-              {pendingMergeInfo && pendingMergeInfo.incomingFiles.length > 0 ? (
-                <div className="bg-copilot-bg rounded border border-copilot-surface max-h-40 overflow-y-auto">
-                  {pendingMergeInfo.incomingFiles.map((filePath) => (
-                    <div
-                      key={filePath}
-                      className="px-3 py-1.5 text-xs text-copilot-warning font-mono truncate"
-                      title={filePath}
-                    >
-                      {filePath}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-xs text-copilot-text-muted italic">
-                  (Unable to determine changed files)
-                </div>
-              )}
-            </div>
-            <div className="text-sm text-copilot-text-muted mb-4">
-              We recommend testing your changes before completing the merge to{' '}
-              {pendingMergeInfo?.targetBranch || targetBranch || 'main'}.
-            </div>
-            <Modal.Footer>
-              <Button variant="ghost" onClick={() => setPendingMergeInfo(null)}>
-                Test First
-              </Button>
-              <Button
-                variant="primary"
-                onClick={async () => {
-                  if (!activeTab) return;
-                  setIsCommitting(true);
-                  try {
-                    const mergeTarget = pendingMergeInfo?.targetBranch || targetBranch || 'main';
-                    const result = await window.electronAPI.git.mergeToMain(
-                      activeTab.cwd,
-                      removeWorktreeAfterMerge,
-                      mergeTarget,
-                      activeTab.untrackedFiles || []
-                    );
-                    if (result.success) {
-                      if (removeWorktreeAfterMerge && activeTab.cwd.includes('.copilot-sessions')) {
-                        const sessionId = activeTab.cwd.split(/[/\\]/).pop() || '';
-                        if (sessionId) {
-                          await window.electronAPI.worktree.removeSession({
-                            sessionId,
-                            force: true,
-                          });
-                          handleCloseTab(activeTab.id);
-                        }
-                      }
-                      updateTab(activeTab.id, {
-                        gitBranchRefresh: (activeTab.gitBranchRefresh || 0) + 1,
-                      });
-                    } else {
-                      setCommitError(result.error || 'Merge failed');
-                    }
-                  } catch (error) {
-                    setCommitError(String(error));
-                  } finally {
-                    setIsCommitting(false);
-                    setPendingMergeInfo(null);
-                    setCommitAction('push');
-                    setRemoveWorktreeAfterMerge(false);
-                  }
-                }}
-                isLoading={isCommitting}
-              >
-                Merge Now
-              </Button>
-            </Modal.Footer>
-          </Modal.Body>
-        </Modal>
+          onRestoreFile={(filePath) => {
+            if (activeTab) {
+              const newUntracked = (activeTab.untrackedFiles || []).filter((f) => f !== filePath);
+              updateTab(activeTab.id, { untrackedFiles: newUntracked });
+            }
+          }}
+          onDismissPendingMerge={() => commitModal.setPendingMergeInfo(null)}
+          onMergeNow={() =>
+            activeTab && commitModal.handleMergeNow(activeTab, updateTab, handleCloseTab)
+          }
+        />
 
         {/* MCP Server Modal */}
         <Modal
@@ -8189,7 +7056,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           isGitRepo={isGitRepo}
           editedFiles={activeTab ? getCleanEditedFiles(activeTab.editedFiles) : []}
           untrackedFiles={activeTab?.untrackedFiles || []}
-          conflictedFiles={conflictedFiles}
+          conflictedFiles={commitModal.conflictedFiles}
           fileViewMode={activeTab?.fileViewMode || 'flat'}
           onUntrackFile={(filePath) => {
             if (activeTab) {
