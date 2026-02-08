@@ -541,11 +541,36 @@ const sessions = new Map<string, SessionState>();
 let activeSessionId: string | null = null;
 let sessionCounter = 0;
 
+// Track sessions currently changing models - events should be ignored during this time
+const sessionsChangingModel = new Set<string>();
+
+// Dedupe events - track recent events to filter SDK duplicates
+// Key: sessionId, Value: Set of event keys
+const recentEvents = new Map<string, Set<string>>();
+const DEDUPE_WINDOW_MS = 50; // Events within 50ms of same type are duplicates
+
+function getEventKey(event: { type: string; data?: unknown }): string {
+  // Create a unique key for the event based on type and relevant data
+  // Use JSON.stringify for data to catch content duplicates too
+  const dataKey = event.data ? JSON.stringify(event.data) : '';
+  return `${event.type}:${dataKey}`;
+}
+
 // Registers event forwarding from a CopilotSession to the renderer via IPC.
 // Used after createSession and resumeSession to wire up the session.
 function registerSessionEventForwarding(sessionId: string, session: CopilotSession): void {
+  // Initialize dedupe set for this session if needed
+  if (!recentEvents.has(sessionId)) {
+    recentEvents.set(sessionId, new Set());
+  }
+
   session.on((event) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
+
+    // Skip events while model is being changed (events fire during resumeSession call)
+    if (sessionsChangingModel.has(sessionId)) {
+      return;
+    }
 
     // Only forward events if this session object is still the active one for this sessionId
     // This prevents duplicate events when model changes cause a new session object to be created
@@ -553,6 +578,19 @@ function registerSessionEventForwarding(sessionId: string, session: CopilotSessi
     if (currentState && currentState.session !== session) {
       return; // This is an old session object, ignore its events
     }
+
+    // Dedupe events - the SDK sometimes fires the same event twice after model changes
+    const eventKey = getEventKey(event);
+    const sessionEvents = recentEvents.get(sessionId)!;
+    if (sessionEvents.has(eventKey)) {
+      return;
+    }
+
+    // Add to recent events and schedule removal
+    sessionEvents.add(eventKey);
+    setTimeout(() => {
+      sessionEvents.delete(eventKey);
+    }, DEDUPE_WINDOW_MS);
 
     console.log(`[${sessionId}] Event:`, event.type);
 
@@ -2332,6 +2370,10 @@ ipcMain.handle('copilot:setModel', async (_event, data: { sessionId: string; mod
 
     console.log(`Changing model for session ${data.sessionId} to ${data.model}`);
 
+    // Mark session as changing model BEFORE calling resumeSession
+    // This prevents duplicate events from the old session handler during the transition
+    sessionsChangingModel.add(data.sessionId);
+
     const mcpConfig = await readMcpConfig();
     const browserTools = createBrowserTools(data.sessionId);
 
@@ -2347,16 +2389,16 @@ ipcMain.handle('copilot:setModel', async (_event, data: { sessionId: string; mod
       });
 
       const resumedSessionId = resumedSession.sessionId;
-
-      // Always register event forwarding on the new session object
-      // (resumeSession returns a new CopilotSession instance even if ID is same)
-      registerSessionEventForwarding(resumedSessionId, resumedSession);
+      const oldSession = sessionState.session;
 
       // Clean up old session entry if ID changed
       if (resumedSessionId !== data.sessionId) {
         sessions.delete(data.sessionId);
+        sessionsChangingModel.delete(data.sessionId);
       }
 
+      // Update sessions map BEFORE registering event forwarding
+      // This ensures the guard check works correctly
       sessions.set(resumedSessionId, {
         session: resumedSession,
         client,
@@ -2366,11 +2408,23 @@ ipcMain.handle('copilot:setModel', async (_event, data: { sessionId: string; mod
         allowedPaths: new Set(allowedPaths),
         isProcessing: false,
       });
+
+      // Only register new event forwarding if resumeSession returned a DIFFERENT object
+      // If it's the same object, we already have a handler registered from createSession
+      if (resumedSession !== oldSession) {
+        registerSessionEventForwarding(resumedSessionId, resumedSession);
+      }
+
+      // Clear the model change flag AFTER updating session
+      sessionsChangingModel.delete(resumedSessionId);
+
       activeSessionId = resumedSessionId;
 
       console.log(`Session ${resumedSessionId} resumed with model ${data.model}`);
       return { sessionId: resumedSessionId, model: data.model, cwd };
     } catch (resumeError) {
+      // Clear the flag on error too
+      sessionsChangingModel.delete(data.sessionId);
       console.error(`Failed to resume session with model ${data.model}:`, resumeError);
       // Re-throw so frontend knows about the failure
       throw resumeError;
