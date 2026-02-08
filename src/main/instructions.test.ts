@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   existsSync: vi.fn(),
   readdirSync: vi.fn(),
   stat: vi.fn(),
+  execAsync: vi.fn(),
 }));
 
 // Mock electron app
@@ -48,8 +49,26 @@ vi.mock('fs/promises', async (importOriginal) => {
   };
 });
 
+// Mock child_process for getGitRoot
+vi.mock('child_process', () => ({
+  exec: (
+    cmd: string,
+    _opts: unknown,
+    callback: (err: Error | null, result: { stdout: string; stderr: string }) => void
+  ) => {
+    if (cmd === 'git rev-parse --show-toplevel') {
+      const result = mocks.execAsync();
+      if (result instanceof Error) {
+        callback(result, { stdout: '', stderr: '' });
+      } else {
+        callback(null, { stdout: result, stderr: '' });
+      }
+    }
+  },
+}));
+
 // Import module under test after mocks are set up
-import { getAllInstructions } from './instructions';
+import { getAllInstructions, getGitRoot } from './instructions';
 
 describe('instructions module', () => {
   const originalEnv = process.env;
@@ -61,6 +80,24 @@ describe('instructions module', () => {
 
   afterEach(() => {
     process.env = originalEnv;
+  });
+
+  describe('getGitRoot', () => {
+    it('should return git root when in a git repository', async () => {
+      mocks.execAsync.mockReturnValue('/repo/root\n');
+
+      const result = await getGitRoot('/repo/root/subdir');
+
+      expect(result).toBe('/repo/root');
+    });
+
+    it('should return null when not in a git repository', async () => {
+      mocks.execAsync.mockReturnValue(new Error('not a git repository'));
+
+      const result = await getGitRoot('/not/a/repo');
+
+      expect(result).toBeNull();
+    });
   });
 
   describe('getAllInstructions', () => {

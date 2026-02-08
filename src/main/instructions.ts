@@ -1,7 +1,11 @@
 import { existsSync, readdirSync } from 'fs';
 import { stat } from 'fs/promises';
+import { exec } from 'child_process';
 import { join, normalize } from 'path';
+import { promisify } from 'util';
 import { app } from 'electron';
+
+const execAsync = promisify(exec);
 
 export interface Instruction {
   name: string;
@@ -13,6 +17,16 @@ export interface Instruction {
 export interface InstructionsResult {
   instructions: Instruction[];
   errors: string[];
+}
+
+// Detect the git repository root from a given directory
+export async function getGitRoot(cwd: string): Promise<string | null> {
+  try {
+    const { stdout } = await execAsync('git rev-parse --show-toplevel', { cwd });
+    return stdout.trim();
+  } catch {
+    return null;
+  }
 }
 
 // Recursively find all *.instructions.md files in a directory
