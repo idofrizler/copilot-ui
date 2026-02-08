@@ -40,14 +40,11 @@ import {
   UpdateAvailableModal,
   SpotlightTour,
   ReleaseNotesModal,
-  SearchableBranchSelect,
   CodeBlockWithCopy,
   RepeatIcon,
   StarIcon,
   StarFilledIcon,
   WarningIcon,
-  ArchiveIcon,
-  UnarchiveIcon,
   SidebarDrawer,
   MenuIcon,
   ZapIcon,
@@ -57,7 +54,7 @@ import {
   VolumeMuteIcon,
   TitleBar,
 } from './components';
-import { GitBranchWidget } from './features/git';
+import { GitBranchWidget, CommitModal, useCommitModal } from './features/git';
 import { CreateWorktreeSession } from './features/sessions';
 import { ToolActivitySection } from './features/chat';
 import { buildLisaPhasePrompt } from './features/agent-loops';
@@ -122,31 +119,10 @@ const App: React.FC = () => {
   const [cwdCopied, setCwdCopied] = useState(false);
   const [filePreviewPath, setFilePreviewPath] = useState<string | null>(null);
   const [isGitRepo, setIsGitRepo] = useState<boolean>(true);
-  const [showCommitModal, setShowCommitModal] = useState(false);
-  const [commitMessage, setCommitMessage] = useState('');
-  const [isCommitting, setIsCommitting] = useState(false);
-  const [commitError, setCommitError] = useState<string | null>(null);
-  const [commitAction, setCommitAction] = useState<'push' | 'merge' | 'pr'>('push');
-  const [removeWorktreeAfterMerge, setRemoveWorktreeAfterMerge] = useState(false);
-  const [pendingMergeInfo, setPendingMergeInfo] = useState<{
-    incomingFiles: string[];
-    targetBranch: string;
-  } | null>(null);
-  const [mainAheadInfo, setMainAheadInfo] = useState<{
-    isAhead: boolean;
-    commits: string[];
-    targetBranch?: string;
-  } | null>(null);
-  const [isMergingMain, setIsMergingMain] = useState(false);
-  const [conflictedFiles, setConflictedFiles] = useState<string[]>([]);
+  const commitModal = useCommitModal();
   const [allowMode, setAllowMode] = useState<'once' | 'session' | 'global'>('once');
   const [showAllowDropdown, setShowAllowDropdown] = useState(false);
   const allowDropdownRef = useRef<HTMLDivElement>(null);
-
-  // Target branch selection state
-  const [targetBranch, setTargetBranch] = useState<string | null>(null);
-  const [availableBranches, setAvailableBranches] = useState<string[]>([]);
-  const [isLoadingBranches, setIsLoadingBranches] = useState(false);
 
   // Close allow dropdown when clicking outside
   const closeAllowDropdown = useCallback(() => {
@@ -3097,8 +3073,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     }
   };
 
-  const [isGeneratingMessage, setIsGeneratingMessage] = useState(false);
-
   const handleToggleEditedFiles = async () => {
     const newShowState = !showEditedFiles;
     setShowEditedFiles(newShowState);
@@ -3172,239 +3146,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     };
     checkGitRepo();
   }, [activeTab?.cwd]);
-
-  const handleOpenCommitModal = async () => {
-    if (!activeTab) return;
-
-    setCommitError(null);
-    setIsCommitting(false);
-    setCommitMessage('Checking files...');
-    setIsGeneratingMessage(true);
-    setMainAheadInfo(null);
-    setShowCommitModal(true);
-    setIsLoadingBranches(true);
-
-    try {
-      // Load branches and persisted target branch in parallel with other checks
-      const branchesPromise = window.electronAPI.git.listBranches(activeTab.cwd);
-      const savedTargetBranchPromise = window.electronAPI.settings.getTargetBranch(activeTab.cwd);
-
-      // Get ALL changed files in the repo, not just the ones we tracked
-      const changedResult = await window.electronAPI.git.getChangedFiles(
-        activeTab.cwd,
-        activeTab.editedFiles,
-        true // includeAll: get all changed files, including package-lock.json etc.
-      );
-
-      const actualChangedFiles = changedResult.success
-        ? changedResult.files
-        : activeTab.editedFiles;
-
-      // Update the tab's editedFiles list with all changed files
-      if (changedResult.success) {
-        updateTab(activeTab.id, { editedFiles: actualChangedFiles });
-      }
-
-      // Load branches
-      try {
-        const branchesResult = await branchesPromise;
-        if (branchesResult.success) {
-          setAvailableBranches(branchesResult.branches);
-        }
-      } catch {
-        // Ignore branch loading errors
-      }
-      setIsLoadingBranches(false);
-
-      // Load persisted target branch first, then check if it's ahead
-      let effectiveTargetBranch = 'main';
-      try {
-        const savedTargetResult = await savedTargetBranchPromise;
-        if (savedTargetResult.success && savedTargetResult.targetBranch) {
-          effectiveTargetBranch = savedTargetResult.targetBranch;
-          setTargetBranch(savedTargetResult.targetBranch);
-        } else {
-          setTargetBranch('main');
-        }
-      } catch {
-        setTargetBranch('main');
-      }
-
-      // Now check if target branch is ahead using the persisted target branch
-      const checkTargetAhead = async () => {
-        try {
-          const mainAheadResult = await window.electronAPI.git.checkMainAhead(
-            activeTab.cwd,
-            effectiveTargetBranch
-          );
-          if (mainAheadResult.success && mainAheadResult.isAhead) {
-            setMainAheadInfo({
-              isAhead: true,
-              commits: mainAheadResult.commits,
-              targetBranch: effectiveTargetBranch,
-            });
-          }
-        } catch {
-          // Ignore errors checking target branch ahead
-        }
-      };
-
-      // If no files have changes, allow merge/PR without commit
-      if (actualChangedFiles.length === 0) {
-        setCommitMessage('');
-        setIsGeneratingMessage(false);
-        // Default to merge when no files, since "push" alone doesn't make sense
-        if (commitAction === 'push') {
-          setCommitAction('merge');
-        }
-        await checkTargetAhead();
-        return;
-      }
-
-      // Get diff for actual changed files
-      setCommitMessage('Generating commit message...');
-      const diffResult = await window.electronAPI.git.getDiff(activeTab.cwd, actualChangedFiles);
-      if (diffResult.success && diffResult.diff) {
-        // Generate AI commit message from diff
-        const message = await window.electronAPI.git.generateCommitMessage(diffResult.diff);
-        setCommitMessage(message);
-      } else {
-        // Fallback to simple message
-        const fileNames = actualChangedFiles.map((f) => f.split(/[/\\]/).pop()).join(', ');
-        setCommitMessage(`Update ${fileNames}`);
-      }
-
-      // Check if target branch is ahead
-      await checkTargetAhead();
-    } catch (error) {
-      console.error('Failed to generate commit message:', error);
-      const fileNames = activeTab.editedFiles.map((f) => f.split(/[/\\]/).pop()).join(', ');
-      setCommitMessage(`Update ${fileNames}`);
-    } finally {
-      setIsGeneratingMessage(false);
-    }
-  };
-
-  const handleCommitAndPush = async () => {
-    if (!activeTab) return;
-
-    // Filter out untracked files from the commit
-    const filesToCommit = activeTab.editedFiles.filter(
-      (f) => !(activeTab.untrackedFiles || []).includes(f)
-    );
-    const hasFilesToCommit = filesToCommit.length > 0;
-    const effectiveTargetBranch = targetBranch || 'main';
-
-    // Require commit message only if there are files to commit
-    if (hasFilesToCommit && !commitMessage.trim()) return;
-
-    // If no files and just "push" action, nothing to do
-    if (!hasFilesToCommit && commitAction === 'push') return;
-
-    setIsCommitting(true);
-    setCommitError(null);
-
-    try {
-      // Only commit and push if there are files to commit
-      if (hasFilesToCommit) {
-        const result = await window.electronAPI.git.commitAndPush(
-          activeTab.cwd,
-          filesToCommit, // Use filtered list without stashed files
-          commitMessage.trim(),
-          commitAction === 'merge'
-        );
-
-        if (!result.success) {
-          setCommitError(result.error || 'Commit failed');
-          setIsCommitting(false);
-          return;
-        }
-
-        // If merge synced with main and brought in changes, notify user to test first
-        if (result.mainSyncedWithChanges && commitAction === 'merge') {
-          setPendingMergeInfo({
-            incomingFiles: result.incomingFiles || [],
-            targetBranch: effectiveTargetBranch,
-          });
-          // Clear only the committed files, keep untracked files in editedFiles
-          const remainingEditedFiles = activeTab.untrackedFiles || [];
-          updateTab(activeTab.id, {
-            editedFiles: remainingEditedFiles,
-            gitBranchRefresh: (activeTab.gitBranchRefresh || 0) + 1,
-          });
-          setShowCommitModal(false);
-          setCommitMessage('');
-          setIsCommitting(false);
-          return;
-        }
-      }
-
-      // Handle merge/PR actions (whether or not there was a commit)
-      if (commitAction === 'pr') {
-        const prResult = await window.electronAPI.git.createPullRequest(
-          activeTab.cwd,
-          commitMessage.split('\n')[0] || undefined,
-          undefined, // draft
-          effectiveTargetBranch,
-          activeTab.untrackedFiles || []
-        );
-        if (prResult.success && prResult.prUrl) {
-          window.open(prResult.prUrl, '_blank');
-        } else if (!prResult.success) {
-          setCommitError(prResult.error || 'Failed to create PR');
-          setIsCommitting(false);
-          return;
-        }
-      }
-
-      // If merge was selected and removeWorktreeAfterMerge is checked, remove the worktree and close session
-      const isWorktreePath = activeTab.cwd.includes('.copilot-sessions');
-      if (commitAction === 'merge') {
-        const mergeResult = await window.electronAPI.git.mergeToMain(
-          activeTab.cwd,
-          false,
-          effectiveTargetBranch,
-          activeTab.untrackedFiles || []
-        );
-        if (!mergeResult.success) {
-          setCommitError(mergeResult.error || 'Merge failed');
-          setIsCommitting(false);
-          return;
-        }
-
-        if (removeWorktreeAfterMerge && isWorktreePath) {
-          // Find the worktree session by path
-          const sessionId = activeTab.cwd.split(/[/\\]/).pop() || '';
-          if (sessionId) {
-            await window.electronAPI.worktree.removeSession({ sessionId, force: true });
-            // Close this tab
-            handleCloseTab(activeTab.id);
-            setShowCommitModal(false);
-            setCommitMessage('');
-            setCommitAction('push');
-            setRemoveWorktreeAfterMerge(false);
-            setIsCommitting(false);
-            return;
-          }
-        }
-      }
-
-      // Clear only the committed files, keep untracked files in editedFiles
-      const remainingEditedFiles = activeTab.untrackedFiles || [];
-      updateTab(activeTab.id, {
-        editedFiles: remainingEditedFiles,
-        gitBranchRefresh: (activeTab.gitBranchRefresh || 0) + 1,
-      });
-      setShowCommitModal(false);
-      setCommitMessage('');
-      setCommitAction('push');
-      setRemoveWorktreeAfterMerge(false);
-    } catch (error) {
-      setCommitError(String(error));
-    } finally {
-      setIsCommitting(false);
-    }
-  };
 
   const handleNewTab = async () => {
     // Always show folder picker when creating a new session
@@ -6591,7 +6332,9 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       {isGitRepo && (
                         <IconButton
                           icon={<CommitIcon size={12} />}
-                          onClick={handleOpenCommitModal}
+                          onClick={() =>
+                            activeTab && commitModal.handleOpenCommitModal(activeTab, updateTab)
+                          }
                           variant="accent"
                           size="sm"
                           title="Commit and push"
@@ -6610,7 +6353,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                           cleanedEditedFiles.map((filePath) => {
                             const isConflicted =
                               isGitRepo &&
-                              conflictedFiles.some(
+                              commitModal.conflictedFiles.some(
                                 (cf) =>
                                   filePath.endsWith(cf) ||
                                   cf.endsWith(filePath.split(/[/\\]/).pop() || '')
@@ -7051,456 +6794,53 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         </div>
 
         {/* Commit Modal */}
-        <Modal
-          isOpen={showCommitModal && !!activeTab}
-          onClose={() => {
-            setShowCommitModal(false);
-            setMainAheadInfo(null);
-            setConflictedFiles([]);
+        <CommitModal
+          showCommitModal={commitModal.showCommitModal}
+          activeTab={activeTab}
+          commitMessage={commitModal.commitMessage}
+          isCommitting={commitModal.isCommitting}
+          commitError={commitModal.commitError}
+          commitAction={commitModal.commitAction}
+          removeWorktreeAfterMerge={commitModal.removeWorktreeAfterMerge}
+          isGeneratingMessage={commitModal.isGeneratingMessage}
+          mainAheadInfo={commitModal.mainAheadInfo}
+          isMergingMain={commitModal.isMergingMain}
+          conflictedFiles={commitModal.conflictedFiles}
+          targetBranch={commitModal.targetBranch}
+          availableBranches={commitModal.availableBranches}
+          isLoadingBranches={commitModal.isLoadingBranches}
+          pendingMergeInfo={commitModal.pendingMergeInfo}
+          onClose={commitModal.closeCommitModal}
+          onCommitMessageChange={commitModal.setCommitMessage}
+          onCommitActionChange={commitModal.setCommitAction}
+          onRemoveWorktreeChange={commitModal.setRemoveWorktreeAfterMerge}
+          onCommitAndPush={() =>
+            activeTab && commitModal.handleCommitAndPush(activeTab, updateTab, handleCloseTab)
+          }
+          onMergeMainIntoBranch={() =>
+            activeTab && commitModal.handleMergeMainIntoBranch(activeTab, updateTab)
+          }
+          onTargetBranchSelect={(branch) =>
+            activeTab && commitModal.handleTargetBranchSelect(activeTab, branch)
+          }
+          onFilePreview={(filePath) => setFilePreviewPath(filePath)}
+          onUntrackFile={(filePath) => {
+            if (activeTab) {
+              const newUntracked = [...(activeTab.untrackedFiles || []), filePath];
+              updateTab(activeTab.id, { untrackedFiles: newUntracked });
+            }
           }}
-          title="Commit & Push Changes"
-        >
-          <Modal.Body>
-            {activeTab &&
-              (() => {
-                // Compute files to commit (excluding untracked files)
-                const filesToCommit = activeTab.editedFiles.filter(
-                  (f) => !(activeTab.untrackedFiles || []).includes(f)
-                );
-                const untrackedFilesList = (activeTab.untrackedFiles || []).filter((f) =>
-                  activeTab.editedFiles.includes(f)
-                );
-                const hasFilesToCommit = filesToCommit.length > 0;
-
-                return (
-                  <>
-                    {/* Files to commit */}
-                    <div className="mb-3">
-                      {hasFilesToCommit ? (
-                        <>
-                          <div className="text-xs text-copilot-text-muted mb-2">
-                            Files to commit ({filesToCommit.length}):
-                          </div>
-                          <div className="bg-copilot-bg rounded border border-copilot-surface max-h-32 overflow-y-auto">
-                            {filesToCommit.map((filePath) => {
-                              const fileName = filePath.split(/[/\\]/).pop() || '';
-                              const isConflicted = conflictedFiles.some(
-                                (cf) => filePath.endsWith(cf) || cf.endsWith(fileName)
-                              );
-                              return (
-                                <div
-                                  key={filePath}
-                                  className={`group flex items-center gap-2 px-3 py-1.5 text-xs font-mono hover:bg-copilot-surface transition-colors ${isConflicted ? 'text-copilot-error' : 'text-copilot-success'}`}
-                                >
-                                  <button
-                                    onClick={() => setFilePreviewPath(filePath)}
-                                    className="flex items-center gap-2 flex-1 min-w-0 text-left"
-                                    title={
-                                      isConflicted
-                                        ? `${filePath} (conflict) - Click to preview diff`
-                                        : `${filePath} - Click to preview diff`
-                                    }
-                                  >
-                                    <FileIcon
-                                      size={10}
-                                      className={`shrink-0 ${isConflicted ? 'text-copilot-error' : 'text-copilot-success'}`}
-                                    />
-                                    <span className="truncate">{filePath}</span>
-                                    {isConflicted && (
-                                      <span className="text-[10px] text-copilot-error">!</span>
-                                    )}
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      const newUntracked = [
-                                        ...(activeTab.untrackedFiles || []),
-                                        filePath,
-                                      ];
-                                      updateTab(activeTab.id, { untrackedFiles: newUntracked });
-                                    }}
-                                    className="shrink-0 p-0.5 opacity-0 group-hover:opacity-100 text-copilot-text-muted hover:text-copilot-text transition-all"
-                                    title="Untrack file (exclude from commit)"
-                                  >
-                                    <ArchiveIcon size={10} />
-                                  </button>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </>
-                      ) : (
-                        <div className="text-xs text-copilot-text-muted italic">
-                          No files to commit. You can still merge or create a PR for already
-                          committed changes.
-                        </div>
-                      )}
-
-                      {/* Untracked files section */}
-                      {untrackedFilesList.length > 0 && (
-                        <div className="mt-3">
-                          <div className="text-xs text-copilot-text-muted mb-2 flex items-center gap-1">
-                            <ArchiveIcon size={10} />
-                            Untracked files ({untrackedFilesList.length}) - not included in commit:
-                          </div>
-                          <div className="bg-copilot-bg/50 rounded border border-copilot-surface/50 max-h-24 overflow-y-auto">
-                            {untrackedFilesList.map((filePath) => (
-                              <div
-                                key={filePath}
-                                className="group flex items-center gap-2 px-3 py-1.5 text-xs font-mono text-copilot-text-muted/50"
-                              >
-                                <FileIcon size={10} className="shrink-0" />
-                                <span className="truncate line-through">{filePath}</span>
-                                <button
-                                  onClick={() => {
-                                    const newUntracked = (activeTab.untrackedFiles || []).filter(
-                                      (f) => f !== filePath
-                                    );
-                                    updateTab(activeTab.id, { untrackedFiles: newUntracked });
-                                  }}
-                                  className="ml-auto shrink-0 p-0.5 opacity-0 group-hover:opacity-100 text-copilot-text-muted hover:text-copilot-text transition-all"
-                                  title="Restore file (include in commit)"
-                                >
-                                  <UnarchiveIcon size={10} />
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Warning if origin/main is ahead */}
-                    {mainAheadInfo?.isAhead && (
-                      <div className="mb-3 bg-copilot-warning/10 border border-copilot-warning/30 rounded p-3">
-                        <div className="flex items-start gap-2">
-                          <span className="text-copilot-warning text-sm">⚠️</span>
-                          <div className="flex-1">
-                            <div className="text-xs text-copilot-warning font-medium mb-1">
-                              origin/{mainAheadInfo.targetBranch || targetBranch || 'main'} is{' '}
-                              {mainAheadInfo.commits.length} commit
-                              {mainAheadInfo.commits.length > 1 ? 's' : ''} ahead
-                            </div>
-                            <div className="text-xs text-copilot-text-muted mb-2">
-                              Merge the latest changes into your branch to stay up to date.
-                            </div>
-                            <button
-                              onClick={async () => {
-                                if (!activeTab) return;
-                                setIsMergingMain(true);
-                                setCommitError(null);
-                                try {
-                                  const result = await window.electronAPI.git.mergeMainIntoBranch(
-                                    activeTab.cwd,
-                                    targetBranch || undefined
-                                  );
-                                  if (!result.success) {
-                                    setCommitError(result.error || 'Failed to merge');
-                                    return;
-                                  }
-                                  // Show warning if stash pop had issues
-                                  if (result.warning) {
-                                    setCommitError(result.warning);
-                                  }
-                                  // Set conflicted files if any
-                                  if (result.conflictedFiles && result.conflictedFiles.length > 0) {
-                                    setConflictedFiles(result.conflictedFiles);
-                                  } else {
-                                    setConflictedFiles([]);
-                                  }
-                                  // Refresh the changed files list
-                                  const changedResult =
-                                    await window.electronAPI.git.getChangedFiles(
-                                      activeTab.cwd,
-                                      activeTab.editedFiles,
-                                      true
-                                    );
-                                  if (changedResult.success) {
-                                    updateTab(activeTab.id, { editedFiles: changedResult.files });
-                                  }
-                                  // Re-check if target branch is still ahead
-                                  const mainAheadResult =
-                                    await window.electronAPI.git.checkMainAhead(
-                                      activeTab.cwd,
-                                      targetBranch || undefined
-                                    );
-                                  if (mainAheadResult.success && mainAheadResult.isAhead) {
-                                    setMainAheadInfo({
-                                      isAhead: true,
-                                      commits: mainAheadResult.commits,
-                                      targetBranch: mainAheadResult.targetBranch,
-                                    });
-                                  } else {
-                                    setMainAheadInfo(null);
-                                  }
-                                } catch (error) {
-                                  setCommitError(String(error));
-                                } finally {
-                                  setIsMergingMain(false);
-                                }
-                              }}
-                              disabled={isMergingMain || isCommitting}
-                              className="px-3 py-1 text-xs bg-copilot-warning/20 hover:bg-copilot-warning/30 text-copilot-warning border border-copilot-warning/30 rounded disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
-                            >
-                              {isMergingMain ? (
-                                <>
-                                  <span className="w-3 h-3 border border-copilot-warning/30 border-t-copilot-warning rounded-full animate-spin"></span>
-                                  Merging...
-                                </>
-                              ) : (
-                                <>
-                                  Merge origin/
-                                  {mainAheadInfo.targetBranch || targetBranch || 'main'} into branch
-                                </>
-                              )}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Commit message - only show if there are files to commit */}
-                    {hasFilesToCommit && (
-                      <div className="mb-3 relative">
-                        <label className="text-xs text-copilot-text-muted mb-2 block">
-                          Commit message:
-                        </label>
-                        <textarea
-                          value={commitMessage}
-                          onChange={(e) => setCommitMessage(e.target.value)}
-                          className={`w-full bg-copilot-bg border border-copilot-border rounded px-3 py-2 text-sm text-copilot-text placeholder-copilot-text-muted focus:border-copilot-accent outline-none resize-none ${isGeneratingMessage ? 'opacity-50' : ''}`}
-                          rows={3}
-                          placeholder="Enter commit message..."
-                          autoFocus
-                          disabled={isGeneratingMessage}
-                        />
-                        {isGeneratingMessage && (
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <span className="w-4 h-4 border-2 border-copilot-accent/30 border-t-copilot-accent rounded-full animate-spin"></span>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Target branch selector - always visible at top */}
-                    <div className="mb-4">
-                      <SearchableBranchSelect
-                        label="Target branch:"
-                        value={targetBranch}
-                        branches={availableBranches}
-                        onSelect={async (branch) => {
-                          setTargetBranch(branch);
-                          // Persist the selection
-                          if (activeTab) {
-                            await window.electronAPI.settings.setTargetBranch(
-                              activeTab.cwd,
-                              branch
-                            );
-                          }
-                          // Re-check if target branch is ahead
-                          if (activeTab) {
-                            try {
-                              const mainAheadResult = await window.electronAPI.git.checkMainAhead(
-                                activeTab.cwd,
-                                branch
-                              );
-                              if (mainAheadResult.success && mainAheadResult.isAhead) {
-                                setMainAheadInfo({
-                                  isAhead: true,
-                                  commits: mainAheadResult.commits,
-                                  targetBranch: branch,
-                                });
-                              } else {
-                                setMainAheadInfo(null);
-                              }
-                            } catch {
-                              // Ignore errors
-                            }
-                          }
-                        }}
-                        isLoading={isLoadingBranches}
-                        disabled={isCommitting}
-                        placeholder="Select target branch..."
-                      />
-                    </div>
-
-                    {/* Options */}
-                    <div className="mb-4 flex items-center gap-2">
-                      <span className="text-xs text-copilot-text-muted">
-                        {hasFilesToCommit ? 'After push:' : 'Action:'}
-                      </span>
-                      <Dropdown
-                        value={commitAction}
-                        options={
-                          hasFilesToCommit
-                            ? [
-                                { id: 'push' as const, label: 'Nothing' },
-                                { id: 'merge' as const, label: 'Merge to target branch' },
-                                { id: 'pr' as const, label: 'Create PR' },
-                              ]
-                            : [
-                                { id: 'merge' as const, label: 'Merge to target branch' },
-                                { id: 'pr' as const, label: 'Create PR' },
-                              ]
-                        }
-                        onSelect={(id) => {
-                          setCommitAction(id);
-                          if (id !== 'merge') setRemoveWorktreeAfterMerge(false);
-                        }}
-                        disabled={isCommitting}
-                        align="left"
-                        minWidth="160px"
-                      />
-                    </div>
-
-                    {/* Remove worktree option - only visible when merge is selected and in a worktree */}
-                    {commitAction === 'merge' && activeTab?.cwd.includes('.copilot-sessions') && (
-                      <div className="mb-4 flex items-center gap-2">
-                        <label className="flex items-center gap-2 text-xs text-copilot-text-muted cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={removeWorktreeAfterMerge}
-                            onChange={(e) => setRemoveWorktreeAfterMerge(e.target.checked)}
-                            className="rounded border-copilot-border bg-copilot-bg accent-copilot-accent"
-                            disabled={isCommitting}
-                          />
-                          Remove worktree after merge
-                        </label>
-                      </div>
-                    )}
-
-                    {/* Error message */}
-                    {commitError && (
-                      <div className="mb-3 px-3 py-2 bg-copilot-error-muted border border-copilot-error rounded text-xs text-copilot-error max-h-32 overflow-y-auto break-words whitespace-pre-wrap">
-                        {commitError}
-                      </div>
-                    )}
-
-                    {/* Actions */}
-                    <Modal.Footer>
-                      <Button
-                        variant="ghost"
-                        onClick={() => setShowCommitModal(false)}
-                        disabled={isCommitting}
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        variant="primary"
-                        onClick={handleCommitAndPush}
-                        disabled={
-                          (hasFilesToCommit && !commitMessage.trim()) ||
-                          isCommitting ||
-                          isGeneratingMessage ||
-                          (!hasFilesToCommit && commitAction === 'push')
-                        }
-                        isLoading={isCommitting}
-                        leftIcon={!isCommitting ? <CommitIcon size={12} /> : undefined}
-                      >
-                        {isCommitting
-                          ? 'Processing...'
-                          : !hasFilesToCommit
-                            ? commitAction === 'pr'
-                              ? 'Create PR'
-                              : 'Merge'
-                            : commitAction === 'pr'
-                              ? 'Commit & Create PR'
-                              : commitAction === 'merge'
-                                ? 'Commit & Merge'
-                                : 'Commit & Push'}
-                      </Button>
-                    </Modal.Footer>
-                  </>
-                );
-              })()}
-          </Modal.Body>
-        </Modal>
-
-        {/* Incoming Changes Modal - shown when merge from target branch brought changes */}
-        <Modal
-          isOpen={!!pendingMergeInfo && !!activeTab}
-          onClose={() => setPendingMergeInfo(null)}
-          title="Target Branch Had Changes"
-          width="500px"
-        >
-          <Modal.Body>
-            <div className="mb-4">
-              <div className="text-sm text-copilot-text mb-2">
-                Your branch has been synced with the latest changes from{' '}
-                {pendingMergeInfo?.targetBranch || targetBranch || 'main'}. The following files were
-                updated:
-              </div>
-              {pendingMergeInfo && pendingMergeInfo.incomingFiles.length > 0 ? (
-                <div className="bg-copilot-bg rounded border border-copilot-surface max-h-40 overflow-y-auto">
-                  {pendingMergeInfo.incomingFiles.map((filePath) => (
-                    <div
-                      key={filePath}
-                      className="px-3 py-1.5 text-xs text-copilot-warning font-mono truncate"
-                      title={filePath}
-                    >
-                      {filePath}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-xs text-copilot-text-muted italic">
-                  (Unable to determine changed files)
-                </div>
-              )}
-            </div>
-            <div className="text-sm text-copilot-text-muted mb-4">
-              We recommend testing your changes before completing the merge to{' '}
-              {pendingMergeInfo?.targetBranch || targetBranch || 'main'}.
-            </div>
-            <Modal.Footer>
-              <Button variant="ghost" onClick={() => setPendingMergeInfo(null)}>
-                Test First
-              </Button>
-              <Button
-                variant="primary"
-                onClick={async () => {
-                  if (!activeTab) return;
-                  setIsCommitting(true);
-                  try {
-                    const mergeTarget = pendingMergeInfo?.targetBranch || targetBranch || 'main';
-                    const result = await window.electronAPI.git.mergeToMain(
-                      activeTab.cwd,
-                      removeWorktreeAfterMerge,
-                      mergeTarget,
-                      activeTab.untrackedFiles || []
-                    );
-                    if (result.success) {
-                      if (removeWorktreeAfterMerge && activeTab.cwd.includes('.copilot-sessions')) {
-                        const sessionId = activeTab.cwd.split(/[/\\]/).pop() || '';
-                        if (sessionId) {
-                          await window.electronAPI.worktree.removeSession({
-                            sessionId,
-                            force: true,
-                          });
-                          handleCloseTab(activeTab.id);
-                        }
-                      }
-                      updateTab(activeTab.id, {
-                        gitBranchRefresh: (activeTab.gitBranchRefresh || 0) + 1,
-                      });
-                    } else {
-                      setCommitError(result.error || 'Merge failed');
-                    }
-                  } catch (error) {
-                    setCommitError(String(error));
-                  } finally {
-                    setIsCommitting(false);
-                    setPendingMergeInfo(null);
-                    setCommitAction('push');
-                    setRemoveWorktreeAfterMerge(false);
-                  }
-                }}
-                isLoading={isCommitting}
-              >
-                Merge Now
-              </Button>
-            </Modal.Footer>
-          </Modal.Body>
-        </Modal>
+          onRestoreFile={(filePath) => {
+            if (activeTab) {
+              const newUntracked = (activeTab.untrackedFiles || []).filter((f) => f !== filePath);
+              updateTab(activeTab.id, { untrackedFiles: newUntracked });
+            }
+          }}
+          onDismissPendingMerge={() => commitModal.setPendingMergeInfo(null)}
+          onMergeNow={() =>
+            activeTab && commitModal.handleMergeNow(activeTab, updateTab, handleCloseTab)
+          }
+        />
 
         {/* MCP Server Modal */}
         <Modal
@@ -7716,7 +7056,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           isGitRepo={isGitRepo}
           editedFiles={activeTab ? getCleanEditedFiles(activeTab.editedFiles) : []}
           untrackedFiles={activeTab?.untrackedFiles || []}
-          conflictedFiles={conflictedFiles}
+          conflictedFiles={commitModal.conflictedFiles}
           fileViewMode={activeTab?.fileViewMode || 'flat'}
           onUntrackFile={(filePath) => {
             if (activeTab) {
