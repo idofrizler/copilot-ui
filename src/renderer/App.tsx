@@ -4763,16 +4763,22 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     rightContent: (
                       <span
                         className={`text-xs ${
-                          m.multiplier === 0
-                            ? 'text-copilot-success'
-                            : m.multiplier < 1
+                          m.source === 'fallback'
+                            ? 'text-copilot-text-muted italic'
+                            : m.multiplier === 0
                               ? 'text-copilot-success'
-                              : m.multiplier > 1
-                                ? 'text-copilot-warning'
-                                : 'text-copilot-text-muted'
+                              : m.multiplier < 1
+                                ? 'text-copilot-success'
+                                : m.multiplier > 1
+                                  ? 'text-copilot-warning'
+                                  : 'text-copilot-text-muted'
                         }`}
                       >
-                        {m.multiplier === 0 ? 'free' : `${m.multiplier}×`}
+                        {m.source === 'fallback'
+                          ? 'unlisted'
+                          : m.multiplier === 0
+                            ? 'free'
+                            : `${m.multiplier}×`}
                       </span>
                     ),
                   }))}
@@ -5377,16 +5383,22 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       rightContent: (
                         <span
                           className={`text-xs ${
-                            m.multiplier === 0
-                              ? 'text-copilot-success'
-                              : m.multiplier < 1
+                            m.source === 'fallback'
+                              ? 'text-copilot-text-muted italic'
+                              : m.multiplier === 0
                                 ? 'text-copilot-success'
-                                : m.multiplier > 1
-                                  ? 'text-copilot-warning'
-                                  : 'text-copilot-text-muted'
+                                : m.multiplier < 1
+                                  ? 'text-copilot-success'
+                                  : m.multiplier > 1
+                                    ? 'text-copilot-warning'
+                                    : 'text-copilot-text-muted'
                           }`}
                         >
-                          {m.multiplier === 0 ? 'free' : `${m.multiplier}×`}
+                          {m.source === 'fallback'
+                            ? 'unlisted'
+                            : m.multiplier === 0
+                              ? 'free'
+                              : `${m.multiplier}×`}
                         </span>
                       ),
                     }))}

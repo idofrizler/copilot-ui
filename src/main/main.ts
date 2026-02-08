@@ -910,26 +910,14 @@ interface ModelInfo {
   id: string;
   name: string;
   multiplier: number;
+  source?: 'api' | 'fallback'; // 'api' = from listModels(), 'fallback' = hardcoded (not in API yet)
 }
 
-// Static list of available models with pricing multipliers (sorted by cost low to high)
-// This serves as the baseline list; actual availability is verified per-user
-const AVAILABLE_MODELS: ModelInfo[] = [
-  { id: 'gpt-4.1', name: 'GPT-4.1', multiplier: 0 },
-  { id: 'gpt-5-mini', name: 'GPT-5 mini', multiplier: 0 },
-  { id: 'claude-haiku-4.5', name: 'Claude Haiku 4.5', multiplier: 0.33 },
-  { id: 'gpt-5.1-codex-mini', name: 'GPT-5.1-Codex-Mini', multiplier: 0.33 },
-  { id: 'claude-sonnet-4.5', name: 'Claude Sonnet 4.5', multiplier: 1 },
-  { id: 'claude-sonnet-4', name: 'Claude Sonnet 4', multiplier: 1 },
-  { id: 'gpt-5.2-codex', name: 'GPT-5.2-Codex', multiplier: 1 },
-  { id: 'gpt-5.1-codex-max', name: 'GPT-5.1-Codex-Max', multiplier: 1 },
-  { id: 'gpt-5.1-codex', name: 'GPT-5.1-Codex', multiplier: 1 },
-  { id: 'gpt-5.2', name: 'GPT-5.2', multiplier: 1 },
-  { id: 'gpt-5.1', name: 'GPT-5.1', multiplier: 1 },
-  { id: 'gpt-5', name: 'GPT-5', multiplier: 1 },
-  { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro (Preview)', multiplier: 1 },
-  { id: 'claude-opus-4.5', name: 'Claude Opus 4.5', multiplier: 3 },
-  { id: 'claude-opus-4.6', name: 'Claude Opus 4.6', multiplier: 3 },
+// Fallback models that work but aren't returned by listModels() API yet
+// These should be removed once the API returns them
+const FALLBACK_MODELS: ModelInfo[] = [
+  { id: 'claude-opus-4.6', name: 'Claude Opus 4.6', multiplier: 3, source: 'fallback' },
+  { id: 'claude-opus-4.6-fast', name: 'Claude Opus 4.6 (fast)', multiplier: 9, source: 'fallback' },
 ];
 
 // Cache for verified models (models confirmed available for current user)
@@ -945,21 +933,45 @@ function getVerifiedModels(): ModelInfo[] {
   if (verifiedModelsCache && Date.now() - verifiedModelsCache.timestamp < MODEL_CACHE_TTL) {
     return verifiedModelsCache.models;
   }
-  // If no cache, return baseline models (verification happens async)
-  return AVAILABLE_MODELS;
+  // If no cache, return fallback models only (API models load async)
+  return FALLBACK_MODELS;
 }
 
-// Verify which models are available for the current user by fetching from the server
+// Fetch models from API and merge with fallback models
+// API models are source of truth; fallback models added if not already in API response
 async function verifyAvailableModels(client: CopilotClient): Promise<ModelInfo[]> {
-  console.log('Starting model verification...');
-  const available = await client.listModels();
-  const availableIds = new Set(available.map((m) => m.id));
-  const verified = AVAILABLE_MODELS.filter((model) => availableIds.has(model.id));
-  verifiedModelsCache = { models: verified, timestamp: Date.now() };
+  console.log('Fetching models from API...');
+  const apiModels = await client.listModels();
+
+  console.log(`API returned ${apiModels.length} models`);
+
+  // Convert API response to ModelInfo, sorted by multiplier (low to high)
+  const models: ModelInfo[] = apiModels
+    .map((m) => ({
+      id: m.id,
+      name: m.name || m.id,
+      multiplier: (m as { billing?: { multiplier?: number } }).billing?.multiplier ?? 1,
+      source: 'api' as const,
+    }))
+    .sort((a, b) => a.multiplier - b.multiplier);
+
+  // Add fallback models that aren't in API response
+  const apiIds = new Set(models.map((m) => m.id));
+  for (const fallback of FALLBACK_MODELS) {
+    if (!apiIds.has(fallback.id)) {
+      console.log(`Adding fallback model: ${fallback.id} (not in API response)`);
+      models.push(fallback);
+    }
+  }
+
+  // Re-sort after adding fallbacks
+  models.sort((a, b) => a.multiplier - b.multiplier);
+
+  verifiedModelsCache = { models, timestamp: Date.now() };
   console.log(
-    `Model verification complete: ${verified.length}/${AVAILABLE_MODELS.length} models available`
+    `Model list complete: ${models.length} models (${apiModels.length} from API, ${models.length - apiModels.length} fallback)`
   );
-  return verified;
+  return models;
 }
 
 // Preferred models for quick, simple AI tasks (in order of preference)
@@ -4279,8 +4291,8 @@ if (!gotTheLock) {
     earlyResumptionPromise = startEarlySessionResumption();
 
     console.log(
-      'Baseline models:',
-      AVAILABLE_MODELS.map((m) => `${m.name} (${m.multiplier}×)`).join(', ')
+      'Fallback models (until API loads):',
+      FALLBACK_MODELS.map((m) => `${m.name} (${m.multiplier}×)`).join(', ')
     );
 
     // Set up custom application menu
