@@ -4535,39 +4535,38 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       // Empty tab - replace the session with the new model
       const result = await window.electronAPI.copilot.setModel(activeTab.id, model);
       trackEvent(TelemetryEvents.FEATURE_MODEL_CHANGED);
-      // Update the tab with new session ID and model, clear messages but preserve input
-      setTabs((prev) => {
-        const updated = prev.filter((t) => t.id !== activeTab.id);
-        return [
-          ...updated,
-          {
-            id: result.sessionId,
-            name: activeTab.name,
-            messages: [],
-            model: result.model,
-            cwd: result.cwd || activeTab.cwd,
-            isProcessing: false,
-            activeTools: [],
-            hasUnreadCompletion: false,
-            pendingConfirmations: [],
-            needsTitle: true,
-            alwaysAllowed: [],
-            editedFiles: [],
-            untrackedFiles: [],
-            fileViewMode: 'flat',
-            currentIntent: null,
-            currentIntentTimestamp: null,
-            gitBranchRefresh: 0,
-            // Preserve current input when switching models
-            draftInput: {
-              text: inputValue,
-              imageAttachments: [...imageAttachments],
-              fileAttachments: [...fileAttachments],
-              terminalAttachment: terminalAttachment ? { ...terminalAttachment } : null,
-            },
-          },
-        ];
-      });
+      // Replace tab in-place to preserve position, update with new session ID and model
+      setTabs((prev) =>
+        prev.map((t) =>
+          t.id === activeTab.id
+            ? {
+                id: result.sessionId,
+                name: activeTab.name,
+                messages: [],
+                model: result.model,
+                cwd: result.cwd || activeTab.cwd,
+                isProcessing: false,
+                activeTools: [],
+                hasUnreadCompletion: false,
+                pendingConfirmations: [],
+                needsTitle: true,
+                alwaysAllowed: [],
+                editedFiles: [],
+                untrackedFiles: [],
+                fileViewMode: 'flat',
+                currentIntent: null,
+                currentIntentTimestamp: null,
+                gitBranchRefresh: 0,
+                draftInput: {
+                  text: inputValue,
+                  imageAttachments: [...imageAttachments],
+                  fileAttachments: [...fileAttachments],
+                  terminalAttachment: terminalAttachment ? { ...terminalAttachment } : null,
+                },
+              }
+            : t
+        )
+      );
       setActiveTabId(result.sessionId);
       setStatus('connected');
     } catch (error) {
