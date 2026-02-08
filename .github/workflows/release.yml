@@ -136,7 +136,7 @@ jobs:
         run: npm test
 
       - name: Build application
-        run: npm run prebuild-info && electron-vite build
+        run: npm run prebuild-info && npx electron-vite build
 
       - name: Build distributables (macOS)
         if: runner.os == 'macOS'
