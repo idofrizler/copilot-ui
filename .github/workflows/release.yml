@@ -142,8 +142,7 @@ jobs:
         if: runner.os == 'macOS'
         run: npx electron-builder --mac --publish never
         env:
-          # Code signing (no-op when secrets are not set)
-          CSC_IDENTITY_AUTO_DISCOVERY: false
+          # Code signing — when MAC_CERTS is set, signing + notarization is automatic
           CSC_LINK: ${{ secrets.MAC_CERTS }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTS_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
