@@ -117,6 +117,10 @@ const getSafeCopilotReadPaths = (): string[] => {
     join(home, '.copilot-sessions'), // Worktree sessions directory
     join(home, '.copilot', 'session-state'), // Session state (plan.md files)
     join(home, '.copilot', 'skills'), // Personal skills directory
+    join(home, '.claude', 'skills'), // Personal Claude skills
+    join(home, '.claude', 'commands'), // Legacy Claude commands
+    join(home, '.agents', 'skills'), // Personal .agents skills
+    join(home, '.config', 'agent', 'skills'), // OpenAI agent skills
   ];
 };
 
