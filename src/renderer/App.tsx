@@ -108,6 +108,39 @@ const COOPER_DEFAULT_AGENT: Agent = {
   source: 'copilot',
 };
 
+const groupBy = <T, K extends string>(items: T[], keyFn: (item: T) => K): Record<K, T[]> => {
+  return items.reduce(
+    (acc, item) => {
+      const key = keyFn(item);
+      if (!acc[key]) {
+        acc[key] = [];
+      }
+      acc[key].push(item);
+      return acc;
+    },
+    {} as Record<K, T[]>
+  );
+};
+
+const INSTRUCTION_TYPE_LABELS: Record<Instruction['type'], string> = {
+  personal: 'Personal instructions',
+  project: 'Project instructions',
+  cwd: 'Current directory',
+  'custom-dir': 'Custom directory',
+  agent: 'Agent reference files',
+};
+const INSTRUCTION_TYPE_ORDER: Instruction['type'][] = [
+  'personal',
+  'project',
+  'cwd',
+  'custom-dir',
+  'agent',
+];
+const SKILL_TYPE_LABELS: Record<Skill['type'], string> = {
+  personal: 'Personal skills',
+  project: 'Project skills',
+};
+const SKILL_TYPE_ORDER: Skill['type'][] = ['personal', 'project'];
 const App: React.FC = () => {
   const [status, setStatus] = useState<Status>('connecting');
   const [inputValue, setInputValue] = useState('');
@@ -182,6 +215,9 @@ const App: React.FC = () => {
   // Agent Skills state
   const [skills, setSkills] = useState<Skill[]>([]);
   const [showSkills, setShowSkills] = useState(false);
+  const [expandedSkillSections, setExpandedSkillSections] = useState<
+    Record<Skill['type'], boolean>
+  >({});
 
   // Agent discovery state
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -200,6 +236,37 @@ const App: React.FC = () => {
   // Copilot Instructions state
   const [instructions, setInstructions] = useState<Instruction[]>([]);
   const [showInstructions, setShowInstructions] = useState(false);
+  const [expandedInstructionSections, setExpandedInstructionSections] = useState<
+    Record<Instruction['type'], boolean>
+  >({});
+
+  const toggleSkillSection = useCallback((type: Skill['type']) => {
+    setExpandedSkillSections((prev) => ({ ...prev, [type]: !prev[type] }));
+  }, []);
+
+  const toggleInstructionSection = useCallback((type: Instruction['type']) => {
+    setExpandedInstructionSections((prev) => ({ ...prev, [type]: !prev[type] }));
+  }, []);
+
+  const instructionSections = useMemo(() => {
+    const grouped = groupBy(instructions, (instruction) => instruction.type);
+    return INSTRUCTION_TYPE_ORDER.map((type) => ({
+      type,
+      label: INSTRUCTION_TYPE_LABELS[type],
+      items: grouped[type] || [],
+    })).filter((section) => section.items.length > 0);
+  }, [instructions]);
+
+  const skillSections = useMemo(() => {
+    const grouped = groupBy(skills, (skill) => skill.type);
+    return SKILL_TYPE_ORDER.map((type) => ({
+      type,
+      label: SKILL_TYPE_LABELS[type],
+      items: grouped[type] || [],
+    })).filter((section) => section.items.length > 0);
+  }, [skills]);
+
+  const mcpEntries = useMemo(() => Object.entries(mcpServers), [mcpServers]);
 
   // Voice control settings
   const [pushToTalk, setPushToTalk] = useState(() => {
@@ -683,6 +750,7 @@ const App: React.FC = () => {
         untrackedFiles: t.untrackedFiles,
         fileViewMode: t.fileViewMode,
         yoloMode: t.yoloMode,
+        activeAgentName: t.activeAgentName,
       }));
       window.electronAPI.copilot.saveOpenSessions(openSessions);
     }
@@ -1015,6 +1083,7 @@ const App: React.FC = () => {
             currentIntent: null,
             currentIntentTimestamp: null,
             gitBranchRefresh: 0,
+            activeAgentName: undefined,
           };
           setTabs([newTab]);
           setActiveTabId(result.sessionId);
@@ -1063,6 +1132,7 @@ const App: React.FC = () => {
               markedForReview: s.markedForReview,
               reviewNote: s.reviewNote,
               yoloMode: s.yoloMode,
+              activeAgentName: s.activeAgentName,
             };
           });
 
@@ -1104,6 +1174,7 @@ const App: React.FC = () => {
                       isStreaming: false,
                     })),
                     needsTitle: false,
+                    activeAgentName: s.activeAgentName ?? tab.activeAgentName,
                   }
                 : tab
             );
@@ -1138,6 +1209,7 @@ const App: React.FC = () => {
             gitBranchRefresh: 0,
             lisaConfig,
             yoloMode: s.yoloMode,
+            activeAgentName: s.activeAgentName,
           },
         ];
       });
@@ -3231,6 +3303,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         currentIntent: null,
         currentIntentTimestamp: null,
         gitBranchRefresh: 0,
+        activeAgentName: undefined,
       };
       setTabs((prev) => [...prev, newTab]);
       setActiveTabId(result.sessionId);
@@ -3320,6 +3393,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         currentIntentTimestamp: null,
         gitBranchRefresh: 0,
         yoloMode: autoStart?.yoloMode || false,
+        activeAgentName: undefined,
       };
       setTabs((prev) => [...prev, newTab]);
       setActiveTabId(result.sessionId);
@@ -3575,6 +3649,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           currentIntent: null,
           currentIntentTimestamp: null,
           gitBranchRefresh: 0,
+          activeAgentName: undefined,
         };
         setTabs([newTab]);
         setActiveTabId(result.sessionId);
@@ -3785,6 +3860,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         gitBranchRefresh: 0,
         markedForReview: prevSession.markedForReview,
         reviewNote: prevSession.reviewNote,
+        activeAgentName: prevSession.activeAgentName,
       };
 
       setTabs((prev) => [...prev, newTab]);
@@ -4293,21 +4369,67 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 </button>
                 {showSkills && (
                   <div className="px-4 pb-3">
-                    {skills.length === 0 ? (
+                    {skillSections.length === 0 ? (
                       <div className="text-xs text-copilot-text-muted">No skills found</div>
                     ) : (
-                      <div className="space-y-2 max-h-32 overflow-y-auto">
-                        {skills.map((skill) => (
-                          <div key={skill.path} className="text-xs">
-                            <div className="flex items-center gap-2">
-                              <BookIcon size={12} className="text-copilot-accent" />
-                              <span className="text-copilot-text">{skill.name}</span>
+                      <div className="space-y-1">
+                        {skillSections.map((section, sectionIndex) => {
+                          const isExpanded = !!expandedSkillSections[section.type];
+                          return (
+                            <div
+                              key={section.type}
+                              className={`${sectionIndex > 0 ? 'border-t border-copilot-border' : ''}`}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => toggleSkillSection(section.type)}
+                                className="w-full flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                              >
+                                <ChevronRightIcon
+                                  size={10}
+                                  className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                                />
+                                <span className="text-xs font-semibold text-copilot-text">
+                                  {section.label}
+                                </span>
+                                <span className="ml-auto text-[10px] text-copilot-text-muted">
+                                  ({section.items.length})
+                                </span>
+                              </button>
+                              {isExpanded && (
+                                <div className="px-3 pb-2 pt-1">
+                                  <div className="space-y-2">
+                                    {section.items.map((skill) => (
+                                      <div key={skill.path} className="text-xs">
+                                        <div className="flex items-center gap-2">
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              window.electronAPI.file.openFile(skill.path)
+                                            }
+                                            className="shrink-0 text-copilot-accent"
+                                            title={`Open ${skill.name}`}
+                                          >
+                                            <BookIcon size={12} />
+                                          </button>
+                                          <span className="text-copilot-text truncate">
+                                            {skill.name}
+                                          </span>
+                                        </div>
+                                        <div
+                                          className="text-[10px] text-copilot-text-muted ml-5 truncate"
+                                          title={skill.relativePath}
+                                        >
+                                          {skill.relativePath}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
                             </div>
-                            <div className="text-[10px] text-copilot-text-muted ml-5 truncate">
-                              {skill.description}
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -4340,33 +4462,69 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 </div>
                 {showInstructions && (
                   <div className="px-4 pb-3">
-                    {instructions.length === 0 ? (
+                    {instructionSections.length === 0 ? (
                       <div className="text-xs text-copilot-text-muted">
                         No instruction files found
                       </div>
                     ) : (
-                      <div className="space-y-2 max-h-32 overflow-y-auto">
-                        {instructions.map((instruction) => (
-                          <div
-                            key={instruction.path}
-                            className="text-xs cursor-pointer hover:bg-copilot-surface rounded px-1 py-0.5"
-                            onClick={() => window.electronAPI.file.openFile(instruction.path)}
-                            title={instruction.path}
-                          >
-                            <div className="flex items-center gap-2">
-                              <FileIcon size={12} className="text-copilot-accent" />
-                              <span className="text-copilot-text">{instruction.name}</span>
+                      <div className="space-y-1">
+                        {instructionSections.map((section, sectionIndex) => {
+                          const isExpanded = !!expandedInstructionSections[section.type];
+                          return (
+                            <div
+                              key={section.type}
+                              className={`${sectionIndex > 0 ? 'border-t border-copilot-border' : ''}`}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => toggleInstructionSection(section.type)}
+                                className="w-full flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                              >
+                                <ChevronRightIcon
+                                  size={10}
+                                  className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                                />
+                                <span className="text-xs font-semibold text-copilot-text">
+                                  {section.label}
+                                </span>
+                                <span className="ml-auto text-[10px] text-copilot-text-muted">
+                                  ({section.items.length})
+                                </span>
+                              </button>
+                              {isExpanded && (
+                                <div className="px-3 pb-2 pt-1">
+                                  <div className="space-y-2">
+                                    {section.items.map((instruction) => (
+                                      <div key={instruction.path} className="text-xs">
+                                        <div className="flex items-center gap-2">
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              window.electronAPI.file.openFile(instruction.path)
+                                            }
+                                            className="shrink-0 text-copilot-accent"
+                                            title={`Open ${instruction.name}`}
+                                          >
+                                            <FileIcon size={12} />
+                                          </button>
+                                          <span className="text-copilot-text truncate">
+                                            {instruction.name}
+                                          </span>
+                                        </div>
+                                        <div
+                                          className="text-[10px] text-copilot-text-muted ml-5 truncate"
+                                          title={instruction.relativePath}
+                                        >
+                                          {instruction.relativePath}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
                             </div>
-                            <div className="text-[10px] text-copilot-text-muted ml-5 truncate">
-                              {instruction.type === 'personal'
-                                ? 'Personal'
-                                : instruction.type === 'organization'
-                                  ? 'Organization'
-                                  : 'Project'}
-                              {instruction.scope === 'path-specific' ? ' · Path-specific' : ''}
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -5925,15 +6083,24 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                         />
                       </button>
                       {openTopBarSelector === 'models' && (
-                        <div className="absolute bottom-full left-0 z-50 mb-0.5 w-72 max-h-80 overflow-y-auto bg-copilot-surface border border-copilot-border rounded-lg shadow-lg">
+                        <div className="absolute bottom-full left-0 z-50 mb-0.5 w-60 max-h-80 overflow-y-auto bg-copilot-surface border border-copilot-border rounded-lg shadow-lg">
                           {sortedModels.map((m, idx) => {
                             const isFav = favoriteModels.includes(m.id);
                             return (
                               <React.Fragment key={m.id}>
-                                <button
+                                <div
+                                  role="button"
+                                  tabIndex={0}
                                   onClick={() => {
                                     handleModelChange(m.id);
                                     setOpenTopBarSelector(null);
+                                  }}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Enter' || event.key === ' ') {
+                                      event.preventDefault();
+                                      handleModelChange(m.id);
+                                      setOpenTopBarSelector(null);
+                                    }
                                   }}
                                   className={`group w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-copilot-surface-hover transition-colors ${
                                     m.id === activeTab?.model
@@ -5943,6 +6110,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                                 >
                                   {handleToggleFavoriteModel && (
                                     <button
+                                      type="button"
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         handleToggleFavoriteModel(m.id);
@@ -5986,7 +6154,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                                         ? 'free'
                                         : `${m.multiplier}×`}
                                   </span>
-                                </button>
+                                </div>
                                 {modelDividers.includes(idx) && (
                                   <div className="border-t border-copilot-border" />
                                 )}
@@ -6020,7 +6188,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                         />
                       </button>
                       {openTopBarSelector === 'agents' && (
-                        <div className="absolute bottom-full left-0 z-50 mb-0.5 w-72 max-h-80 overflow-y-auto bg-copilot-surface border border-copilot-border rounded-lg shadow-lg">
+                        <div className="absolute bottom-full left-0 z-50 mb-0.5 w-60 max-h-80 overflow-y-auto bg-copilot-surface border border-copilot-border rounded-lg shadow-lg">
                           {groupedAgents.length === 0 ? (
                             <div className="px-4 py-4 text-xs text-copilot-text-muted text-center">
                               No agents found
@@ -6034,16 +6202,25 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                                 {section.agents.map((agent) => {
                                   const isFav = favoriteAgents.includes(agent.path);
                                   const isActive = activeAgentPath === agent.path;
+                                  const selectAgent = () => {
+                                    if (!activeTab) return;
+                                    setSelectedAgentByTab((prev) => ({
+                                      ...prev,
+                                      [activeTab.id]: agent.path,
+                                    }));
+                                    setOpenTopBarSelector(null);
+                                  };
                                   return (
-                                    <button
+                                    <div
                                       key={agent.path}
-                                      onClick={() => {
-                                        if (!activeTab) return;
-                                        setSelectedAgentByTab((prev) => ({
-                                          ...prev,
-                                          [activeTab.id]: agent.path,
-                                        }));
-                                        setOpenTopBarSelector(null);
+                                      role="button"
+                                      tabIndex={0}
+                                      onClick={selectAgent}
+                                      onKeyDown={(event) => {
+                                        if (event.key === 'Enter' || event.key === ' ') {
+                                          event.preventDefault();
+                                          selectAgent();
+                                        }
                                       }}
                                       className={`group w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-copilot-surface-hover transition-colors ${
                                         isActive
@@ -6052,8 +6229,9 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                                       }`}
                                     >
                                       <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
                                           handleToggleFavoriteAgent(agent.path);
                                         }}
                                         className={`shrink-0 transition-colors ${
@@ -6077,8 +6255,9 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                                       </span>
                                       {agent.type !== 'system' && (
                                         <button
-                                          onClick={(e) => {
-                                            e.stopPropagation();
+                                          type="button"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
                                             window.electronAPI.file
                                               .openFile(agent.path)
                                               .then((result) => {
@@ -6099,7 +6278,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                                           <EyeIcon size={12} />
                                         </button>
                                       )}
-                                    </button>
+                                    </div>
                                   );
                                 })}
                                 {sectionIdx < groupedAgents.length - 1 && (
@@ -6638,56 +6817,65 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       </div>
                       {showMcpServers && (
                         <div className="max-h-48 overflow-y-auto">
-                          {Object.keys(mcpServers).length === 0 ? (
+                          {mcpEntries.length === 0 ? (
                             <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
                               No MCP servers configured
                             </div>
                           ) : (
-                            Object.entries(mcpServers).map(([name, server]) => {
-                              const isLocal =
-                                !server.type || server.type === 'local' || server.type === 'stdio';
-                              return (
-                                <div
-                                  key={name}
-                                  className="group px-3 py-1.5 hover:bg-copilot-surface border-b border-copilot-border last:border-b-0"
-                                >
-                                  <div className="flex items-center gap-2">
-                                    {isLocal ? (
-                                      <MonitorIcon
-                                        size={10}
-                                        className="shrink-0 text-copilot-accent"
-                                      />
-                                    ) : (
-                                      <GlobeIcon
-                                        size={10}
-                                        className="shrink-0 text-copilot-accent"
-                                      />
-                                    )}
-                                    <div className="flex-1 min-w-0">
-                                      <div className="text-xs text-copilot-text truncate">
-                                        {name}
+                            <div className="divide-y divide-copilot-border">
+                              {mcpEntries.map(([name, server]) => {
+                                const isLocal =
+                                  !server.type ||
+                                  server.type === 'local' ||
+                                  server.type === 'stdio';
+                                const toolCount =
+                                  server.tools[0] === '*' ? 'all' : `${server.tools.length}`;
+                                return (
+                                  <div
+                                    key={name}
+                                    className="group px-3 py-1.5 hover:bg-copilot-surface"
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      {isLocal ? (
+                                        <MonitorIcon
+                                          size={10}
+                                          className="shrink-0 text-copilot-accent"
+                                        />
+                                      ) : (
+                                        <GlobeIcon
+                                          size={10}
+                                          className="shrink-0 text-copilot-accent"
+                                        />
+                                      )}
+                                      <div className="flex-1 min-w-0">
+                                        <div className="text-xs text-copilot-text truncate">
+                                          {name}
+                                        </div>
+                                        <div className="text-[10px] text-copilot-text-muted">
+                                          {toolCount} tools
+                                        </div>
+                                      </div>
+                                      <div className="shrink-0 opacity-0 group-hover:opacity-100 flex gap-1">
+                                        <IconButton
+                                          icon={<EditIcon size={10} />}
+                                          onClick={() => openEditMcpModal(name, server)}
+                                          variant="accent"
+                                          size="xs"
+                                          title="Edit"
+                                        />
+                                        <IconButton
+                                          icon={<CloseIcon size={10} />}
+                                          onClick={() => handleDeleteMcpServer(name)}
+                                          variant="error"
+                                          size="xs"
+                                          title="Delete"
+                                        />
                                       </div>
                                     </div>
-                                    <div className="shrink-0 opacity-0 group-hover:opacity-100 flex gap-1">
-                                      <IconButton
-                                        icon={<EditIcon size={10} />}
-                                        onClick={() => openEditMcpModal(name, server)}
-                                        variant="accent"
-                                        size="xs"
-                                        title="Edit"
-                                      />
-                                      <IconButton
-                                        icon={<CloseIcon size={10} />}
-                                        onClick={() => handleDeleteMcpServer(name)}
-                                        variant="error"
-                                        size="xs"
-                                        title="Delete"
-                                      />
-                                    </div>
                                   </div>
-                                </div>
-                              );
-                            })
+                                );
+                              })}
+                            </div>
                           )}
                         </div>
                       )}
@@ -6715,26 +6903,70 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       </div>
                       {showSkills && (
                         <div className="max-h-48 overflow-y-auto">
-                          {skills.length === 0 ? (
+                          {skillSections.length === 0 ? (
                             <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
                               No skills found
                             </div>
                           ) : (
-                            skills.map((skill) => (
-                              <div
-                                key={skill.path}
-                                className="group px-3 py-1.5 hover:bg-copilot-surface border-b border-copilot-border last:border-b-0"
-                              >
-                                <div className="flex items-center gap-2">
-                                  <BookIcon size={10} className="shrink-0 text-copilot-accent" />
-                                  <div className="flex-1 min-w-0">
-                                    <div className="text-xs text-copilot-text truncate">
-                                      {skill.name}
-                                    </div>
+                            <div>
+                              {skillSections.map((section, sectionIndex) => {
+                                const isExpanded = !!expandedSkillSections[section.type];
+                                return (
+                                  <div
+                                    key={section.type}
+                                    className={`${sectionIndex > 0 ? 'border-t border-copilot-border' : ''}`}
+                                  >
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleSkillSection(section.type)}
+                                      className="w-full flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                                    >
+                                      <ChevronRightIcon
+                                        size={10}
+                                        className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                                      />
+                                      <span className="text-xs font-semibold text-copilot-text">
+                                        {section.label}
+                                      </span>
+                                      <span className="ml-auto text-[10px] text-copilot-text-muted">
+                                        ({section.items.length})
+                                      </span>
+                                    </button>
+                                    {isExpanded && (
+                                      <div className="px-3 pb-2">
+                                        <div className="space-y-2">
+                                          {section.items.map((skill) => (
+                                            <div key={skill.path} className="text-xs">
+                                              <div className="flex items-center gap-2">
+                                                <button
+                                                  type="button"
+                                                  onClick={() =>
+                                                    window.electronAPI.file.openFile(skill.path)
+                                                  }
+                                                  className="shrink-0 text-copilot-accent"
+                                                  title={`Open ${skill.name}`}
+                                                >
+                                                  <BookIcon size={12} />
+                                                </button>
+                                                <span className="text-copilot-text truncate">
+                                                  {skill.name}
+                                                </span>
+                                              </div>
+                                              <div
+                                                className="text-[10px] text-copilot-text-muted ml-5 truncate"
+                                                title={skill.relativePath}
+                                              >
+                                                {skill.relativePath}
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
                                   </div>
-                                </div>
-                              </div>
-                            ))
+                                );
+                              })}
+                            </div>
                           )}
                         </div>
                       )}
@@ -6769,32 +7001,79 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       </div>
                       {showInstructions && (
                         <div className="max-h-48 overflow-y-auto">
-                          {instructions.length === 0 ? (
+                          {instructionSections.length === 0 ? (
                             <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
                               No instruction files found
                             </div>
                           ) : (
-                            instructions.map((instruction) => (
-                              <div
-                                key={instruction.path}
-                                className="group px-3 py-1.5 hover:bg-copilot-surface border-b border-copilot-border last:border-b-0 cursor-pointer"
-                                onClick={() => window.electronAPI.file.openFile(instruction.path)}
-                                title={instruction.path}
-                              >
-                                <div className="flex items-center gap-2">
-                                  <FileIcon size={10} className="shrink-0 text-copilot-accent" />
-                                  <div className="flex-1 min-w-0">
-                                    <div className="text-xs text-copilot-text truncate">
-                                      {instruction.name}
-                                    </div>
+                            <div>
+                              {instructionSections.map((section, sectionIndex) => {
+                                const isExpanded = !!expandedInstructionSections[section.type];
+                                return (
+                                  <div
+                                    key={section.type}
+                                    className={`${sectionIndex > 0 ? 'border-t border-copilot-border' : ''}`}
+                                  >
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleInstructionSection(section.type)}
+                                      className="w-full flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                                    >
+                                      <ChevronRightIcon
+                                        size={10}
+                                        className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                                      />
+                                      <span className="text-xs font-semibold text-copilot-text">
+                                        {section.label}
+                                      </span>
+                                      <span className="ml-auto text-[10px] text-copilot-text-muted">
+                                        ({section.items.length})
+                                      </span>
+                                    </button>
+                                    {isExpanded && (
+                                      <div className="px-3 pb-2">
+                                        <div className="space-y-2">
+                                          {section.items.map((instruction) => (
+                                            <div key={instruction.path} className="text-xs">
+                                              <div className="flex items-center gap-2">
+                                                <button
+                                                  type="button"
+                                                  onClick={() =>
+                                                    window.electronAPI.file.openFile(
+                                                      instruction.path
+                                                    )
+                                                  }
+                                                  className="shrink-0 text-copilot-accent"
+                                                  title={`Open ${instruction.name}`}
+                                                >
+                                                  <FileIcon size={12} />
+                                                </button>
+                                                <span className="text-copilot-text truncate">
+                                                  {instruction.name}
+                                                </span>
+                                              </div>
+                                              <div
+                                                className="text-[10px] text-copilot-text-muted ml-5 truncate"
+                                                title={instruction.relativePath}
+                                              >
+                                                {instruction.relativePath}
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
                                   </div>
-                                </div>
-                              </div>
-                            ))
+                                );
+                              })}
+                            </div>
                           )}
                         </div>
                       )}
                     </div>
+
+                    {/* Separator */}
+                    <div className="border-t border-copilot-border" />
                   </div>
                   {/* End MCP/Skills wrapper */}
                 </div>

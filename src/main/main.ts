@@ -132,7 +132,8 @@ async function readMcpConfig(): Promise<MCPConfigFile> {
       return { mcpServers: {} };
     }
     const content = await readFile(configPath, 'utf-8');
-    return JSON.parse(content) as MCPConfigFile;
+    const parsed = JSON.parse(content) as MCPConfigFile;
+    return parsed;
   } catch (error) {
     console.error('Failed to read MCP config:', error);
     return { mcpServers: {} };
@@ -161,6 +162,8 @@ import { getAllAgents } from './agents';
 
 // Copilot Instructions - imported from instructions module
 import { getAllInstructions, getGitRoot } from './instructions';
+
+import { getAllAgents } from './agents';
 
 // Set up file logging only - no IPC to renderer (causes errors)
 log.transports.file.level = 'info';
@@ -205,6 +208,7 @@ interface StoredSession {
   untrackedFiles?: string[];
   fileViewMode?: 'flat' | 'tree';
   yoloMode?: boolean;
+  activeAgentName?: string;
 }
 
 const store = new Store({
@@ -1782,6 +1786,7 @@ async function initCopilot(): Promise<void> {
           untrackedFiles: storedSession?.untrackedFiles || [],
           fileViewMode: storedSession?.fileViewMode || 'flat',
           yoloMode: storedSession?.yoloMode || false,
+          activeAgentName: storedSession?.activeAgentName,
         };
         resumedSessions.push(resumed);
         console.log(
@@ -1824,6 +1829,7 @@ async function initCopilot(): Promise<void> {
         alwaysAllowed: storedSession?.alwaysAllowed || [],
         untrackedFiles: storedSession?.untrackedFiles || [],
         fileViewMode: storedSession?.fileViewMode || 'flat',
+        activeAgentName: storedSession?.activeAgentName,
       };
     });
 

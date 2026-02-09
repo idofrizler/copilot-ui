@@ -1138,6 +1138,19 @@ interface Instruction {
   scope: 'repository' | 'path-specific';
 }
 
+// Custom agent discovery
+interface CustomAgentProfile {
+  name: string;
+  description?: string;
+  model?: string;
+  tools?: string[];
+  target?: string;
+  path: string;
+  source: 'project' | 'organization' | 'personal' | 'custom';
+  sourceLabel: string;
+  prompt?: string;
+}
+
 // Worktree Session types
 interface WorktreeSession {
   id: string;

@@ -4,6 +4,7 @@ import { exec } from 'child_process';
 import { join, normalize } from 'path';
 import { promisify } from 'util';
 import { app } from 'electron';
+import { formatRelativeDisplayPath, PathFormatOptions } from './path-utils';
 
 const execAsync = promisify(exec);
 
@@ -12,6 +13,7 @@ export interface Instruction {
   path: string;
   type: 'personal' | 'project' | 'cwd' | 'custom-dir' | 'agent';
   scope: 'repository' | 'path-specific' | 'agent-primary' | 'agent-additional';
+  relativePath: string;
 }
 
 export interface InstructionsResult {
@@ -68,6 +70,18 @@ export async function getAllInstructions(
     }
   };
 
+  type InstructionBase = Omit<Instruction, 'relativePath'>;
+  const registerInstruction = (
+    instruction: InstructionBase,
+    baseDir?: string,
+    options?: PathFormatOptions
+  ) => {
+    addInstruction({
+      ...instruction,
+      relativePath: formatRelativeDisplayPath(instruction.path, baseDir, options),
+    });
+  };
+
   const homePath = app.getPath('home');
 
   // Personal/local instructions: ~/.copilot/copilot-instructions.md
@@ -76,12 +90,16 @@ export async function getAllInstructions(
     if (existsSync(localPath)) {
       const s = await stat(localPath);
       if (s.isFile()) {
-        addInstruction({
-          name: 'copilot-instructions.md',
-          path: localPath,
-          type: 'personal',
-          scope: 'repository',
-        });
+        registerInstruction(
+          {
+            name: 'copilot-instructions.md',
+            path: localPath,
+            type: 'personal',
+            scope: 'repository',
+          },
+          homePath,
+          { useTilde: true, rootLabel: '~' }
+        );
       }
     }
   } catch (err) {
@@ -97,12 +115,15 @@ export async function getAllInstructions(
       if (existsSync(projectPath)) {
         const s = await stat(projectPath);
         if (s.isFile()) {
-          addInstruction({
-            name: 'copilot-instructions.md',
-            path: projectPath,
-            type: 'project',
-            scope: 'repository',
-          });
+          registerInstruction(
+            {
+              name: 'copilot-instructions.md',
+              path: projectPath,
+              type: 'project',
+              scope: 'repository',
+            },
+            projectRoot
+          );
         }
       }
     } catch (err) {
@@ -116,12 +137,15 @@ export async function getAllInstructions(
     try {
       const files = findInstructionFilesRecursive(instructionsDir);
       for (const filePath of files) {
-        addInstruction({
-          name: filePath.substring(instructionsDir.length + 1), // relative path from instructions dir
-          path: filePath,
-          type: 'project',
-          scope: 'path-specific',
-        });
+        registerInstruction(
+          {
+            name: filePath.substring(instructionsDir.length + 1), // relative path from instructions dir
+            path: filePath,
+            type: 'project',
+            scope: 'path-specific',
+          },
+          projectRoot
+        );
       }
     } catch (err) {
       errors.push(
@@ -135,12 +159,15 @@ export async function getAllInstructions(
       if (existsSync(agentsMdPath)) {
         const s = await stat(agentsMdPath);
         if (s.isFile()) {
-          addInstruction({
-            name: 'AGENTS.md',
-            path: agentsMdPath,
-            type: 'agent',
-            scope: 'agent-primary',
-          });
+          registerInstruction(
+            {
+              name: 'AGENTS.md',
+              path: agentsMdPath,
+              type: 'agent',
+              scope: 'agent-primary',
+            },
+            projectRoot
+          );
         }
       }
     } catch (err) {
@@ -155,12 +182,15 @@ export async function getAllInstructions(
       if (existsSync(claudeMdPath)) {
         const s = await stat(claudeMdPath);
         if (s.isFile()) {
-          addInstruction({
-            name: 'CLAUDE.md',
-            path: claudeMdPath,
-            type: 'agent',
-            scope: 'agent-primary',
-          });
+          registerInstruction(
+            {
+              name: 'CLAUDE.md',
+              path: claudeMdPath,
+              type: 'agent',
+              scope: 'agent-primary',
+            },
+            projectRoot
+          );
         }
       }
     } catch (err) {
@@ -175,12 +205,15 @@ export async function getAllInstructions(
       if (existsSync(geminiMdPath)) {
         const s = await stat(geminiMdPath);
         if (s.isFile()) {
-          addInstruction({
-            name: 'GEMINI.md',
-            path: geminiMdPath,
-            type: 'agent',
-            scope: 'agent-primary',
-          });
+          registerInstruction(
+            {
+              name: 'GEMINI.md',
+              path: geminiMdPath,
+              type: 'agent',
+              scope: 'agent-primary',
+            },
+            projectRoot
+          );
         }
       }
     } catch (err) {
@@ -198,12 +231,15 @@ export async function getAllInstructions(
     try {
       const files = findInstructionFilesRecursive(cwdInstructionsDir);
       for (const filePath of files) {
-        addInstruction({
-          name: filePath.substring(cwdInstructionsDir.length + 1),
-          path: filePath,
-          type: 'cwd',
-          scope: 'path-specific',
-        });
+        registerInstruction(
+          {
+            name: filePath.substring(cwdInstructionsDir.length + 1),
+            path: filePath,
+            type: 'cwd',
+            scope: 'path-specific',
+          },
+          effectiveCwd
+        );
       }
     } catch (err) {
       errors.push(
@@ -217,12 +253,15 @@ export async function getAllInstructions(
       if (existsSync(cwdAgentsMdPath)) {
         const s = await stat(cwdAgentsMdPath);
         if (s.isFile()) {
-          addInstruction({
-            name: 'AGENTS.md',
-            path: cwdAgentsMdPath,
-            type: 'agent',
-            scope: 'agent-additional',
-          });
+          registerInstruction(
+            {
+              name: 'AGENTS.md',
+              path: cwdAgentsMdPath,
+              type: 'agent',
+              scope: 'agent-additional',
+            },
+            effectiveCwd
+          );
         }
       }
     } catch (err) {
@@ -246,12 +285,15 @@ export async function getAllInstructions(
         if (existsSync(customAgentsMdPath)) {
           const s = await stat(customAgentsMdPath);
           if (s.isFile()) {
-            addInstruction({
-              name: 'AGENTS.md',
-              path: customAgentsMdPath,
-              type: 'custom-dir',
-              scope: 'agent-additional',
-            });
+            registerInstruction(
+              {
+                name: 'AGENTS.md',
+                path: customAgentsMdPath,
+                type: 'custom-dir',
+                scope: 'agent-additional',
+              },
+              customDir
+            );
           }
         }
       } catch (err) {
@@ -265,12 +307,15 @@ export async function getAllInstructions(
       try {
         const files = findInstructionFilesRecursive(customInstructionsDir);
         for (const filePath of files) {
-          addInstruction({
-            name: filePath.substring(customInstructionsDir.length + 1),
-            path: filePath,
-            type: 'custom-dir',
-            scope: 'path-specific',
-          });
+          registerInstruction(
+            {
+              name: filePath.substring(customInstructionsDir.length + 1),
+              path: filePath,
+              type: 'custom-dir',
+              scope: 'path-specific',
+            },
+            customDir
+          );
         }
       } catch (err) {
         errors.push(
