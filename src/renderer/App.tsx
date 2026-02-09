@@ -3816,6 +3816,9 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
     try {
       const result = await window.electronAPI.copilot.setModel(activeTab.id, model);
+      if (!result.sessionId) {
+        throw new Error('Model change did not return a valid session');
+      }
       // Update the tab in-place: swap session ID and model, preserve everything else
       setTabs((prev) =>
         prev.map((t) =>
