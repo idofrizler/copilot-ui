@@ -375,6 +375,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   const renderTreeNode = (node: FileTreeNode, level: number = 0): React.ReactNode => {
     const isExpanded = expandedFolders.has(node.path);
     const paddingLeft = 12 + level * 16;
+    const filePaddingLeft = paddingLeft + 16;
 
     if (node.isDirectory) {
       return (
@@ -401,7 +402,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
     }
 
     const isUntracked = untrackedFiles.includes(node.path);
-    return renderFileItem(node.path, isUntracked, paddingLeft, true); // inTreeView=true
+    return renderFileItem(node.path, isUntracked, filePaddingLeft, true); // inTreeView=true
   };
 
   return (
