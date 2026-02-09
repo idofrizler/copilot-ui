@@ -188,17 +188,32 @@ jobs:
             security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$CSC_KEYCHAIN"
           fi
           npx electron-builder --mac --publish never
-        timeout-minutes: 60
+        timeout-minutes: 30
         env:
           # Custom sign script (build/sign.js) reads CSC_KEYCHAIN and CSC_NAME directly.
           # Do NOT pass CSC_LINK — it triggers electron-builder's own keychain management.
           CSC_KEYCHAIN: ${{ env.CSC_KEYCHAIN }}
           CSC_NAME: ${{ env.CSC_NAME }}
           CSC_ENTITLEMENTS: build/entitlements.mac.plist
+
+      - name: Notarize macOS DMG
+        if: runner.os == 'macOS' && env.CSC_KEYCHAIN != ''
+        timeout-minutes: 30
+        env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          DEBUG: electron-builder
+        run: |
+          DMG=$(ls release/*.dmg | head -1)
+          echo "Submitting $DMG for notarization..."
+          xcrun notarytool submit "$DMG" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --wait --timeout 30m
+          echo "Stapling notarization ticket..."
+          xcrun stapler staple "$DMG"
+          echo "Notarization complete"
 
       - name: Build distributables (Windows)
         if: runner.os == 'Windows'
