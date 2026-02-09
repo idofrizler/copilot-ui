@@ -188,7 +188,7 @@ jobs:
             security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$CSC_KEYCHAIN"
           fi
           npx electron-builder --mac --publish never
-        timeout-minutes: 30
+        timeout-minutes: 60
         env:
           # Custom sign script (build/sign.js) reads CSC_KEYCHAIN and CSC_NAME directly.
           # Do NOT pass CSC_LINK — it triggers electron-builder's own keychain management.
@@ -198,6 +198,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          DEBUG: electron-builder
 
       - name: Build distributables (Windows)
         if: runner.os == 'Windows'
