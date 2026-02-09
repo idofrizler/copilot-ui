@@ -118,6 +118,7 @@ const App: React.FC = () => {
   const [showEditedFiles, setShowEditedFiles] = useState(false);
   const [cwdCopied, setCwdCopied] = useState(false);
   const [filePreviewPath, setFilePreviewPath] = useState<string | null>(null);
+  const [environmentPreviewPath, setEnvironmentPreviewPath] = useState<string | null>(null);
   const [isGitRepo, setIsGitRepo] = useState<boolean>(true);
   const commitModal = useCommitModal();
   const [allowMode, setAllowMode] = useState<'once' | 'session' | 'global'>('once');
@@ -876,6 +877,15 @@ const App: React.FC = () => {
     };
     loadInstructions();
   }, [activeTab?.cwd]);
+
+  const handleOpenEnvironment = useCallback(
+    (event?: React.MouseEvent) => {
+      event?.stopPropagation();
+      setFilePreviewPath(null);
+      setEnvironmentPreviewPath(instructions[0]?.path || '');
+    },
+    [instructions]
+  );
 
   // Helper to update a specific tab
   const updateTab = useCallback((tabId: string, updates: Partial<TabState>) => {
@@ -4242,19 +4252,28 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
               {/* Copilot Instructions */}
               <div className="border-b border-copilot-border">
-                <button
-                  onClick={() => setShowInstructions(!showInstructions)}
-                  className="w-full flex items-center gap-3 px-4 py-3 text-sm text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
-                >
-                  <ChevronRightIcon
-                    size={14}
-                    className={`transition-transform ${showInstructions ? 'rotate-90' : ''}`}
-                  />
-                  <span>Instructions</span>
-                  {instructions.length > 0 && (
-                    <span className="ml-auto text-copilot-accent">{instructions.length}</span>
-                  )}
-                </button>
+                <div className="flex items-center">
+                  <button
+                    onClick={() => setShowInstructions(!showInstructions)}
+                    className="flex-1 flex items-center gap-3 px-4 py-3 text-sm text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                  >
+                    <ChevronRightIcon
+                      size={14}
+                      className={`transition-transform ${showInstructions ? 'rotate-90' : ''}`}
+                    />
+                    <span>Instructions</span>
+                    {instructions.length > 0 && (
+                      <span className="ml-auto text-copilot-accent">{instructions.length}</span>
+                    )}
+                  </button>
+                  <button
+                    onClick={handleOpenEnvironment}
+                    className="mr-3 px-2 py-1 text-[10px] text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface border border-copilot-border rounded transition-colors shrink-0"
+                    title="Open Environment view"
+                  >
+                    Environment
+                  </button>
+                </div>
                 {showInstructions && (
                   <div className="px-4 pb-3">
                     {instructions.length === 0 ? (
@@ -6609,6 +6628,13 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                             <span className="text-copilot-accent">({instructions.length})</span>
                           )}
                         </button>
+                        <button
+                          onClick={handleOpenEnvironment}
+                          className="mr-2 px-1.5 py-0.5 text-[9px] text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface border border-copilot-border rounded transition-colors shrink-0"
+                          title="Open Environment view"
+                        >
+                          Environment
+                        </button>
                       </div>
                       {showInstructions && (
                         <div className="max-h-48 overflow-y-auto">
@@ -7066,6 +7092,27 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
             </div>
           </div>
         )}
+
+        {/* Environment Modal */}
+        <FilePreviewModal
+          isOpen={environmentPreviewPath !== null}
+          onClose={() => setEnvironmentPreviewPath(null)}
+          filePath={environmentPreviewPath || ''}
+          cwd={activeTab?.cwd}
+          isGitRepo={false}
+          editedFiles={instructions.map((instruction) => instruction.path).sort()}
+          untrackedFiles={[]}
+          conflictedFiles={[]}
+          fileViewMode={activeTab?.fileViewMode || 'flat'}
+          overlayTitle="Environment"
+          contentMode="markdown"
+          forceFullOverlay={true}
+          onViewModeChange={(mode) => {
+            if (activeTab) {
+              updateTab(activeTab.id, { fileViewMode: mode });
+            }
+          }}
+        />
 
         {/* File Preview Modal */}
         <FilePreviewModal

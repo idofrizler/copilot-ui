@@ -1,4 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   CloseIcon,
   ExternalLinkIcon,
@@ -24,6 +26,9 @@ export interface FilePreviewModalProps {
   untrackedFiles?: string[];
   conflictedFiles?: string[];
   fileViewMode?: 'flat' | 'tree';
+  overlayTitle?: string;
+  contentMode?: 'diff' | 'markdown';
+  forceFullOverlay?: boolean;
   onUntrackFile?: (filePath: string) => void;
   onRetrackFile?: (filePath: string) => void;
   onViewModeChange?: (mode: 'flat' | 'tree') => void;
@@ -63,7 +68,7 @@ const buildFileTree = (files: string[]): FileTreeNode[] => {
 
   for (const filePath of sortedFiles) {
     const normalizedPath = filePath.replace(/\\/g, '/');
-    const parts = normalizedPath.split('/');
+    const parts = normalizedPath.split('/').filter(Boolean);
     let currentLevel = root;
     let currentPath = '';
 
@@ -104,6 +109,9 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   untrackedFiles = [],
   conflictedFiles = [],
   fileViewMode = 'flat',
+  overlayTitle,
+  contentMode = 'diff',
+  forceFullOverlay = false,
   onUntrackFile,
   onRetrackFile,
   onViewModeChange,
@@ -115,7 +123,8 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
 
   // Determine if this is a full overlay (multiple files) or single file preview
-  const isFullOverlay = editedFiles.length > 0;
+  const isFullOverlay = forceFullOverlay || editedFiles.length > 0;
+  const isMarkdownView = contentMode === 'markdown';
 
   // Initialize expanded folders when tree view is active
   useEffect(() => {
@@ -142,11 +151,23 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   }, [initialFilePath]);
 
   const loadFileContent = useCallback(async () => {
-    if (!selectedFile || !cwd) return;
+    if (!selectedFile) return;
 
     setLoading(true);
     try {
+      if (isMarkdownView) {
+        const resolvedPath =
+          !selectedFile.startsWith('/') && !selectedFile.match(/^[a-zA-Z]:/) && cwd
+            ? `${cwd}/${selectedFile}`
+            : selectedFile;
+        const result = await window.electronAPI.file.readContent(resolvedPath);
+        setFileContent(result);
+        setFileDiff(null);
+        return;
+      }
+
       if (isGitRepo) {
+        if (!cwd) return;
         const result = await window.electronAPI.git.getDiff(cwd, [selectedFile]);
 
         if (result.success && result.diff) {
@@ -203,7 +224,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
         setFileDiff(null);
       }
     } catch (error) {
-      if (isGitRepo) {
+      if (isGitRepo && !isMarkdownView) {
         setFileDiff({
           success: false,
           error: `Failed to load file diff: ${String(error)}`,
@@ -217,7 +238,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [selectedFile, cwd, isGitRepo]);
+  }, [selectedFile, cwd, isGitRepo, isMarkdownView]);
 
   useEffect(() => {
     if (isOpen && selectedFile) {
@@ -266,6 +287,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   const fileName = selectedFile?.split(/[/\\]/).pop() || selectedFile || 'No file selected';
   const nonUntrackedFiles = editedFiles.filter((f) => !untrackedFiles.includes(f));
   const untrackedFilesInList = editedFiles.filter((f) => untrackedFiles.includes(f));
+  const modalTitle = isFullOverlay ? overlayTitle || 'Files Preview' : fileName;
 
   const renderDiff = (diff: string) => {
     const lines = diff.split('\n');
@@ -427,7 +449,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
           <div className="flex-1 min-w-0 mr-4">
             <div className="flex items-center gap-2">
               <h3 id="file-preview-title" className="text-sm font-medium text-copilot-text">
-                {isFullOverlay ? 'Files Preview' : fileName}
+                {modalTitle}
               </h3>
               {isFullOverlay && (
                 <span className="text-xs text-copilot-text-muted">
@@ -581,16 +603,123 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                 <div className="flex items-center justify-center h-32">
                   <Spinner size={24} />
                 </div>
-              ) : fileDiff?.success && fileDiff?.diff ? (
+              ) : contentMode === 'diff' && fileDiff?.success && fileDiff?.diff ? (
                 <div className="text-xs leading-relaxed">{renderDiff(fileDiff.diff)}</div>
               ) : fileContent?.success && fileContent?.content !== undefined ? (
-                <pre className="font-mono text-[11px] leading-relaxed text-copilot-text whitespace-pre-wrap break-words">
-                  {fileContent.content}
-                </pre>
+                isMarkdownView ? (
+                  <div className="prose prose-sm prose-invert max-w-none">
+                    <div className="text-copilot-text">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          h1: ({ children }) => (
+                            <h1 className="text-xl font-semibold text-copilot-text mb-3">
+                              {children}
+                            </h1>
+                          ),
+                          h2: ({ children }) => (
+                            <h2 className="text-base font-semibold text-copilot-text mt-6 mb-3 pb-2 border-b border-copilot-border">
+                              {children}
+                            </h2>
+                          ),
+                          h3: ({ children }) => (
+                            <h3 className="text-sm font-semibold text-copilot-text mt-5 mb-2 pb-1 border-b border-copilot-border/70">
+                              {children}
+                            </h3>
+                          ),
+                          ul: ({ children }) => (
+                            <ul className="list-disc list-inside space-y-1 text-copilot-text text-sm">
+                              {children}
+                            </ul>
+                          ),
+                          ol: ({ children }) => (
+                            <ol className="list-decimal list-inside space-y-1 text-copilot-text text-sm">
+                              {children}
+                            </ol>
+                          ),
+                          li: ({ children }) => (
+                            <li className="text-copilot-text-muted">
+                              <span className="text-copilot-text">{children}</span>
+                            </li>
+                          ),
+                          p: ({ children }) => (
+                            <p className="text-copilot-text-muted text-sm leading-6 mb-3">
+                              {children}
+                            </p>
+                          ),
+                          strong: ({ children }) => (
+                            <strong className="text-copilot-text font-semibold">{children}</strong>
+                          ),
+                          a: ({ href, children }) => (
+                            <a
+                              href={href}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-400 hover:text-blue-300 underline"
+                            >
+                              {children}
+                            </a>
+                          ),
+                          blockquote: ({ children }) => (
+                            <blockquote className="border-l-2 border-copilot-border pl-3 my-3 text-copilot-text-muted italic">
+                              {children}
+                            </blockquote>
+                          ),
+                          hr: () => <hr className="border-copilot-border my-4" />,
+                          table: ({ children }) => (
+                            <div className="overflow-x-auto my-3">
+                              <table className="min-w-full border-collapse border border-copilot-border text-sm">
+                                {children}
+                              </table>
+                            </div>
+                          ),
+                          thead: ({ children }) => (
+                            <thead className="bg-copilot-bg/50">{children}</thead>
+                          ),
+                          tbody: ({ children }) => <tbody>{children}</tbody>,
+                          tr: ({ children }) => (
+                            <tr className="border-b border-copilot-border">{children}</tr>
+                          ),
+                          th: ({ children }) => (
+                            <th className="px-3 py-2 text-left font-semibold text-copilot-text border border-copilot-border">
+                              {children}
+                            </th>
+                          ),
+                          td: ({ children }) => (
+                            <td className="px-3 py-2 text-copilot-text border border-copilot-border">
+                              {children}
+                            </td>
+                          ),
+                          code: ({ inline, children }) =>
+                            inline ? (
+                              <code className="bg-copilot-bg px-1 py-0.5 rounded text-copilot-text text-[11px] font-mono">
+                                {children}
+                              </code>
+                            ) : (
+                              <code className="text-[11px] font-mono text-copilot-text">
+                                {children}
+                              </code>
+                            ),
+                          pre: ({ children }) => (
+                            <pre className="bg-copilot-bg/70 border border-copilot-border rounded p-3 overflow-auto">
+                              {children}
+                            </pre>
+                          ),
+                        }}
+                      >
+                        {fileContent.content}
+                      </ReactMarkdown>
+                    </div>
+                  </div>
+                ) : (
+                  <pre className="font-mono text-[11px] leading-relaxed text-copilot-text whitespace-pre-wrap break-words">
+                    {fileContent.content}
+                  </pre>
+                )
               ) : (
                 <div className="flex flex-col items-center justify-center h-32 text-center">
                   <p className="text-copilot-text-muted text-sm mb-2">
-                    ⚠️ {isGitRepo ? 'Error loading diff' : 'Error loading file'}
+                    ⚠️ {isGitRepo && !isMarkdownView ? 'Error loading diff' : 'Error loading file'}
                   </p>
                   <p className="text-copilot-text-muted text-xs">
                     {fileDiff?.error || fileContent?.error || 'Unknown error'}
