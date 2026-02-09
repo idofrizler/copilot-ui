@@ -830,6 +830,12 @@ const electronAPI = {
       return ipcRenderer.invoke('skills:getAll', cwd);
     },
   },
+  // Agent Discovery
+  agents: {
+    getAll: (cwd?: string): Promise<{ agents: Agent[]; errors: string[] }> => {
+      return ipcRenderer.invoke('agents:getAll', cwd);
+    },
+  },
   // Copilot Instructions Management
   instructions: {
     getAll: (cwd?: string): Promise<{ instructions: Instruction[]; errors: string[] }> => {
@@ -1113,6 +1119,15 @@ interface Skill {
   path: string;
   type: 'personal' | 'project';
   source: 'copilot' | 'claude';
+}
+
+// Agent types
+interface Agent {
+  name: string;
+  description?: string;
+  path: string;
+  type: 'personal' | 'project' | 'system';
+  source: 'copilot' | 'claude' | 'opencode' | 'gemini' | 'codex';
 }
 
 // Copilot Instruction types

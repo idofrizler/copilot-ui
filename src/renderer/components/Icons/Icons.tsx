@@ -206,6 +206,13 @@ export const SearchIcon: React.FC<IconProps> = ({ size = 24, className, strokeWi
   </svg>
 );
 
+export const EyeIcon: React.FC<IconProps> = ({ size = 24, className, strokeWidth = 2 }) => (
+  <svg width={size} height={size} className={className} {...defaultProps} strokeWidth={strokeWidth}>
+    <path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+);
+
 // Zap/Bolt icon for active state
 export const ZapIcon: React.FC<IconProps> = ({ size = 24, className, strokeWidth = 2 }) => (
   <svg width={size} height={size} className={className} {...defaultProps} strokeWidth={strokeWidth}>

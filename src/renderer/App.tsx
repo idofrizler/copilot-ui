@@ -53,6 +53,7 @@ import {
   HelpCircleIcon,
   VolumeMuteIcon,
   TitleBar,
+  EyeIcon,
 } from './components';
 import { GitBranchWidget, CommitModal, useCommitModal } from './features/git';
 import { CreateWorktreeSession } from './features/sessions';
@@ -88,15 +89,24 @@ import {
   LISA_REVIEW_REJECT_PREFIX,
   Skill,
   Instruction,
+  Agent,
 } from './types';
 import { generateId, generateTabName, setTabCounter } from './utils/session';
 import { playNotificationSound } from './utils/sound';
 import { LONG_OUTPUT_LINE_THRESHOLD } from './utils/cliOutputCompression';
 import { isAsciiDiagram, extractTextContent } from './utils/isAsciiDiagram';
 import { isCliCommand } from './utils/isCliCommand';
+import { groupAgents } from './utils/agentPicker';
 import { useClickOutside, useResponsive, useVoiceSpeech } from './hooks';
 import buildInfo from './build-info.json';
 import { TerminalProvider } from './context/TerminalContext';
+
+const COOPER_DEFAULT_AGENT: Agent = {
+  name: 'Cooper (default)',
+  path: 'system:cooper-default',
+  type: 'system',
+  source: 'copilot',
+};
 
 const App: React.FC = () => {
   const [status, setStatus] = useState<Status>('connecting');
@@ -171,6 +181,20 @@ const App: React.FC = () => {
   // Agent Skills state
   const [skills, setSkills] = useState<Skill[]>([]);
   const [showSkills, setShowSkills] = useState(false);
+
+  // Agent discovery state
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [favoriteAgents, setFavoriteAgents] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem('favorite-agents');
+      if (!stored) return [];
+      const parsed = JSON.parse(stored);
+      return Array.isArray(parsed) ? parsed.filter((value) => typeof value === 'string') : [];
+    } catch {
+      return [];
+    }
+  });
+  const [selectedAgentByTab, setSelectedAgentByTab] = useState<Record<string, string | null>>({});
 
   // Copilot Instructions state
   const [instructions, setInstructions] = useState<Instruction[]>([]);
@@ -858,6 +882,20 @@ const App: React.FC = () => {
       }
     };
     loadSkills();
+  }, [activeTab?.cwd]);
+
+  // Discover agents on startup and when active tab changes
+  useEffect(() => {
+    const loadAgents = async () => {
+      try {
+        const cwd = activeTab?.cwd;
+        const result = await window.electronAPI.agents.getAll(cwd);
+        setAgents(result.agents || []);
+      } catch {
+        // Ignore agent discovery errors to avoid noisy console logs.
+      }
+    };
+    loadAgents();
   }, [activeTab?.cwd]);
 
   // Load Copilot Instructions on startup and when active tab changes
@@ -3855,6 +3893,15 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     }
   };
 
+  const handleToggleFavoriteAgent = (agentPath: string) => {
+    const isFavorite = favoriteAgents.includes(agentPath);
+    const nextFavorites = isFavorite
+      ? favoriteAgents.filter((path) => path !== agentPath)
+      : [...favoriteAgents, agentPath];
+    setFavoriteAgents(nextFavorites);
+    localStorage.setItem('favorite-agents', JSON.stringify(nextFavorites));
+  };
+
   // Memoize cleaned edited files for the active tab
   const cleanedEditedFiles = useMemo(() => {
     return activeTab ? getCleanEditedFiles(activeTab.editedFiles) : [];
@@ -3872,6 +3919,23 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     const favoriteCount = availableModels.filter((m) => favoriteModels.includes(m.id)).length;
     return favoriteCount > 0 ? [favoriteCount - 1] : [];
   }, [availableModels, favoriteModels]);
+
+  const allAgents = useMemo(() => {
+    return [...agents, COOPER_DEFAULT_AGENT];
+  }, [agents]);
+
+  const groupedAgents = useMemo(() => {
+    return groupAgents(allAgents, favoriteAgents);
+  }, [allAgents, favoriteAgents]);
+
+  const activeAgentPath = activeTab
+    ? (selectedAgentByTab[activeTab.id] ?? COOPER_DEFAULT_AGENT.path)
+    : null;
+  const activeAgent = useMemo(() => {
+    return activeAgentPath
+      ? allAgents.find((agent) => agent.path === activeAgentPath) || null
+      : null;
+  }, [allAgents, activeAgentPath]);
 
   // Callbacks for TerminalProvider
   const handleOpenTerminal = useCallback(() => {
@@ -5914,7 +5978,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       )}
                     </div>
 
-                    {/* Agents Selector (Placeholder) */}
+                    {/* Agents Selector */}
                     <div className="relative">
                       <button
                         onClick={() =>
@@ -5925,24 +5989,106 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                             ? 'text-copilot-accent bg-copilot-surface-hover'
                             : 'text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover'
                         }`}
-                        title="Agents (coming soon)"
+                        title="Select agent"
                       >
                         <ZapIcon size={12} />
-                        <span className="font-medium">Agents</span>
+                        <span className="font-medium truncate max-w-[120px]">
+                          {activeAgent?.name || 'Agents'}
+                        </span>
                         <ChevronDownIcon
                           size={10}
                           className={`transition-transform duration-200 ${openTopBarSelector === 'agents' ? 'rotate-180' : ''}`}
                         />
                       </button>
                       {openTopBarSelector === 'agents' && (
-                        <div className="absolute bottom-full left-0 z-50 mb-0.5 w-56 bg-copilot-surface border border-copilot-border rounded-lg shadow-lg">
-                          <div className="px-4 py-6 text-center">
-                            <ZapIcon size={20} className="mx-auto text-copilot-text-muted mb-2" />
-                            <p className="text-xs text-copilot-text-muted">Coming soon</p>
-                            <p className="text-[10px] text-copilot-text-muted mt-1">
-                              Custom agent support is in development
-                            </p>
-                          </div>
+                        <div className="absolute bottom-full left-0 z-50 mb-0.5 w-72 max-h-80 overflow-y-auto bg-copilot-surface border border-copilot-border rounded-lg shadow-lg">
+                          {groupedAgents.length === 0 ? (
+                            <div className="px-4 py-4 text-xs text-copilot-text-muted text-center">
+                              No agents found
+                            </div>
+                          ) : (
+                            groupedAgents.map((section, sectionIdx) => (
+                              <div key={section.id}>
+                                <div className="px-3 py-1.5 text-[10px] uppercase tracking-wide text-copilot-text-muted">
+                                  {section.label}
+                                </div>
+                                {section.agents.map((agent) => {
+                                  const isFav = favoriteAgents.includes(agent.path);
+                                  const isActive = activeAgentPath === agent.path;
+                                  return (
+                                    <button
+                                      key={agent.path}
+                                      onClick={() => {
+                                        if (!activeTab) return;
+                                        setSelectedAgentByTab((prev) => ({
+                                          ...prev,
+                                          [activeTab.id]: agent.path,
+                                        }));
+                                        setOpenTopBarSelector(null);
+                                      }}
+                                      className={`group w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-copilot-surface-hover transition-colors ${
+                                        isActive
+                                          ? 'text-copilot-accent bg-copilot-surface'
+                                          : 'text-copilot-text'
+                                      }`}
+                                    >
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleToggleFavoriteAgent(agent.path);
+                                        }}
+                                        className={`shrink-0 transition-colors ${
+                                          isFav
+                                            ? 'text-copilot-warning'
+                                            : 'text-transparent group-hover:text-copilot-text-muted hover:!text-copilot-warning'
+                                        }`}
+                                        title={isFav ? 'Remove from favorites' : 'Add to favorites'}
+                                      >
+                                        {isFav ? (
+                                          <StarFilledIcon size={12} />
+                                        ) : (
+                                          <StarIcon size={12} />
+                                        )}
+                                      </button>
+                                      <span className="flex-1 text-left truncate">
+                                        {isActive && (
+                                          <span className="text-copilot-accent">✓ </span>
+                                        )}
+                                        {agent.name}
+                                      </span>
+                                      {agent.type !== 'system' && (
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            window.electronAPI.file
+                                              .openFile(agent.path)
+                                              .then((result) => {
+                                                if (!result.success) {
+                                                  console.error(
+                                                    'Failed to open agent file:',
+                                                    result.error
+                                                  );
+                                                }
+                                              })
+                                              .catch((error) => {
+                                                console.error('Failed to open agent file:', error);
+                                              });
+                                          }}
+                                          className="shrink-0 opacity-0 group-hover:opacity-100 text-copilot-text-muted hover:text-copilot-text transition-opacity"
+                                          title="View agent file"
+                                        >
+                                          <EyeIcon size={12} />
+                                        </button>
+                                      )}
+                                    </button>
+                                  );
+                                })}
+                                {sectionIdx < groupedAgents.length - 1 && (
+                                  <div className="border-t border-copilot-border" />
+                                )}
+                              </div>
+                            ))
+                          )}
                         </div>
                       )}
                     </div>

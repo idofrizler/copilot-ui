@@ -152,6 +152,9 @@ async function writeMcpConfig(config: MCPConfigFile): Promise<void> {
 // Agent Skills - imported from skills module
 import { getAllSkills } from './skills';
 
+// Agent discovery - imported from agents module
+import { getAllAgents } from './agents';
+
 // Copilot Instructions - imported from instructions module
 import { getAllInstructions, getGitRoot } from './instructions';
 
@@ -2389,76 +2392,79 @@ ipcMain.handle(
   }
 );
 
-ipcMain.handle('copilot:setModel', async (_event, data: { sessionId: string; model: string; hasMessages: boolean }) => {
-  const validModels = getVerifiedModels().map((m) => m.id);
-  if (!validModels.includes(data.model)) {
-    throw new Error(`Invalid model: ${data.model}`);
-  }
+ipcMain.handle(
+  'copilot:setModel',
+  async (_event, data: { sessionId: string; model: string; hasMessages: boolean }) => {
+    const validModels = getVerifiedModels().map((m) => m.id);
+    if (!validModels.includes(data.model)) {
+      throw new Error(`Invalid model: ${data.model}`);
+    }
 
-  store.set('model', data.model); // Persist as default for new sessions
+    store.set('model', data.model); // Persist as default for new sessions
 
-  const sessionState = sessions.get(data.sessionId);
-  if (sessionState) {
-    const { cwd, client } = sessionState;
+    const sessionState = sessions.get(data.sessionId);
+    if (sessionState) {
+      const { cwd, client } = sessionState;
 
-    // If session has no messages, just create a new session with the desired model
-    // instead of trying to resume (which would fail for empty sessions)
-    if (!data.hasMessages) {
-      console.log(`Creating new session with model ${data.model} (empty session)`);
-      
-      // Destroy the old session
+      // If session has no messages, just create a new session with the desired model
+      // instead of trying to resume (which would fail for empty sessions)
+      if (!data.hasMessages) {
+        console.log(`Creating new session with model ${data.model} (empty session)`);
+
+        // Destroy the old session
+        await sessionState.session.destroy();
+        sessions.delete(data.sessionId);
+
+        // Create a brand new session with the desired model
+        const newSessionId = await createNewSession(data.model, cwd);
+        const newSessionState = sessions.get(newSessionId)!;
+
+        return {
+          sessionId: newSessionId,
+          model: data.model,
+          cwd,
+          newSession: true,
+        };
+      }
+
+      // Session has messages - resume to preserve conversation history
+      console.log(`Destroying session ${data.sessionId} before model change to ${data.model}`);
       await sessionState.session.destroy();
       sessions.delete(data.sessionId);
 
-      // Create a brand new session with the desired model
-      const newSessionId = await createNewSession(data.model, cwd);
-      const newSessionState = sessions.get(newSessionId)!;
-      
-      return { 
-        sessionId: newSessionId, 
-        model: data.model, 
+      const mcpConfig = await readMcpConfig();
+      const browserTools = createBrowserTools(data.sessionId);
+
+      // Resume the same session with the new model — preserves conversation context
+      const resumedSession = await client.resumeSession(data.sessionId, {
+        model: data.model,
+        mcpServers: mcpConfig.mcpServers,
+        tools: browserTools,
+        onPermissionRequest: (request, invocation) =>
+          handlePermissionRequest(request, invocation, resumedSession.sessionId),
+      });
+
+      const resumedSessionId = resumedSession.sessionId;
+      registerSessionEventForwarding(resumedSessionId, resumedSession);
+
+      sessions.set(resumedSessionId, {
+        session: resumedSession,
+        client,
+        model: data.model,
         cwd,
-        newSession: true 
-      };
+        alwaysAllowed: new Set(sessionState.alwaysAllowed),
+        allowedPaths: new Set(sessionState.allowedPaths),
+        isProcessing: false,
+      });
+      activeSessionId = resumedSessionId;
+
+      console.log(`Session ${resumedSessionId} resumed with model ${data.model}`);
+      return { sessionId: resumedSessionId, model: data.model, cwd };
     }
 
-    // Session has messages - resume to preserve conversation history
-    console.log(`Destroying session ${data.sessionId} before model change to ${data.model}`);
-    await sessionState.session.destroy();
-    sessions.delete(data.sessionId);
-
-    const mcpConfig = await readMcpConfig();
-    const browserTools = createBrowserTools(data.sessionId);
-
-    // Resume the same session with the new model — preserves conversation context
-    const resumedSession = await client.resumeSession(data.sessionId, {
-      model: data.model,
-      mcpServers: mcpConfig.mcpServers,
-      tools: browserTools,
-      onPermissionRequest: (request, invocation) =>
-        handlePermissionRequest(request, invocation, resumedSession.sessionId),
-    });
-
-    const resumedSessionId = resumedSession.sessionId;
-    registerSessionEventForwarding(resumedSessionId, resumedSession);
-
-    sessions.set(resumedSessionId, {
-      session: resumedSession,
-      client,
-      model: data.model,
-      cwd,
-      alwaysAllowed: new Set(sessionState.alwaysAllowed),
-      allowedPaths: new Set(sessionState.allowedPaths),
-      isProcessing: false,
-    });
-    activeSessionId = resumedSessionId;
-
-    console.log(`Session ${resumedSessionId} resumed with model ${data.model}`);
-    return { sessionId: resumedSessionId, model: data.model, cwd };
+    return { model: data.model };
   }
-
-  return { model: data.model };
-});
+);
 
 ipcMain.handle('copilot:getModels', async () => {
   const currentModel = store.get('model') as string;
@@ -4123,6 +4129,23 @@ ipcMain.handle('skills:getAll', async (_event, cwd?: string) => {
   }
   const result = await getAllSkills(projectCwd);
   console.log(`Found ${result.skills.length} skills (${result.errors.length} errors)`);
+  return result;
+});
+
+// Agent discovery handlers
+ipcMain.handle('agents:getAll', async (_event, cwd?: string) => {
+  let workingDir = cwd;
+  if (!workingDir && sessions.size > 0) {
+    const firstSession = sessions.values().next().value;
+    if (firstSession) {
+      workingDir = firstSession.cwd;
+    }
+  }
+
+  const gitRoot = workingDir ? await getGitRoot(workingDir) : null;
+  const projectRoot = gitRoot || workingDir;
+
+  const result = await getAllAgents(projectRoot, workingDir);
   return result;
 });
 
