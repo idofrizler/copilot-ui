@@ -20,10 +20,11 @@
           ]
         }
       ],
-      "sign": "../build/sign.js",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
-      "notarize": false,
+      "notarize": {
+        "teamId": "LP7V4Q4SRT"
+      },
       "entitlements": "../build/entitlements.mac.plist",
       "entitlementsInherit": "../build/entitlements.mac.plist"
     },
