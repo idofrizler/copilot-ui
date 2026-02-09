@@ -224,7 +224,7 @@ jobs:
       # See: "Creating Distribution-Signed Code for Mac" — Apple DTS
       - name: Notarize macOS app
         if: runner.os == 'macOS' && env.CSC_KEYCHAIN != ''
-        timeout-minutes: 30
+        timeout-minutes: 75
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -241,7 +241,7 @@ jobs:
             --apple-id "$APPLE_ID" \
             --team-id "$APPLE_TEAM_ID" \
             --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-            --wait --timeout 20m \
+            --wait --timeout 60m \
             --verbose
           echo "::endgroup::"
 
