@@ -87,7 +87,7 @@ const tourSteps: TourStep[] = [
     selector: '[data-tour="mcp-skills"]',
     title: 'MCP Servers & Skills',
     description:
-      'Connect external tools via MCP servers and add custom agent skills to extend capabilities. Click the + button to add MCP servers, or create SKILL.md files in ~/.copilot/skills/ (personal) or .github/skills/ (project) to define reusable instructions.',
+      'Connect external tools via MCP servers and add custom agent skills to extend capabilities. Click the + button to add MCP servers, or create SKILL.md files in ~/.copilot/skills/, ~/.claude/skills/, ~/.agents/skills/ (personal) or .github/skills/, .claude/skills/, .agents/skills/ (project) to define reusable instructions.',
     position: 'left',
   },
 ];
