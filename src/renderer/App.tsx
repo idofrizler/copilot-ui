@@ -4623,7 +4623,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
                 {/* Build Info */}
                 <div
-                  className="border-t border-copilot-border h-[24px] flex items-center px-3 text-[10px] text-copilot-text-muted"
+                  className="border-t border-copilot-border h-[22px] flex items-center px-3 text-[10px] text-copilot-text-muted"
                   title={`Build: ${buildInfo.version}\nBranch: ${buildInfo.gitBranch}\nCommit: ${buildInfo.gitSha}\nBuilt: ${buildInfo.buildDate} ${buildInfo.buildTime}`}
                 >
                   <span className="opacity-60">v{buildInfo.baseVersion}</span>
@@ -5676,8 +5676,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                                 ? 'Describe task...'
                                 : 'Describe task with clear completion criteria...'
                               : isMobile
-                                ? 'Ask Copilot...'
-                                : 'Ask Copilot... (Shift+Enter for new line)'
+                                ? 'Ask Cooper...'
+                                : 'Ask Cooper... (Shift+Enter for new line)'
                     }
                     className="flex-1 bg-transparent py-2.5 pl-3 pr-2 text-copilot-text placeholder-copilot-text-muted outline-none text-sm resize-none min-h-[40px] max-h-[200px]"
                     disabled={status !== 'connected'}
@@ -6837,7 +6837,10 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           onTargetBranchSelect={(branch) =>
             activeTab && commitModal.handleTargetBranchSelect(activeTab, branch)
           }
-          onFilePreview={(filePath) => setFilePreviewPath(filePath)}
+          onFilePreview={(filePath) => {
+            setFilePreviewPath(filePath);
+            commitModal.closeCommitModal();
+          }}
           onUntrackFile={(filePath) => {
             if (activeTab) {
               const newUntracked = [...(activeTab.untrackedFiles || []), filePath];
