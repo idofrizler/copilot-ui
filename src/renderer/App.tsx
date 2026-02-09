@@ -2499,6 +2499,16 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     []
   );
 
+  const handleCopyCommitErrorToMessage = useCallback(
+    (message: string) => {
+      if (!message.trim()) return;
+      setInputValue((prev) => (prev.trim() ? `${prev}\n\n${message}` : message));
+      commitModal.closeCommitModal();
+      inputRef.current?.focus();
+    },
+    [commitModal]
+  );
+
   // Handle confirmation from shrink modal
   const handleShrinkModalConfirm = useCallback((output: string, lineCount: number) => {
     setTerminalAttachment({ output, lineCount });
@@ -7132,6 +7142,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               updateTab(activeTab.id, { untrackedFiles: newUntracked });
             }
           }}
+          onCopyErrorToMessage={handleCopyCommitErrorToMessage}
           onDismissPendingMerge={() => commitModal.setPendingMergeInfo(null)}
           onMergeNow={() =>
             activeTab && commitModal.handleMergeNow(activeTab, updateTab, handleCloseTab)
