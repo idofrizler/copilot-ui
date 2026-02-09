@@ -117,6 +117,10 @@ const getSafeCopilotReadPaths = (): string[] => {
     join(home, '.copilot-sessions'), // Worktree sessions directory
     join(home, '.copilot', 'session-state'), // Session state (plan.md files)
     join(home, '.copilot', 'skills'), // Personal skills directory
+    join(home, '.claude', 'skills'), // Personal Claude skills
+    join(home, '.claude', 'commands'), // Legacy Claude commands
+    join(home, '.agents', 'skills'), // Personal .agents skills
+    join(home, '.config', 'agent', 'skills'), // OpenAI agent skills
   ];
 };
 
@@ -2389,76 +2393,79 @@ ipcMain.handle(
   }
 );
 
-ipcMain.handle('copilot:setModel', async (_event, data: { sessionId: string; model: string; hasMessages: boolean }) => {
-  const validModels = getVerifiedModels().map((m) => m.id);
-  if (!validModels.includes(data.model)) {
-    throw new Error(`Invalid model: ${data.model}`);
-  }
+ipcMain.handle(
+  'copilot:setModel',
+  async (_event, data: { sessionId: string; model: string; hasMessages: boolean }) => {
+    const validModels = getVerifiedModels().map((m) => m.id);
+    if (!validModels.includes(data.model)) {
+      throw new Error(`Invalid model: ${data.model}`);
+    }
 
-  store.set('model', data.model); // Persist as default for new sessions
+    store.set('model', data.model); // Persist as default for new sessions
 
-  const sessionState = sessions.get(data.sessionId);
-  if (sessionState) {
-    const { cwd, client } = sessionState;
+    const sessionState = sessions.get(data.sessionId);
+    if (sessionState) {
+      const { cwd, client } = sessionState;
 
-    // If session has no messages, just create a new session with the desired model
-    // instead of trying to resume (which would fail for empty sessions)
-    if (!data.hasMessages) {
-      console.log(`Creating new session with model ${data.model} (empty session)`);
-      
-      // Destroy the old session
+      // If session has no messages, just create a new session with the desired model
+      // instead of trying to resume (which would fail for empty sessions)
+      if (!data.hasMessages) {
+        console.log(`Creating new session with model ${data.model} (empty session)`);
+
+        // Destroy the old session
+        await sessionState.session.destroy();
+        sessions.delete(data.sessionId);
+
+        // Create a brand new session with the desired model
+        const newSessionId = await createNewSession(data.model, cwd);
+        const newSessionState = sessions.get(newSessionId)!;
+
+        return {
+          sessionId: newSessionId,
+          model: data.model,
+          cwd,
+          newSession: true,
+        };
+      }
+
+      // Session has messages - resume to preserve conversation history
+      console.log(`Destroying session ${data.sessionId} before model change to ${data.model}`);
       await sessionState.session.destroy();
       sessions.delete(data.sessionId);
 
-      // Create a brand new session with the desired model
-      const newSessionId = await createNewSession(data.model, cwd);
-      const newSessionState = sessions.get(newSessionId)!;
-      
-      return { 
-        sessionId: newSessionId, 
-        model: data.model, 
+      const mcpConfig = await readMcpConfig();
+      const browserTools = createBrowserTools(data.sessionId);
+
+      // Resume the same session with the new model — preserves conversation context
+      const resumedSession = await client.resumeSession(data.sessionId, {
+        model: data.model,
+        mcpServers: mcpConfig.mcpServers,
+        tools: browserTools,
+        onPermissionRequest: (request, invocation) =>
+          handlePermissionRequest(request, invocation, resumedSession.sessionId),
+      });
+
+      const resumedSessionId = resumedSession.sessionId;
+      registerSessionEventForwarding(resumedSessionId, resumedSession);
+
+      sessions.set(resumedSessionId, {
+        session: resumedSession,
+        client,
+        model: data.model,
         cwd,
-        newSession: true 
-      };
+        alwaysAllowed: new Set(sessionState.alwaysAllowed),
+        allowedPaths: new Set(sessionState.allowedPaths),
+        isProcessing: false,
+      });
+      activeSessionId = resumedSessionId;
+
+      console.log(`Session ${resumedSessionId} resumed with model ${data.model}`);
+      return { sessionId: resumedSessionId, model: data.model, cwd };
     }
 
-    // Session has messages - resume to preserve conversation history
-    console.log(`Destroying session ${data.sessionId} before model change to ${data.model}`);
-    await sessionState.session.destroy();
-    sessions.delete(data.sessionId);
-
-    const mcpConfig = await readMcpConfig();
-    const browserTools = createBrowserTools(data.sessionId);
-
-    // Resume the same session with the new model — preserves conversation context
-    const resumedSession = await client.resumeSession(data.sessionId, {
-      model: data.model,
-      mcpServers: mcpConfig.mcpServers,
-      tools: browserTools,
-      onPermissionRequest: (request, invocation) =>
-        handlePermissionRequest(request, invocation, resumedSession.sessionId),
-    });
-
-    const resumedSessionId = resumedSession.sessionId;
-    registerSessionEventForwarding(resumedSessionId, resumedSession);
-
-    sessions.set(resumedSessionId, {
-      session: resumedSession,
-      client,
-      model: data.model,
-      cwd,
-      alwaysAllowed: new Set(sessionState.alwaysAllowed),
-      allowedPaths: new Set(sessionState.allowedPaths),
-      isProcessing: false,
-    });
-    activeSessionId = resumedSessionId;
-
-    console.log(`Session ${resumedSessionId} resumed with model ${data.model}`);
-    return { sessionId: resumedSessionId, model: data.model, cwd };
+    return { model: data.model };
   }
-
-  return { model: data.model };
-});
+);
 
 ipcMain.handle('copilot:getModels', async () => {
   const currentModel = store.get('model') as string;

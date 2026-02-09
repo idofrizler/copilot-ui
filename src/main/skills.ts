@@ -1,22 +1,46 @@
 import { existsSync, readdirSync } from 'fs';
 import { readFile } from 'fs/promises';
-import { join } from 'path';
+import { dirname, join, relative } from 'path';
 import { app } from 'electron';
 
 // Agent Skills types
+export type SkillSource = 'copilot' | 'claude' | 'agents' | 'openai' | 'custom';
+
 export interface Skill {
   name: string;
   description: string;
   license?: string;
   path: string;
   type: 'personal' | 'project';
-  source: 'copilot' | 'claude';
+  source: SkillSource;
+  locationLabel: string;
 }
 
 export interface SkillsResult {
   skills: Skill[];
   errors: string[];
 }
+
+const normalizePath = (value: string): string => value.replace(/\\/g, '/');
+
+const formatLocationLabel = (basePath: string, homePath: string, projectCwd?: string): string => {
+  const normalizedBase = normalizePath(basePath);
+  const normalizedHome = normalizePath(homePath);
+  if (normalizedBase.startsWith(normalizedHome)) {
+    const rel = normalizedBase.slice(normalizedHome.length).replace(/^\/+/, '');
+    return rel ? `~/${rel}` : '~';
+  }
+
+  if (projectCwd) {
+    const normalizedProject = normalizePath(projectCwd);
+    if (normalizedBase.startsWith(normalizedProject)) {
+      const rel = normalizePath(relative(normalizedProject, normalizedBase));
+      return rel ? `./${rel}` : '.';
+    }
+  }
+
+  return basePath;
+};
 
 // Parse SKILL.md frontmatter to extract skill metadata
 export function parseSkillFrontmatter(content: string): {
@@ -51,7 +75,8 @@ export function parseSkillFrontmatter(content: string): {
 export async function scanSkillsDirectory(
   basePath: string,
   type: 'personal' | 'project',
-  source: 'copilot' | 'claude'
+  source: SkillSource,
+  locationLabel: string
 ): Promise<{ skills: Skill[]; errors: string[] }> {
   const skills: Skill[] = [];
   const errors: string[] = [];
@@ -90,6 +115,7 @@ export async function scanSkillsDirectory(
           path: skillDir,
           type,
           source,
+          locationLabel,
         });
       } catch (err) {
         errors.push(
@@ -112,29 +138,118 @@ export async function getAllSkills(projectCwd?: string): Promise<SkillsResult> {
   const allErrors: string[] = [];
 
   const homePath = app.getPath('home');
+  const directoryEntries: Array<{
+    path: string;
+    type: 'personal' | 'project';
+    source: SkillSource;
+  }> = [];
+  const seenPaths = new Set<string>();
+
+  const addSkillDirectory = (
+    basePath: string,
+    type: 'personal' | 'project',
+    source: SkillSource
+  ) => {
+    const normalized = normalizePath(basePath);
+    if (seenPaths.has(normalized)) {
+      return;
+    }
+    seenPaths.add(normalized);
+    directoryEntries.push({ path: basePath, type, source });
+  };
 
   // Personal skills directories
-  const personalDirs = [
-    { path: join(homePath, '.copilot', 'skills'), source: 'copilot' as const },
-    { path: join(homePath, '.claude', 'skills'), source: 'claude' as const },
-  ];
+  addSkillDirectory(join(homePath, '.copilot', 'skills'), 'personal', 'copilot');
+  addSkillDirectory(join(homePath, '.claude', 'skills'), 'personal', 'claude');
+  addSkillDirectory(join(homePath, '.claude', 'commands'), 'personal', 'claude');
+  addSkillDirectory(join(homePath, '.agents', 'skills'), 'personal', 'agents');
+  addSkillDirectory(join(homePath, '.config', 'agent', 'skills'), 'personal', 'openai');
+
+  const customLocationsEnv = process.env.COPILOT_AGENT_SKILLS_LOCATIONS;
+  if (customLocationsEnv) {
+    const customDirs = customLocationsEnv
+      .split(',')
+      .map((dir) => dir.trim())
+      .filter(Boolean);
+    for (const customDir of customDirs) {
+      const normalizedCustomDir = normalizePath(customDir);
+      const normalizedProject = projectCwd ? normalizePath(projectCwd) : '';
+      const type =
+        projectCwd && normalizedCustomDir.startsWith(normalizedProject) ? 'project' : 'personal';
+      addSkillDirectory(customDir, type, 'custom');
+    }
+  }
 
   // Scan personal skills
-  for (const { path, source } of personalDirs) {
-    const { skills, errors } = await scanSkillsDirectory(path, 'personal', source);
+  for (const { path, type, source } of directoryEntries.filter(
+    (entry) => entry.type === 'personal'
+  )) {
+    const locationLabel = formatLocationLabel(path, homePath, projectCwd);
+    const { skills, errors } = await scanSkillsDirectory(path, type, source, locationLabel);
     allSkills.push(...skills);
     allErrors.push(...errors);
   }
 
   // Project skills directories (if we have a project cwd)
   if (projectCwd) {
-    const projectDirs = [
-      { path: join(projectCwd, '.github', 'skills'), source: 'copilot' as const },
-      { path: join(projectCwd, '.claude', 'skills'), source: 'claude' as const },
-    ];
+    addSkillDirectory(join(projectCwd, '.github', 'skills'), 'project', 'copilot');
+    addSkillDirectory(join(projectCwd, '.claude', 'skills'), 'project', 'claude');
+    addSkillDirectory(join(projectCwd, '.claude', 'commands'), 'project', 'claude');
+    addSkillDirectory(join(projectCwd, '.agents', 'skills'), 'project', 'agents');
 
-    for (const { path, source } of projectDirs) {
-      const { skills, errors } = await scanSkillsDirectory(path, 'project', source);
+    let currentDir = projectCwd;
+    while (true) {
+      addSkillDirectory(join(currentDir, '.agents', 'skills'), 'project', 'agents');
+      const parentDir = dirname(currentDir);
+      if (parentDir === currentDir) {
+        break;
+      }
+      currentDir = parentDir;
+    }
+
+    const skipDirs = new Set([
+      '.git',
+      'node_modules',
+      'dist',
+      'build',
+      'out',
+      'release',
+      'coverage',
+      '.copilot-sessions',
+      '.copilot',
+    ]);
+
+    const stack = [projectCwd];
+    while (stack.length > 0) {
+      const current = stack.pop();
+      if (!current) continue;
+      try {
+        const entries = readdirSync(current, { withFileTypes: true });
+        for (const entry of entries) {
+          if (!entry.isDirectory()) continue;
+          if (skipDirs.has(entry.name)) continue;
+          const entryPath = join(current, entry.name);
+          if (entry.name === '.claude') {
+            addSkillDirectory(join(entryPath, 'skills'), 'project', 'claude');
+            addSkillDirectory(join(entryPath, 'commands'), 'project', 'claude');
+            continue;
+          }
+          if (entry.name === '.agents') {
+            addSkillDirectory(join(entryPath, 'skills'), 'project', 'agents');
+            continue;
+          }
+          stack.push(entryPath);
+        }
+      } catch {
+        // Ignore recursive scan errors
+      }
+    }
+
+    for (const { path, type, source } of directoryEntries.filter(
+      (entry) => entry.type === 'project'
+    )) {
+      const locationLabel = formatLocationLabel(path, homePath, projectCwd);
+      const { skills, errors } = await scanSkillsDirectory(path, type, source, locationLabel);
       allSkills.push(...skills);
       allErrors.push(...errors);
     }

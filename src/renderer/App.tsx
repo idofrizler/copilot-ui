@@ -6500,8 +6500,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                             Object.entries(mcpServers).map(([name, server]) => {
                               const isLocal =
                                 !server.type || server.type === 'local' || server.type === 'stdio';
-                              const toolCount =
-                                server.tools[0] === '*' ? 'all' : `${server.tools.length}`;
                               return (
                                 <div
                                   key={name}
@@ -6522,9 +6520,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                                     <div className="flex-1 min-w-0">
                                       <div className="text-xs text-copilot-text truncate">
                                         {name}
-                                      </div>
-                                      <div className="text-[10px] text-copilot-accent">
-                                        {toolCount} tools
                                       </div>
                                     </div>
                                     <div className="shrink-0 opacity-0 group-hover:opacity-100 flex gap-1">
@@ -6590,16 +6585,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                                     <div className="text-xs text-copilot-text truncate">
                                       {skill.name}
                                     </div>
-                                    <div
-                                      className="text-[10px] text-copilot-text-muted truncate"
-                                      title={skill.description}
-                                    >
-                                      {skill.description}
-                                    </div>
-                                    <div className="text-[9px] text-copilot-accent">
-                                      {skill.type === 'personal' ? '~/' : '.'}/
-                                      {skill.source === 'copilot' ? '.copilot' : '.claude'}/skills
-                                    </div>
                                   </div>
                                 </div>
                               </div>
@@ -6655,16 +6640,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                                   <div className="flex-1 min-w-0">
                                     <div className="text-xs text-copilot-text truncate">
                                       {instruction.name}
-                                    </div>
-                                    <div className="text-[9px] text-copilot-text-muted">
-                                      {instruction.type === 'personal'
-                                        ? 'Personal'
-                                        : instruction.type === 'organization'
-                                          ? 'Organization'
-                                          : 'Project'}
-                                      {instruction.scope === 'path-specific'
-                                        ? ' · Path-specific'
-                                        : ''}
                                     </div>
                                   </div>
                                 </div>
