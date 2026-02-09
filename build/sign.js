@@ -10,6 +10,9 @@ const fs = require('fs');
  * @param {import('electron-builder').CustomMacSign} context
  */
 exports.default = async function sign(context) {
+  // Log context keys for debugging in CI
+  console.log(`  • Custom sign context keys: ${Object.keys(context).join(', ')}`);
+
   const { appPath, entitlements, keychain, identity } = getSigningParams(context);
 
   if (!identity) {
@@ -65,19 +68,15 @@ exports.default = async function sign(context) {
 };
 
 function getSigningParams(context) {
-  const appPath = context.path || context.appPath;
-  const entitlements = context.entitlements || process.env.CSC_ENTITLEMENTS || null;
+  // electron-builder passes: { app, identity, keychain, optionsForFile, ... }
+  const appPath = context.app || context.path || context.appPath;
+  const entitlements = process.env.CSC_ENTITLEMENTS || null;
   const keychain = context.keychain || process.env.CSC_KEYCHAIN || null;
 
-  // Resolve identity from context or environment
+  // Identity comes as a hash string directly on the opts object
   let identity = null;
-  if (context.hash) {
-    identity = context.hash;
-  } else if (context.identity) {
-    identity =
-      typeof context.identity === 'string'
-        ? context.identity
-        : context.identity.hash || context.identity.name;
+  if (typeof context.identity === 'string' && context.identity.length > 0) {
+    identity = context.identity;
   } else if (process.env.CSC_NAME) {
     identity = process.env.CSC_NAME;
   }
