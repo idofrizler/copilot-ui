@@ -217,9 +217,6 @@ const App: React.FC = () => {
   // Agent Skills state
   const [skills, setSkills] = useState<Skill[]>([]);
   const [showSkills, setShowSkills] = useState(false);
-  const [expandedSkillSections, setExpandedSkillSections] = useState<
-    Record<Skill['type'], boolean>
-  >({});
 
   // Agent discovery state
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -238,17 +235,6 @@ const App: React.FC = () => {
   // Copilot Instructions state
   const [instructions, setInstructions] = useState<Instruction[]>([]);
   const [showInstructions, setShowInstructions] = useState(false);
-  const [expandedInstructionSections, setExpandedInstructionSections] = useState<
-    Record<Instruction['type'], boolean>
-  >({});
-
-  const toggleSkillSection = useCallback((type: Skill['type']) => {
-    setExpandedSkillSections((prev) => ({ ...prev, [type]: !prev[type] }));
-  }, []);
-
-  const toggleInstructionSection = useCallback((type: Instruction['type']) => {
-    setExpandedInstructionSections((prev) => ({ ...prev, [type]: !prev[type] }));
-  }, []);
 
   const instructionSections = useMemo(() => {
     const grouped = groupBy(instructions, (instruction) => instruction.type);
@@ -267,6 +253,16 @@ const App: React.FC = () => {
       items: grouped[type] || [],
     })).filter((section) => section.items.length > 0);
   }, [skills]);
+
+  const flatSkills = useMemo(
+    () => skillSections.flatMap((section) => section.items),
+    [skillSections]
+  );
+
+  const flatInstructions = useMemo(
+    () => instructionSections.flatMap((section) => section.items),
+    [instructionSections]
+  );
 
   const mcpEntries = useMemo(() => Object.entries(mcpServers), [mcpServers]);
 
@@ -4381,61 +4377,25 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 </div>
                 {showSkills && (
                   <div className="px-4 pb-3">
-                    {skillSections.length === 0 ? (
+                    {flatSkills.length === 0 ? (
                       <div className="text-xs text-copilot-text-muted">No skills found</div>
                     ) : (
-                      <div className="space-y-1">
-                        {skillSections.map((section, sectionIndex) => {
-                          const isExpanded = !!expandedSkillSections[section.type];
-                          return (
-                            <div
-                              key={section.type}
-                              className={`${sectionIndex > 0 ? 'border-t border-copilot-border' : ''}`}
-                            >
+                      <div className="space-y-2">
+                        {flatSkills.map((skill) => (
+                          <div key={skill.path} className="text-xs">
+                            <div className="flex items-center gap-2">
                               <button
                                 type="button"
-                                onClick={() => toggleSkillSection(section.type)}
-                                className="w-full flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                                onClick={() => window.electronAPI.file.openFile(skill.path)}
+                                className="shrink-0 text-copilot-accent"
+                                title={`Open ${skill.name}`}
                               >
-                                <ChevronRightIcon
-                                  size={10}
-                                  className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-                                />
-                                <span className="text-xs font-semibold text-copilot-text">
-                                  {section.label}
-                                </span>
-                                <span className="ml-auto text-[10px] text-copilot-text-muted">
-                                  ({section.items.length})
-                                </span>
+                                <BookIcon size={12} />
                               </button>
-                              {isExpanded && (
-                                <div className="px-3 pb-2 pt-1">
-                                  <div className="space-y-2">
-                                    {section.items.map((skill) => (
-                                      <div key={skill.path} className="text-xs">
-                                        <div className="flex items-center gap-2">
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              window.electronAPI.file.openFile(skill.path)
-                                            }
-                                            className="shrink-0 text-copilot-accent"
-                                            title={`Open ${skill.name}`}
-                                          >
-                                            <BookIcon size={12} />
-                                          </button>
-                                          <span className="text-copilot-text truncate">
-                                            {skill.name}
-                                          </span>
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
+                              <span className="text-copilot-text truncate">{skill.name}</span>
                             </div>
-                          );
-                        })}
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -4468,63 +4428,27 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 </div>
                 {showInstructions && (
                   <div className="px-4 pb-3">
-                    {instructionSections.length === 0 ? (
+                    {flatInstructions.length === 0 ? (
                       <div className="text-xs text-copilot-text-muted">
                         No instruction files found
                       </div>
                     ) : (
-                      <div className="space-y-1">
-                        {instructionSections.map((section, sectionIndex) => {
-                          const isExpanded = !!expandedInstructionSections[section.type];
-                          return (
-                            <div
-                              key={section.type}
-                              className={`${sectionIndex > 0 ? 'border-t border-copilot-border' : ''}`}
-                            >
+                      <div className="space-y-2">
+                        {flatInstructions.map((instruction) => (
+                          <div key={instruction.path} className="text-xs">
+                            <div className="flex items-center gap-2">
                               <button
                                 type="button"
-                                onClick={() => toggleInstructionSection(section.type)}
-                                className="w-full flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                                onClick={() => window.electronAPI.file.openFile(instruction.path)}
+                                className="shrink-0 text-copilot-accent"
+                                title={`Open ${instruction.name}`}
                               >
-                                <ChevronRightIcon
-                                  size={10}
-                                  className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-                                />
-                                <span className="text-xs font-semibold text-copilot-text">
-                                  {section.label}
-                                </span>
-                                <span className="ml-auto text-[10px] text-copilot-text-muted">
-                                  ({section.items.length})
-                                </span>
+                                <FileIcon size={12} />
                               </button>
-                              {isExpanded && (
-                                <div className="px-3 pb-2 pt-1">
-                                  <div className="space-y-2">
-                                    {section.items.map((instruction) => (
-                                      <div key={instruction.path} className="text-xs">
-                                        <div className="flex items-center gap-2">
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              window.electronAPI.file.openFile(instruction.path)
-                                            }
-                                            className="shrink-0 text-copilot-accent"
-                                            title={`Open ${instruction.name}`}
-                                          >
-                                            <FileIcon size={12} />
-                                          </button>
-                                          <span className="text-copilot-text truncate">
-                                            {instruction.name}
-                                          </span>
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
+                              <span className="text-copilot-text truncate">{instruction.name}</span>
                             </div>
-                          );
-                        })}
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -6905,63 +6829,31 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       </div>
                       {showSkills && (
                         <div className="max-h-48 overflow-y-auto">
-                          {skillSections.length === 0 ? (
+                          {flatSkills.length === 0 ? (
                             <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
                               No skills found
                             </div>
                           ) : (
-                            <div>
-                              {skillSections.map((section, sectionIndex) => {
-                                const isExpanded = !!expandedSkillSections[section.type];
-                                return (
-                                  <div
-                                    key={section.type}
-                                    className={`${sectionIndex > 0 ? 'border-t border-copilot-border' : ''}`}
-                                  >
-                                    <button
-                                      type="button"
-                                      onClick={() => toggleSkillSection(section.type)}
-                                      className="w-full flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
-                                    >
-                                      <ChevronRightIcon
-                                        size={10}
-                                        className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-                                      />
-                                      <span className="text-xs font-semibold text-copilot-text">
-                                        {section.label}
+                            <div className="px-3 pb-2 pt-1">
+                              <div className="space-y-2">
+                                {flatSkills.map((skill) => (
+                                  <div key={skill.path} className="text-xs">
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => window.electronAPI.file.openFile(skill.path)}
+                                        className="shrink-0 text-copilot-accent"
+                                        title={`Open ${skill.name}`}
+                                      >
+                                        <BookIcon size={12} />
+                                      </button>
+                                      <span className="text-copilot-text truncate">
+                                        {skill.name}
                                       </span>
-                                      <span className="ml-auto text-[10px] text-copilot-text-muted">
-                                        ({section.items.length})
-                                      </span>
-                                    </button>
-                                    {isExpanded && (
-                                      <div className="px-3 pb-2">
-                                        <div className="space-y-2">
-                                          {section.items.map((skill) => (
-                                            <div key={skill.path} className="text-xs">
-                                              <div className="flex items-center gap-2">
-                                                <button
-                                                  type="button"
-                                                  onClick={() =>
-                                                    window.electronAPI.file.openFile(skill.path)
-                                                  }
-                                                  className="shrink-0 text-copilot-accent"
-                                                  title={`Open ${skill.name}`}
-                                                >
-                                                  <BookIcon size={12} />
-                                                </button>
-                                                <span className="text-copilot-text truncate">
-                                                  {skill.name}
-                                                </span>
-                                              </div>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      </div>
-                                    )}
+                                    </div>
                                   </div>
-                                );
-                              })}
+                                ))}
+                              </div>
                             </div>
                           )}
                         </div>
@@ -6997,65 +6889,33 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       </div>
                       {showInstructions && (
                         <div className="max-h-48 overflow-y-auto">
-                          {instructionSections.length === 0 ? (
+                          {flatInstructions.length === 0 ? (
                             <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
                               No instruction files found
                             </div>
                           ) : (
-                            <div>
-                              {instructionSections.map((section, sectionIndex) => {
-                                const isExpanded = !!expandedInstructionSections[section.type];
-                                return (
-                                  <div
-                                    key={section.type}
-                                    className={`${sectionIndex > 0 ? 'border-t border-copilot-border' : ''}`}
-                                  >
-                                    <button
-                                      type="button"
-                                      onClick={() => toggleInstructionSection(section.type)}
-                                      className="w-full flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
-                                    >
-                                      <ChevronRightIcon
-                                        size={10}
-                                        className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-                                      />
-                                      <span className="text-xs font-semibold text-copilot-text">
-                                        {section.label}
+                            <div className="px-3 pb-2 pt-1">
+                              <div className="space-y-2">
+                                {flatInstructions.map((instruction) => (
+                                  <div key={instruction.path} className="text-xs">
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          window.electronAPI.file.openFile(instruction.path)
+                                        }
+                                        className="shrink-0 text-copilot-accent"
+                                        title={`Open ${instruction.name}`}
+                                      >
+                                        <FileIcon size={12} />
+                                      </button>
+                                      <span className="text-copilot-text truncate">
+                                        {instruction.name}
                                       </span>
-                                      <span className="ml-auto text-[10px] text-copilot-text-muted">
-                                        ({section.items.length})
-                                      </span>
-                                    </button>
-                                    {isExpanded && (
-                                      <div className="px-3 pb-2">
-                                        <div className="space-y-2">
-                                          {section.items.map((instruction) => (
-                                            <div key={instruction.path} className="text-xs">
-                                              <div className="flex items-center gap-2">
-                                                <button
-                                                  type="button"
-                                                  onClick={() =>
-                                                    window.electronAPI.file.openFile(
-                                                      instruction.path
-                                                    )
-                                                  }
-                                                  className="shrink-0 text-copilot-accent"
-                                                  title={`Open ${instruction.name}`}
-                                                >
-                                                  <FileIcon size={12} />
-                                                </button>
-                                                <span className="text-copilot-text truncate">
-                                                  {instruction.name}
-                                                </span>
-                                              </div>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      </div>
-                                    )}
+                                    </div>
                                   </div>
-                                );
-                              })}
+                                ))}
+                              </div>
                             </div>
                           )}
                         </div>
