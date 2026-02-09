@@ -16,18 +16,20 @@ import { Spinner } from '../Spinner';
 import { CodeBlockWithCopy } from '../CodeBlock';
 import { isAsciiDiagram } from '../../utils/isAsciiDiagram';
 import { isCliCommand } from '../../utils/isCliCommand';
-import type { Instruction, Skill } from '../../types';
+import type { Agent, Instruction, Skill } from '../../types';
 
 export interface EnvironmentModalProps {
   isOpen: boolean;
   onClose: () => void;
   instructions: Instruction[];
   skills: Skill[];
+  agents: Agent[];
   cwd?: string;
-  initialTab?: 'instructions' | 'skills';
+  initialTab?: 'instructions' | 'skills' | 'agents';
+  initialAgentPath?: string | null;
   fileViewMode?: 'flat' | 'tree';
   onViewModeChange?: (mode: 'flat' | 'tree') => void;
-  onTabChange?: (tab: 'instructions' | 'skills') => void;
+  onTabChange?: (tab: 'instructions' | 'skills' | 'agents') => void;
 }
 
 interface FileContent {
@@ -181,20 +183,24 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
   onClose,
   instructions,
   skills,
+  agents,
   cwd,
   initialTab = 'instructions',
+  initialAgentPath = null,
   fileViewMode = 'flat',
   onViewModeChange,
   onTabChange,
 }) => {
-  const [activeTab, setActiveTab] = useState<'instructions' | 'skills'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'instructions' | 'skills' | 'agents'>(initialTab);
   const [selectedInstructionFile, setSelectedInstructionFile] = useState<string | null>(null);
   const [selectedSkillFile, setSelectedSkillFile] = useState<string | null>(null);
+  const [selectedAgentFile, setSelectedAgentFile] = useState<string | null>(null);
   const [expandedInstructionFolders, setExpandedInstructionFolders] = useState<Set<string>>(
     new Set()
   );
   const [expandedSkillFolders, setExpandedSkillFolders] = useState<Set<string>>(new Set());
   const [expandedSkillRoots, setExpandedSkillRoots] = useState<Set<string>>(new Set());
+  const [expandedAgentFolders, setExpandedAgentFolders] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [fileContent, setFileContent] = useState<FileContent | null>(null);
   const [frontmatter, setFrontmatter] = useState<Record<string, unknown> | null>(null);
@@ -244,12 +250,24 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
 
   const skillFullTree = useMemo(() => buildFileTree(skillFilePaths), [skillFilePaths]);
 
-  const selectedFile = activeTab === 'instructions' ? selectedInstructionFile : selectedSkillFile;
+  const agentPaths = useMemo(() => agents.map((agent) => agent.path).sort(), [agents]);
+  const agentTree = useMemo(() => buildFileTree(agentPaths), [agentPaths]);
+  const instructionCount = instructionPaths.length;
+  const skillCount = skillEntries.length;
+  const agentCount = agentPaths.length;
+
+  const selectedFile =
+    activeTab === 'instructions'
+      ? selectedInstructionFile
+      : activeTab === 'skills'
+        ? selectedSkillFile
+        : selectedAgentFile;
 
   const selectedFileName = selectedFile?.split(/[/\\]/).pop() || '';
   const isSkillMarkdown = activeTab === 'skills' && selectedFileName.toLowerCase() === 'skill.md';
   const isMarkdownFile =
     activeTab === 'instructions' ||
+    activeTab === 'agents' ||
     selectedFileName.toLowerCase().endsWith('.md') ||
     selectedFileName.toLowerCase().endsWith('.markdown');
 
@@ -277,6 +295,27 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
     }
   }, [skillEntries, selectedSkillFile]);
 
+  const ensureDefaultAgentSelection = useCallback(() => {
+    if (agentPaths.length === 0) {
+      setSelectedAgentFile(null);
+      return;
+    }
+    if (initialAgentPath && agentPaths.includes(initialAgentPath)) {
+      setSelectedAgentFile(initialAgentPath);
+      return;
+    }
+    if (!selectedAgentFile || !agentPaths.includes(selectedAgentFile)) {
+      setSelectedAgentFile(agentPaths[0]);
+    }
+  }, [agentPaths, initialAgentPath, selectedAgentFile]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (activeTab !== 'agents') {
+      setSelectedAgentFile(initialAgentPath ?? null);
+    }
+  }, [activeTab, initialAgentPath, isOpen]);
+
   useEffect(() => {
     if (isOpen) {
       setActiveTab(initialTab);
@@ -292,6 +331,11 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
     if (!isOpen) return;
     ensureDefaultSkillSelection();
   }, [ensureDefaultSkillSelection, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    ensureDefaultAgentSelection();
+  }, [ensureDefaultAgentSelection, isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -330,16 +374,29 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
     };
     collectSkillFullFolders(skillFullTree);
 
+    const agentFolders = new Set<string>();
+    const collectAgentFolders = (nodes: FileTreeNode[]) => {
+      for (const node of nodes) {
+        if (node.isDirectory) {
+          agentFolders.add(node.path);
+          collectAgentFolders(node.children);
+        }
+      }
+    };
+    collectAgentFolders(agentTree);
+
     if (fileViewMode === 'tree') {
       setExpandedInstructionFolders(instructionFolders);
       setExpandedSkillRoots(new Set<string>(skillEntries.map((entry) => entry.path)));
       setExpandedSkillFolders(skillFullFolderSet);
+      setExpandedAgentFolders(agentFolders);
     } else {
       setExpandedInstructionFolders(new Set());
       setExpandedSkillRoots(new Set());
       setExpandedSkillFolders(skillFolderSet);
+      setExpandedAgentFolders(new Set());
     }
-  }, [fileViewMode, instructionPaths, skillEntries, skillFullTree, isOpen]);
+  }, [agentTree, fileViewMode, instructionPaths, skillEntries, skillFullTree, isOpen]);
 
   const toggleInstructionFolder = useCallback((path: string) => {
     setExpandedInstructionFolders((prev) => {
@@ -377,6 +434,18 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
     });
   }, []);
 
+  const toggleAgentFolder = useCallback((path: string) => {
+    setExpandedAgentFolders((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      return next;
+    });
+  }, []);
+
   const loadFileContent = useCallback(async () => {
     if (!selectedFile) return;
     setLoading(true);
@@ -387,7 +456,9 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
         activeTab === 'instructions' ? resolvePath(selectedFile, cwd) : selectedFile;
       const result = await window.electronAPI.file.readContent(resolvedPath);
       setFileContent(result);
-      if (result.success && result.content && activeTab === 'skills' && isSkillMarkdown) {
+      const shouldParseFrontmatter =
+        (activeTab === 'skills' && isSkillMarkdown) || activeTab === 'agents';
+      if (result.success && result.content && shouldParseFrontmatter) {
         const parsed = parseMarkdownFrontmatter(result.content);
         setFrontmatter(parsed.frontmatter);
         setMarkdownBody(parsed.body);
@@ -584,6 +655,62 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
     return renderInstructionItem(node.path, filePaddingLeft, true);
   };
 
+  const renderAgentItem = (path: string, paddingLeft: number, inTreeView: boolean) => {
+    const name = path.split(/[/\\]/).pop() || path;
+    const displayName = inTreeView ? name : path;
+    const isSelected = selectedAgentFile === path;
+
+    return (
+      <div
+        key={path}
+        className={`flex items-center gap-1.5 py-1 px-2 text-[11px] cursor-pointer transition-colors ${
+          isSelected
+            ? 'bg-copilot-accent/20 text-copilot-text'
+            : 'text-copilot-text-muted hover:bg-copilot-surface hover:text-copilot-text'
+        }`}
+        style={{ paddingLeft }}
+        onClick={() => setSelectedAgentFile(path)}
+      >
+        <FileIcon size={12} className="shrink-0 text-copilot-success" />
+        <span className="truncate font-mono flex-1" title={path}>
+          {displayName}
+        </span>
+      </div>
+    );
+  };
+
+  const renderAgentTreeNode = (node: FileTreeNode, level: number = 0): React.ReactNode => {
+    const isExpanded = expandedAgentFolders.has(node.path);
+    const paddingLeft = 12 + level * 16;
+    const filePaddingLeft = paddingLeft + 16;
+
+    if (node.isDirectory) {
+      return (
+        <div key={node.path}>
+          <button
+            onClick={() => toggleAgentFolder(node.path)}
+            className="w-full flex items-center gap-1.5 py-1 px-2 text-[11px] text-copilot-text-muted hover:bg-copilot-surface hover:text-copilot-text transition-colors"
+            style={{ paddingLeft }}
+          >
+            <ChevronRightIcon
+              size={10}
+              className={`shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+            />
+            {isExpanded ? (
+              <FolderOpenIcon size={12} className="shrink-0 text-copilot-accent" />
+            ) : (
+              <FolderIcon size={12} className="shrink-0 text-copilot-accent" />
+            )}
+            <span className="truncate font-mono">{node.name}</span>
+          </button>
+          {isExpanded && node.children.map((child) => renderAgentTreeNode(child, level + 1))}
+        </div>
+      );
+    }
+
+    return renderAgentItem(node.path, filePaddingLeft, true);
+  };
+
   const renderSkillFileItem = (
     skillPath: string,
     filePath: string,
@@ -729,15 +856,21 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
         aria-labelledby="environment-modal-title"
       >
         {/* Header */}
-        <div className="px-4 py-3 border-b border-copilot-border flex items-center justify-between shrink-0">
-          <div className="flex-1 min-w-0 mr-4">
-            <div className="flex items-center gap-3 flex-wrap">
+        <div className="px-4 py-3 border-b border-copilot-border shrink-0">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
               <h3 id="environment-modal-title" className="text-sm font-medium text-copilot-text">
                 Environment
               </h3>
-              <div className="flex items-center rounded-md border border-copilot-border bg-copilot-bg overflow-hidden">
-                {(['instructions', 'skills'] as const).map((tab) => {
+              <div className="inline-flex items-center gap-1 rounded-md border border-copilot-border bg-copilot-bg/60 p-0.5">
+                {(['instructions', 'skills', 'agents'] as const).map((tab) => {
                   const isActive = activeTab === tab;
+                  const label =
+                    tab === 'instructions'
+                      ? `Instructions (${instructionCount})`
+                      : tab === 'skills'
+                        ? `Skills (${skillCount})`
+                        : `Agents (${agentCount})`;
                   return (
                     <button
                       key={tab}
@@ -745,52 +878,48 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
                         setActiveTab(tab);
                         onTabChange?.(tab);
                       }}
-                      className={`px-3 py-1 text-xs font-medium transition-colors ${
+                      title={label}
+                      className={`px-2.5 py-1 text-[11px] font-medium rounded transition-colors ${
                         isActive
-                          ? 'bg-copilot-accent/20 text-copilot-text'
-                          : 'text-copilot-text-muted hover:text-copilot-text'
+                          ? 'bg-copilot-surface text-copilot-text shadow-sm'
+                          : 'text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover'
                       }`}
                     >
-                      {tab === 'instructions' ? 'Instructions' : 'Skills'}
+                      {label}
                     </button>
                   );
                 })}
               </div>
             </div>
-            <p className="text-xs text-copilot-text-muted mt-1">
-              {activeTab === 'instructions'
-                ? `${instructionPaths.length} file${instructionPaths.length === 1 ? '' : 's'}`
-                : `${skillEntries.length} skill${skillEntries.length === 1 ? '' : 's'}`}
-            </p>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {onViewModeChange && (
+            <div className="flex items-center gap-2 shrink-0">
+              {onViewModeChange && (
+                <button
+                  onClick={() => onViewModeChange(fileViewMode === 'flat' ? 'tree' : 'flat')}
+                  className="flex items-center gap-1.5 px-2 py-1 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-bg rounded transition-colors"
+                  title={fileViewMode === 'tree' ? 'Switch to flat view' : 'Switch to tree view'}
+                >
+                  {fileViewMode === 'tree' ? <ListIcon size={14} /> : <TreeIcon size={14} />}
+                  <span>{fileViewMode === 'tree' ? 'Flat' : 'Tree'}</span>
+                </button>
+              )}
+              {selectedFile && (
+                <button
+                  onClick={handleRevealInFolder}
+                  className="flex items-center gap-1.5 px-2 py-1 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-bg rounded transition-colors"
+                  title="Reveal in Folder"
+                >
+                  <ExternalLinkIcon size={14} />
+                  <span>Reveal</span>
+                </button>
+              )}
               <button
-                onClick={() => onViewModeChange(fileViewMode === 'flat' ? 'tree' : 'flat')}
-                className="flex items-center gap-1.5 px-2 py-1 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-bg rounded transition-colors"
-                title={fileViewMode === 'tree' ? 'Switch to flat view' : 'Switch to tree view'}
+                onClick={onClose}
+                className="text-copilot-text-muted hover:text-copilot-text transition-colors p-1"
+                aria-label="Close modal"
               >
-                {fileViewMode === 'tree' ? <ListIcon size={14} /> : <TreeIcon size={14} />}
-                <span>{fileViewMode === 'tree' ? 'Flat' : 'Tree'}</span>
+                <CloseIcon size={16} />
               </button>
-            )}
-            {selectedFile && (
-              <button
-                onClick={handleRevealInFolder}
-                className="flex items-center gap-1.5 px-2 py-1 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-bg rounded transition-colors"
-                title="Reveal in Folder"
-              >
-                <ExternalLinkIcon size={14} />
-                <span>Reveal</span>
-              </button>
-            )}
-            <button
-              onClick={onClose}
-              className="text-copilot-text-muted hover:text-copilot-text transition-colors p-1"
-              aria-label="Close modal"
-            >
-              <CloseIcon size={16} />
-            </button>
+            </div>
           </div>
         </div>
 
@@ -813,14 +942,28 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
                     {instructionPaths.map((path) => renderInstructionItem(path, 12, false))}
                   </div>
                 )
-              ) : skillEntries.length === 0 ? (
-                <div className="px-3 py-2 text-[10px] text-copilot-text-muted">No skills found</div>
-              ) : fileViewMode === 'tree' ? (
-                <div className="py-1">
-                  {skillFullTree.map((node) => renderSkillFullTreeNode(node))}
+              ) : activeTab === 'skills' ? (
+                skillEntries.length === 0 ? (
+                  <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
+                    No skills found
+                  </div>
+                ) : fileViewMode === 'tree' ? (
+                  <div className="py-1">
+                    {skillFullTree.map((node) => renderSkillFullTreeNode(node))}
+                  </div>
+                ) : (
+                  <div className="py-1">{skillEntries.map((skill) => renderSkillRoot(skill))}</div>
+                )
+              ) : agentPaths.length === 0 ? (
+                <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
+                  No agents found
                 </div>
+              ) : fileViewMode === 'tree' ? (
+                <div className="py-1">{agentTree.map((node) => renderAgentTreeNode(node))}</div>
               ) : (
-                <div className="py-1">{skillEntries.map((skill) => renderSkillRoot(skill))}</div>
+                <div className="py-1">
+                  {agentPaths.map((path) => renderAgentItem(path, 12, false))}
+                </div>
               )}
             </div>
           </div>

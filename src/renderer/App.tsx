@@ -163,7 +163,10 @@ const App: React.FC = () => {
   const [cwdCopied, setCwdCopied] = useState(false);
   const [filePreviewPath, setFilePreviewPath] = useState<string | null>(null);
   const [showEnvironmentModal, setShowEnvironmentModal] = useState(false);
-  const [environmentTab, setEnvironmentTab] = useState<'instructions' | 'skills'>('instructions');
+  const [environmentTab, setEnvironmentTab] = useState<'instructions' | 'skills' | 'agents'>(
+    'instructions'
+  );
+  const [environmentAgentPath, setEnvironmentAgentPath] = useState<string | null>(null);
   const [isGitRepo, setIsGitRepo] = useState<boolean>(true);
   const commitModal = useCommitModal();
   const [allowMode, setAllowMode] = useState<'once' | 'session' | 'global'>('once');
@@ -1026,10 +1029,11 @@ const App: React.FC = () => {
   }, [activeTab?.cwd]);
 
   const handleOpenEnvironment = useCallback(
-    (tab: 'instructions' | 'skills', event?: React.MouseEvent) => {
+    (tab: 'instructions' | 'skills' | 'agents', event?: React.MouseEvent, agentPath?: string) => {
       event?.stopPropagation();
       setFilePreviewPath(null);
       setEnvironmentTab(tab);
+      setEnvironmentAgentPath(tab === 'agents' ? agentPath ?? null : null);
       setShowEnvironmentModal(true);
     },
     []
@@ -6233,22 +6237,9 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                                       {agent.type !== 'system' && (
                                         <button
                                           type="button"
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            window.electronAPI.file
-                                              .openFile(agent.path)
-                                              .then((result) => {
-                                                if (!result.success) {
-                                                  console.error(
-                                                    'Failed to open agent file:',
-                                                    result.error
-                                                  );
-                                                }
-                                              })
-                                              .catch((error) => {
-                                                console.error('Failed to open agent file:', error);
-                                              });
-                                          }}
+                                          onClick={(event) =>
+                                            handleOpenEnvironment('agents', event, agent.path)
+                                          }
                                           className="shrink-0 opacity-0 group-hover:opacity-100 text-copilot-text-muted hover:text-copilot-text transition-opacity"
                                           title="View agent file"
                                         >
@@ -7403,8 +7394,10 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           onClose={() => setShowEnvironmentModal(false)}
           instructions={instructions}
           skills={skills}
+          agents={agents}
           cwd={activeTab?.cwd}
           initialTab={environmentTab}
+          initialAgentPath={environmentAgentPath}
           fileViewMode={activeTab?.fileViewMode || 'flat'}
           onViewModeChange={(mode) => {
             if (activeTab) {
