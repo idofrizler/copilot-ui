@@ -2,6 +2,11 @@ name: Release Test
 
 on:
   workflow_dispatch:
+  push:
+    branches: [feature/release-binaries]
+    paths:
+      - 'test-notarize/**'
+      - '.github/workflows/release-test.yml'
 
 permissions:
   contents: read
