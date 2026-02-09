@@ -78,6 +78,11 @@ import * as browserManager from './browser';
 import { createBrowserTools } from './browserTools';
 import { voiceService } from './voiceService';
 import { whisperModelManager } from './whisperModelManager';
+import { wrapIpcMain, startMCPServer } from './mcp-server';
+
+// CRITICAL: Wrap ipcMain BEFORE any handlers are defined
+// This allows the MCP server to auto-register all IPC endpoints
+wrapIpcMain();
 
 // MCP Server Configuration types (matching SDK)
 interface MCPServerConfigBase {
@@ -166,7 +171,11 @@ process.on('uncaughtException', (err) => {
     return;
   }
   log.error('Uncaught exception:', err);
-  throw err;
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+  log.error('Unhandled rejection at:', promise, 'reason:', reason);
 });
 
 // Replace console with electron-log
@@ -4372,6 +4381,9 @@ if (!gotTheLock) {
     });
 
     createWindow();
+
+    // Start MCP server after window creation
+    startMCPServer(3000).catch((err) => console.error('[MCP] start failed', err));
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
