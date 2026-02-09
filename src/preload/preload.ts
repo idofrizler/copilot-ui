@@ -215,9 +215,10 @@ const electronAPI = {
     },
     setModel: (
       sessionId: string,
-      model: string
-    ): Promise<{ sessionId: string; model: string; cwd?: string }> => {
-      return ipcRenderer.invoke('copilot:setModel', { sessionId, model });
+      model: string,
+      hasMessages: boolean
+    ): Promise<{ sessionId: string; model: string; cwd?: string; newSession?: boolean }> => {
+      return ipcRenderer.invoke('copilot:setModel', { sessionId, model, hasMessages });
     },
     getModels: (): Promise<{
       models: { id: string; name: string; multiplier: number }[];
