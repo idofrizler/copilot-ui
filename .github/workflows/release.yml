@@ -175,8 +175,9 @@ jobs:
         run: npx electron-builder --mac --publish never
         timeout-minutes: 30
         env:
-          CSC_LINK: ${{ secrets.MAC_CERTS }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTS_PASSWORD }}
+          # Don't pass CSC_LINK here — it causes electron-builder to create its own
+          # keychain (bypassing our partition-list setup) which makes codesign hang.
+          # Instead, let it auto-discover the identity from CSC_KEYCHAIN.
           CSC_KEYCHAIN: ${{ env.CSC_KEYCHAIN }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
