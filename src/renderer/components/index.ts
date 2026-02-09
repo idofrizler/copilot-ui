@@ -4,6 +4,7 @@ export * from './Button';
 export * from './ChoiceSelector';
 export * from './CodeBlock';
 export * from './Dropdown';
+export * from './EnvironmentModal';
 export * from './FilePreviewModal';
 export * from './SidebarDrawer';
 export * from './IconButton';
