@@ -137,7 +137,16 @@ description: still works
         return p === '/test/skills' || p === '/test/skills/my-skill/SKILL.md';
       });
 
-      mocks.readdirSync.mockReturnValue([{ name: 'my-skill', isDirectory: () => true }]);
+      mocks.readdirSync.mockImplementation((path: string) => {
+        const p = normalizePath(path);
+        if (p === '/test/skills') {
+          return [{ name: 'my-skill', isDirectory: () => true }];
+        }
+        if (p === '/test/skills/my-skill') {
+          return [{ name: 'SKILL.md', isDirectory: () => false }];
+        }
+        return [];
+      });
 
       mocks.readFile.mockResolvedValue(`---
 name: my-skill
@@ -413,7 +422,16 @@ description: Nested skill
         return p === '/custom/skills' || p === '/custom/skills/custom-skill/SKILL.md';
       });
 
-      mocks.readdirSync.mockReturnValue([{ name: 'custom-skill', isDirectory: () => true }]);
+      mocks.readdirSync.mockImplementation((path: string) => {
+        const p = normalizePath(path);
+        if (p === '/custom/skills') {
+          return [{ name: 'custom-skill', isDirectory: () => true }];
+        }
+        if (p === '/custom/skills/custom-skill') {
+          return [{ name: 'SKILL.md', isDirectory: () => false }];
+        }
+        return [];
+      });
       mocks.readFile.mockResolvedValue(`---
 name: custom-skill
 description: Custom skill

@@ -5,6 +5,7 @@ export interface Skill {
   description: string;
   license?: string;
   path: string;
+  files: string[];
   type: 'personal' | 'project';
   relativePath: string;
   locationLabel: string;

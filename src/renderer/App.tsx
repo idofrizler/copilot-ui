@@ -37,6 +37,7 @@ import {
   MicButton,
   SessionHistory,
   FilePreviewModal,
+  EnvironmentModal,
   UpdateAvailableModal,
   SpotlightTour,
   ReleaseNotesModal,
@@ -161,7 +162,8 @@ const App: React.FC = () => {
   const [showEditedFiles, setShowEditedFiles] = useState(false);
   const [cwdCopied, setCwdCopied] = useState(false);
   const [filePreviewPath, setFilePreviewPath] = useState<string | null>(null);
-  const [environmentPreviewPath, setEnvironmentPreviewPath] = useState<string | null>(null);
+  const [showEnvironmentModal, setShowEnvironmentModal] = useState(false);
+  const [environmentTab, setEnvironmentTab] = useState<'instructions' | 'skills'>('instructions');
   const [isGitRepo, setIsGitRepo] = useState<boolean>(true);
   const commitModal = useCommitModal();
   const [allowMode, setAllowMode] = useState<'once' | 'session' | 'global'>('once');
@@ -215,9 +217,6 @@ const App: React.FC = () => {
   // Agent Skills state
   const [skills, setSkills] = useState<Skill[]>([]);
   const [showSkills, setShowSkills] = useState(false);
-  const [expandedSkillSections, setExpandedSkillSections] = useState<
-    Record<Skill['type'], boolean>
-  >({});
 
   // Agent discovery state
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -236,17 +235,6 @@ const App: React.FC = () => {
   // Copilot Instructions state
   const [instructions, setInstructions] = useState<Instruction[]>([]);
   const [showInstructions, setShowInstructions] = useState(false);
-  const [expandedInstructionSections, setExpandedInstructionSections] = useState<
-    Record<Instruction['type'], boolean>
-  >({});
-
-  const toggleSkillSection = useCallback((type: Skill['type']) => {
-    setExpandedSkillSections((prev) => ({ ...prev, [type]: !prev[type] }));
-  }, []);
-
-  const toggleInstructionSection = useCallback((type: Instruction['type']) => {
-    setExpandedInstructionSections((prev) => ({ ...prev, [type]: !prev[type] }));
-  }, []);
 
   const instructionSections = useMemo(() => {
     const grouped = groupBy(instructions, (instruction) => instruction.type);
@@ -265,6 +253,16 @@ const App: React.FC = () => {
       items: grouped[type] || [],
     })).filter((section) => section.items.length > 0);
   }, [skills]);
+
+  const flatSkills = useMemo(
+    () => skillSections.flatMap((section) => section.items),
+    [skillSections]
+  );
+
+  const flatInstructions = useMemo(
+    () => instructionSections.flatMap((section) => section.items),
+    [instructionSections]
+  );
 
   const mcpEntries = useMemo(() => Object.entries(mcpServers), [mcpServers]);
 
@@ -985,12 +983,13 @@ const App: React.FC = () => {
   }, [activeTab?.cwd]);
 
   const handleOpenEnvironment = useCallback(
-    (event?: React.MouseEvent) => {
+    (tab: 'instructions' | 'skills', event?: React.MouseEvent) => {
       event?.stopPropagation();
       setFilePreviewPath(null);
-      setEnvironmentPreviewPath(instructions[0]?.path || '');
+      setEnvironmentTab(tab);
+      setShowEnvironmentModal(true);
     },
-    [instructions]
+    []
   );
 
   // Helper to update a specific tab
@@ -4354,82 +4353,49 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
               {/* Agent Skills */}
               <div className="border-b border-copilot-border">
-                <button
-                  onClick={() => setShowSkills(!showSkills)}
-                  className="w-full flex items-center gap-3 px-4 py-3 text-sm text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
-                >
-                  <ChevronRightIcon
-                    size={14}
-                    className={`transition-transform ${showSkills ? 'rotate-90' : ''}`}
-                  />
-                  <span>Agent Skills</span>
-                  {skills.length > 0 && (
-                    <span className="ml-auto text-copilot-accent">{skills.length}</span>
-                  )}
-                </button>
+                <div className="flex items-center">
+                  <button
+                    onClick={() => setShowSkills(!showSkills)}
+                    className="flex-1 flex items-center gap-3 px-4 py-3 text-sm text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                  >
+                    <ChevronRightIcon
+                      size={14}
+                      className={`transition-transform ${showSkills ? 'rotate-90' : ''}`}
+                    />
+                    <span>Agent Skills</span>
+                    {skills.length > 0 && (
+                      <span className="ml-auto text-copilot-accent">{skills.length}</span>
+                    )}
+                  </button>
+                  <button
+                    onClick={(event) => handleOpenEnvironment('skills', event)}
+                    className="mr-3 px-2 py-1 text-[10px] text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface border border-copilot-border rounded transition-colors shrink-0"
+                    title="Open Environment view"
+                  >
+                    Environment
+                  </button>
+                </div>
                 {showSkills && (
                   <div className="px-4 pb-3">
-                    {skillSections.length === 0 ? (
+                    {flatSkills.length === 0 ? (
                       <div className="text-xs text-copilot-text-muted">No skills found</div>
                     ) : (
-                      <div className="space-y-1">
-                        {skillSections.map((section, sectionIndex) => {
-                          const isExpanded = !!expandedSkillSections[section.type];
-                          return (
-                            <div
-                              key={section.type}
-                              className={`${sectionIndex > 0 ? 'border-t border-copilot-border' : ''}`}
-                            >
+                      <div className="space-y-2">
+                        {flatSkills.map((skill) => (
+                          <div key={skill.path} className="text-xs">
+                            <div className="flex items-center gap-2">
                               <button
                                 type="button"
-                                onClick={() => toggleSkillSection(section.type)}
-                                className="w-full flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                                onClick={() => window.electronAPI.file.openFile(skill.path)}
+                                className="shrink-0 text-copilot-accent"
+                                title={`Open ${skill.name}`}
                               >
-                                <ChevronRightIcon
-                                  size={10}
-                                  className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-                                />
-                                <span className="text-xs font-semibold text-copilot-text">
-                                  {section.label}
-                                </span>
-                                <span className="ml-auto text-[10px] text-copilot-text-muted">
-                                  ({section.items.length})
-                                </span>
+                                <BookIcon size={12} />
                               </button>
-                              {isExpanded && (
-                                <div className="px-3 pb-2 pt-1">
-                                  <div className="space-y-2">
-                                    {section.items.map((skill) => (
-                                      <div key={skill.path} className="text-xs">
-                                        <div className="flex items-center gap-2">
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              window.electronAPI.file.openFile(skill.path)
-                                            }
-                                            className="shrink-0 text-copilot-accent"
-                                            title={`Open ${skill.name}`}
-                                          >
-                                            <BookIcon size={12} />
-                                          </button>
-                                          <span className="text-copilot-text truncate">
-                                            {skill.name}
-                                          </span>
-                                        </div>
-                                        <div
-                                          className="text-[10px] text-copilot-text-muted ml-5 truncate"
-                                          title={skill.relativePath}
-                                        >
-                                          {skill.relativePath}
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
+                              <span className="text-copilot-text truncate">{skill.name}</span>
                             </div>
-                          );
-                        })}
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -4453,7 +4419,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     )}
                   </button>
                   <button
-                    onClick={handleOpenEnvironment}
+                    onClick={(event) => handleOpenEnvironment('instructions', event)}
                     className="mr-3 px-2 py-1 text-[10px] text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface border border-copilot-border rounded transition-colors shrink-0"
                     title="Open Environment view"
                   >
@@ -4462,69 +4428,27 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 </div>
                 {showInstructions && (
                   <div className="px-4 pb-3">
-                    {instructionSections.length === 0 ? (
+                    {flatInstructions.length === 0 ? (
                       <div className="text-xs text-copilot-text-muted">
                         No instruction files found
                       </div>
                     ) : (
-                      <div className="space-y-1">
-                        {instructionSections.map((section, sectionIndex) => {
-                          const isExpanded = !!expandedInstructionSections[section.type];
-                          return (
-                            <div
-                              key={section.type}
-                              className={`${sectionIndex > 0 ? 'border-t border-copilot-border' : ''}`}
-                            >
+                      <div className="space-y-2">
+                        {flatInstructions.map((instruction) => (
+                          <div key={instruction.path} className="text-xs">
+                            <div className="flex items-center gap-2">
                               <button
                                 type="button"
-                                onClick={() => toggleInstructionSection(section.type)}
-                                className="w-full flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                                onClick={() => window.electronAPI.file.openFile(instruction.path)}
+                                className="shrink-0 text-copilot-accent"
+                                title={`Open ${instruction.name}`}
                               >
-                                <ChevronRightIcon
-                                  size={10}
-                                  className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-                                />
-                                <span className="text-xs font-semibold text-copilot-text">
-                                  {section.label}
-                                </span>
-                                <span className="ml-auto text-[10px] text-copilot-text-muted">
-                                  ({section.items.length})
-                                </span>
+                                <FileIcon size={12} />
                               </button>
-                              {isExpanded && (
-                                <div className="px-3 pb-2 pt-1">
-                                  <div className="space-y-2">
-                                    {section.items.map((instruction) => (
-                                      <div key={instruction.path} className="text-xs">
-                                        <div className="flex items-center gap-2">
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              window.electronAPI.file.openFile(instruction.path)
-                                            }
-                                            className="shrink-0 text-copilot-accent"
-                                            title={`Open ${instruction.name}`}
-                                          >
-                                            <FileIcon size={12} />
-                                          </button>
-                                          <span className="text-copilot-text truncate">
-                                            {instruction.name}
-                                          </span>
-                                        </div>
-                                        <div
-                                          className="text-[10px] text-copilot-text-muted ml-5 truncate"
-                                          title={instruction.relativePath}
-                                        >
-                                          {instruction.relativePath}
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
+                              <span className="text-copilot-text truncate">{instruction.name}</span>
                             </div>
-                          );
-                        })}
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -6828,8 +6752,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                                   !server.type ||
                                   server.type === 'local' ||
                                   server.type === 'stdio';
-                                const toolCount =
-                                  server.tools[0] === '*' ? 'all' : `${server.tools.length}`;
                                 return (
                                   <div
                                     key={name}
@@ -6850,9 +6772,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                                       <div className="flex-1 min-w-0">
                                         <div className="text-xs text-copilot-text truncate">
                                           {name}
-                                        </div>
-                                        <div className="text-[10px] text-copilot-text-muted">
-                                          {toolCount} tools
                                         </div>
                                       </div>
                                       <div className="shrink-0 opacity-0 group-hover:opacity-100 flex gap-1">
@@ -6900,72 +6819,41 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                             <span className="text-copilot-accent">({skills.length})</span>
                           )}
                         </button>
+                        <button
+                          onClick={(event) => handleOpenEnvironment('skills', event)}
+                          className="mr-2 px-1.5 py-0.5 text-[9px] text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface border border-copilot-border rounded transition-colors shrink-0"
+                          title="Open Environment view"
+                        >
+                          Environment
+                        </button>
                       </div>
                       {showSkills && (
                         <div className="max-h-48 overflow-y-auto">
-                          {skillSections.length === 0 ? (
+                          {flatSkills.length === 0 ? (
                             <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
                               No skills found
                             </div>
                           ) : (
-                            <div>
-                              {skillSections.map((section, sectionIndex) => {
-                                const isExpanded = !!expandedSkillSections[section.type];
-                                return (
-                                  <div
-                                    key={section.type}
-                                    className={`${sectionIndex > 0 ? 'border-t border-copilot-border' : ''}`}
-                                  >
-                                    <button
-                                      type="button"
-                                      onClick={() => toggleSkillSection(section.type)}
-                                      className="w-full flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
-                                    >
-                                      <ChevronRightIcon
-                                        size={10}
-                                        className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-                                      />
-                                      <span className="text-xs font-semibold text-copilot-text">
-                                        {section.label}
+                            <div className="px-3 pb-2 pt-1">
+                              <div className="space-y-2">
+                                {flatSkills.map((skill) => (
+                                  <div key={skill.path} className="text-xs">
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => window.electronAPI.file.openFile(skill.path)}
+                                        className="shrink-0 text-copilot-accent"
+                                        title={`Open ${skill.name}`}
+                                      >
+                                        <BookIcon size={12} />
+                                      </button>
+                                      <span className="text-copilot-text truncate">
+                                        {skill.name}
                                       </span>
-                                      <span className="ml-auto text-[10px] text-copilot-text-muted">
-                                        ({section.items.length})
-                                      </span>
-                                    </button>
-                                    {isExpanded && (
-                                      <div className="px-3 pb-2">
-                                        <div className="space-y-2">
-                                          {section.items.map((skill) => (
-                                            <div key={skill.path} className="text-xs">
-                                              <div className="flex items-center gap-2">
-                                                <button
-                                                  type="button"
-                                                  onClick={() =>
-                                                    window.electronAPI.file.openFile(skill.path)
-                                                  }
-                                                  className="shrink-0 text-copilot-accent"
-                                                  title={`Open ${skill.name}`}
-                                                >
-                                                  <BookIcon size={12} />
-                                                </button>
-                                                <span className="text-copilot-text truncate">
-                                                  {skill.name}
-                                                </span>
-                                              </div>
-                                              <div
-                                                className="text-[10px] text-copilot-text-muted ml-5 truncate"
-                                                title={skill.relativePath}
-                                              >
-                                                {skill.relativePath}
-                                              </div>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      </div>
-                                    )}
+                                    </div>
                                   </div>
-                                );
-                              })}
+                                ))}
+                              </div>
                             </div>
                           )}
                         </div>
@@ -6992,7 +6880,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                           )}
                         </button>
                         <button
-                          onClick={handleOpenEnvironment}
+                          onClick={(event) => handleOpenEnvironment('instructions', event)}
                           className="mr-2 px-1.5 py-0.5 text-[9px] text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface border border-copilot-border rounded transition-colors shrink-0"
                           title="Open Environment view"
                         >
@@ -7001,71 +6889,33 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       </div>
                       {showInstructions && (
                         <div className="max-h-48 overflow-y-auto">
-                          {instructionSections.length === 0 ? (
+                          {flatInstructions.length === 0 ? (
                             <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
                               No instruction files found
                             </div>
                           ) : (
-                            <div>
-                              {instructionSections.map((section, sectionIndex) => {
-                                const isExpanded = !!expandedInstructionSections[section.type];
-                                return (
-                                  <div
-                                    key={section.type}
-                                    className={`${sectionIndex > 0 ? 'border-t border-copilot-border' : ''}`}
-                                  >
-                                    <button
-                                      type="button"
-                                      onClick={() => toggleInstructionSection(section.type)}
-                                      className="w-full flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
-                                    >
-                                      <ChevronRightIcon
-                                        size={10}
-                                        className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-                                      />
-                                      <span className="text-xs font-semibold text-copilot-text">
-                                        {section.label}
+                            <div className="px-3 pb-2 pt-1">
+                              <div className="space-y-2">
+                                {flatInstructions.map((instruction) => (
+                                  <div key={instruction.path} className="text-xs">
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          window.electronAPI.file.openFile(instruction.path)
+                                        }
+                                        className="shrink-0 text-copilot-accent"
+                                        title={`Open ${instruction.name}`}
+                                      >
+                                        <FileIcon size={12} />
+                                      </button>
+                                      <span className="text-copilot-text truncate">
+                                        {instruction.name}
                                       </span>
-                                      <span className="ml-auto text-[10px] text-copilot-text-muted">
-                                        ({section.items.length})
-                                      </span>
-                                    </button>
-                                    {isExpanded && (
-                                      <div className="px-3 pb-2">
-                                        <div className="space-y-2">
-                                          {section.items.map((instruction) => (
-                                            <div key={instruction.path} className="text-xs">
-                                              <div className="flex items-center gap-2">
-                                                <button
-                                                  type="button"
-                                                  onClick={() =>
-                                                    window.electronAPI.file.openFile(
-                                                      instruction.path
-                                                    )
-                                                  }
-                                                  className="shrink-0 text-copilot-accent"
-                                                  title={`Open ${instruction.name}`}
-                                                >
-                                                  <FileIcon size={12} />
-                                                </button>
-                                                <span className="text-copilot-text truncate">
-                                                  {instruction.name}
-                                                </span>
-                                              </div>
-                                              <div
-                                                className="text-[10px] text-copilot-text-muted ml-5 truncate"
-                                                title={instruction.relativePath}
-                                              >
-                                                {instruction.relativePath}
-                                              </div>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      </div>
-                                    )}
+                                    </div>
                                   </div>
-                                );
-                              })}
+                                ))}
+                              </div>
                             </div>
                           )}
                         </div>
@@ -7494,24 +7344,20 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         )}
 
         {/* Environment Modal */}
-        <FilePreviewModal
-          isOpen={environmentPreviewPath !== null}
-          onClose={() => setEnvironmentPreviewPath(null)}
-          filePath={environmentPreviewPath || ''}
+        <EnvironmentModal
+          isOpen={showEnvironmentModal}
+          onClose={() => setShowEnvironmentModal(false)}
+          instructions={instructions}
+          skills={skills}
           cwd={activeTab?.cwd}
-          isGitRepo={false}
-          editedFiles={instructions.map((instruction) => instruction.path).sort()}
-          untrackedFiles={[]}
-          conflictedFiles={[]}
+          initialTab={environmentTab}
           fileViewMode={activeTab?.fileViewMode || 'flat'}
-          overlayTitle="Environment"
-          contentMode="markdown"
-          forceFullOverlay={true}
           onViewModeChange={(mode) => {
             if (activeTab) {
               updateTab(activeTab.id, { fileViewMode: mode });
             }
           }}
+          onTabChange={(tab) => setEnvironmentTab(tab)}
         />
 
         {/* File Preview Modal */}

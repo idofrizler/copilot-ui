@@ -12,6 +12,7 @@ export interface Skill {
   description: string;
   license?: string;
   path: string;
+  files: string[];
   type: 'personal' | 'project';
   source: SkillSource;
   relativePath: string;
@@ -42,6 +43,20 @@ const formatLocationLabel = (basePath: string, homePath: string, projectCwd?: st
   }
 
   return basePath;
+};
+
+const collectSkillFiles = (skillDir: string): string[] => {
+  const entries = readdirSync(skillDir, { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    const entryPath = join(skillDir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...collectSkillFiles(entryPath));
+    } else {
+      files.push(entryPath);
+    }
+  }
+  return files;
 };
 
 // Parse SKILL.md frontmatter to extract skill metadata
@@ -112,11 +127,23 @@ export async function scanSkillsDirectory(
           continue;
         }
 
+        let files: string[] = [];
+        try {
+          files = collectSkillFiles(skillDir).sort((a, b) =>
+            normalizePath(a).localeCompare(normalizePath(b))
+          );
+        } catch (err) {
+          errors.push(
+            `Failed to list files for skill at ${skillDir}: ${err instanceof Error ? err.message : String(err)}`
+          );
+        }
+
         skills.push({
           name: metadata.name,
           description: metadata.description,
           license: metadata.license,
           path: skillDir,
+          files,
           type,
           source,
           relativePath: formatRelativeDisplayPath(skillDir, displayBaseDir, options),
@@ -183,7 +210,6 @@ export async function getAllSkills(projectCwd?: string): Promise<SkillsResult> {
       addSkillDirectory(customDir, type, 'custom');
     }
   }
-
   const personalOptions: PathFormatOptions = { useTilde: true, rootLabel: '~' };
 
   // Scan personal skills
