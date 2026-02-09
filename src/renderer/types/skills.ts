@@ -6,8 +6,9 @@ export interface Skill {
   license?: string;
   path: string;
   type: 'personal' | 'project';
-  source: 'copilot' | 'claude' | 'agents' | 'openai' | 'custom'; // Which config folder it came from
+  relativePath: string;
   locationLabel: string;
+  source: 'copilot' | 'claude' | 'agents' | 'openai' | 'custom'; // Which config folder it came from
 }
 
 export interface SkillsResult {

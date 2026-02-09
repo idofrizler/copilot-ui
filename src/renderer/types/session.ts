@@ -195,6 +195,7 @@ export interface TabState {
   editedFiles: string[]; // Files edited/created in this session
   untrackedFiles: string[]; // Files excluded from commit (user doesn't want to commit these)
   fileViewMode: 'flat' | 'tree'; // How to display edited files list
+  activeAgentName?: string;
   currentIntent: string | null; // Current agent intent from report_intent tool
   currentIntentTimestamp: number | null; // When the current intent was set
   gitBranchRefresh: number; // Bumps to refresh GitBranchWidget

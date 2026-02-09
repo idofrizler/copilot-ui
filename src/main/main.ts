@@ -132,7 +132,8 @@ async function readMcpConfig(): Promise<MCPConfigFile> {
       return { mcpServers: {} };
     }
     const content = await readFile(configPath, 'utf-8');
-    return JSON.parse(content) as MCPConfigFile;
+    const parsed = JSON.parse(content) as MCPConfigFile;
+    return parsed;
   } catch (error) {
     console.error('Failed to read MCP config:', error);
     return { mcpServers: {} };
@@ -156,8 +157,13 @@ async function writeMcpConfig(config: MCPConfigFile): Promise<void> {
 // Agent Skills - imported from skills module
 import { getAllSkills } from './skills';
 
+// Agent discovery - imported from agents module
+import { getAllAgents } from './agents';
+
 // Copilot Instructions - imported from instructions module
 import { getAllInstructions, getGitRoot } from './instructions';
+
+import { getAllAgents } from './agents';
 
 // Set up file logging only - no IPC to renderer (causes errors)
 log.transports.file.level = 'info';
@@ -202,6 +208,7 @@ interface StoredSession {
   untrackedFiles?: string[];
   fileViewMode?: 'flat' | 'tree';
   yoloMode?: boolean;
+  activeAgentName?: string;
 }
 
 const store = new Store({
@@ -1779,6 +1786,7 @@ async function initCopilot(): Promise<void> {
           untrackedFiles: storedSession?.untrackedFiles || [],
           fileViewMode: storedSession?.fileViewMode || 'flat',
           yoloMode: storedSession?.yoloMode || false,
+          activeAgentName: storedSession?.activeAgentName,
         };
         resumedSessions.push(resumed);
         console.log(
@@ -1821,6 +1829,7 @@ async function initCopilot(): Promise<void> {
         alwaysAllowed: storedSession?.alwaysAllowed || [],
         untrackedFiles: storedSession?.untrackedFiles || [],
         fileViewMode: storedSession?.fileViewMode || 'flat',
+        activeAgentName: storedSession?.activeAgentName,
       };
     });
 
@@ -4130,6 +4139,23 @@ ipcMain.handle('skills:getAll', async (_event, cwd?: string) => {
   }
   const result = await getAllSkills(projectCwd);
   console.log(`Found ${result.skills.length} skills (${result.errors.length} errors)`);
+  return result;
+});
+
+// Agent discovery handlers
+ipcMain.handle('agents:getAll', async (_event, cwd?: string) => {
+  let workingDir = cwd;
+  if (!workingDir && sessions.size > 0) {
+    const firstSession = sessions.values().next().value;
+    if (firstSession) {
+      workingDir = firstSession.cwd;
+    }
+  }
+
+  const gitRoot = workingDir ? await getGitRoot(workingDir) : null;
+  const projectRoot = gitRoot || workingDir;
+
+  const result = await getAllAgents(projectRoot, workingDir);
   return result;
 });
 

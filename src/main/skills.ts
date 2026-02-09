@@ -2,6 +2,7 @@ import { existsSync, readdirSync } from 'fs';
 import { readFile } from 'fs/promises';
 import { dirname, join, relative } from 'path';
 import { app } from 'electron';
+import { formatRelativeDisplayPath, PathFormatOptions } from './path-utils';
 
 // Agent Skills types
 export type SkillSource = 'copilot' | 'claude' | 'agents' | 'openai' | 'custom';
@@ -13,6 +14,7 @@ export interface Skill {
   path: string;
   type: 'personal' | 'project';
   source: SkillSource;
+  relativePath: string;
   locationLabel: string;
 }
 
@@ -76,7 +78,9 @@ export async function scanSkillsDirectory(
   basePath: string,
   type: 'personal' | 'project',
   source: SkillSource,
-  locationLabel: string
+  locationLabel: string,
+  displayBaseDir?: string,
+  options?: PathFormatOptions
 ): Promise<{ skills: Skill[]; errors: string[] }> {
   const skills: Skill[] = [];
   const errors: string[] = [];
@@ -115,6 +119,7 @@ export async function scanSkillsDirectory(
           path: skillDir,
           type,
           source,
+          relativePath: formatRelativeDisplayPath(skillDir, displayBaseDir, options),
           locationLabel,
         });
       } catch (err) {
@@ -132,7 +137,6 @@ export async function scanSkillsDirectory(
   return { skills, errors };
 }
 
-// Get all skills from all known locations
 export async function getAllSkills(projectCwd?: string): Promise<SkillsResult> {
   const allSkills: Skill[] = [];
   const allErrors: string[] = [];
@@ -180,12 +184,21 @@ export async function getAllSkills(projectCwd?: string): Promise<SkillsResult> {
     }
   }
 
+  const personalOptions: PathFormatOptions = { useTilde: true, rootLabel: '~' };
+
   // Scan personal skills
   for (const { path, type, source } of directoryEntries.filter(
     (entry) => entry.type === 'personal'
   )) {
     const locationLabel = formatLocationLabel(path, homePath, projectCwd);
-    const { skills, errors } = await scanSkillsDirectory(path, type, source, locationLabel);
+    const { skills, errors } = await scanSkillsDirectory(
+      path,
+      type,
+      source,
+      locationLabel,
+      homePath,
+      personalOptions
+    );
     allSkills.push(...skills);
     allErrors.push(...errors);
   }
@@ -249,7 +262,13 @@ export async function getAllSkills(projectCwd?: string): Promise<SkillsResult> {
       (entry) => entry.type === 'project'
     )) {
       const locationLabel = formatLocationLabel(path, homePath, projectCwd);
-      const { skills, errors } = await scanSkillsDirectory(path, type, source, locationLabel);
+      const { skills, errors } = await scanSkillsDirectory(
+        path,
+        type,
+        source,
+        locationLabel,
+        projectCwd
+      );
       allSkills.push(...skills);
       allErrors.push(...errors);
     }
