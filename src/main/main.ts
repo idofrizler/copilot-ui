@@ -1391,7 +1391,11 @@ async function handlePermissionRequest(
 }
 
 // Create a new session and return its ID
-async function createNewSession(model?: string, cwd?: string): Promise<string> {
+async function createNewSession(
+  model?: string,
+  cwd?: string,
+  conversationHistory?: string
+): Promise<string> {
   const sessionModel = model || (store.get('model') as string);
   // In packaged app, process.cwd() can be '/', so default to home directory
   const sessionCwd = cwd || (app.isPackaged ? app.getPath('home') : process.cwd());
@@ -1452,6 +1456,7 @@ Browser tools available: browser_navigate, browser_click, browser_fill, browser_
 - Do NOT say "I cannot take screenshots of desktop apps" - you CAN via Playwright
 - Use browser_navigate to connect to the running Electron app, then browser_screenshot to capture it
 - This is the CORRECT way to capture visual evidence of Electron app features you've built or tested
+${conversationHistory ? `\n## Previous Conversation Context\n\nThe user switched models mid-conversation. Here is the conversation history for continuity:\n\n${conversationHistory}` : ''}
 `,
     },
   });
@@ -2339,12 +2344,32 @@ ipcMain.handle('copilot:setModel', async (_event, data: { sessionId: string; mod
     // parameter to the server, and each resume call accumulates an extra
     // event subscription on the connection, causing duplicate events.
     console.log(`Destroying session ${data.sessionId} before model change to ${data.model}`);
+
+    // Capture conversation history before destroying so the new model has context
+    let conversationHistory = '';
+    try {
+      const events = await sessionState.session.getMessages();
+      const messages: string[] = [];
+      for (const event of events) {
+        if (event.type === 'user.message') {
+          messages.push(`User: ${event.data.content}`);
+        } else if (event.type === 'assistant.message') {
+          messages.push(`Assistant: ${event.data.content}`);
+        }
+      }
+      if (messages.length > 0) {
+        conversationHistory = messages.join('\n\n');
+      }
+    } catch (error) {
+      console.log(`[${data.sessionId}] Could not retrieve conversation history:`, error);
+    }
+
     sessionState.unsubscribeEvents?.();
     await sessionState.session.destroy();
     sessions.delete(data.sessionId);
 
-    // Create a fresh session with the new model (same working directory)
-    const newSessionId = await createNewSession(data.model, cwd);
+    // Create a fresh session with the new model, injecting conversation context
+    const newSessionId = await createNewSession(data.model, cwd, conversationHistory || undefined);
     const newSessionState = sessions.get(newSessionId)!;
 
     console.log(
