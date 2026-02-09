@@ -4679,7 +4679,7 @@ ipcMain.handle('file:openFile', async (_event, filePath: string) => {
 // ============================================================================
 
 // GitHub repository for checking updates
-const GITHUB_REPO_OWNER = 'idofrizler';
+const GITHUB_REPO_OWNER = 'CooperAgent';
 const GITHUB_REPO_NAME = 'cooper';
 
 interface GitHubRelease {

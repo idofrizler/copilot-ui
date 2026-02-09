@@ -6,7 +6,7 @@
 
 A native desktop GUI for GitHub Copilot, built on the [Copilot SDK](https://github.blog/changelog/2026-01-14-copilot-sdk-in-technical-preview/).
 
-![Cooper Demo](https://github.com/idofrizler/cooper/releases/download/assets/Copilot.Skins.2-4.gif)
+![Cooper Demo](https://github.com/CooperAgent/cooper/releases/download/assets/Copilot.Skins.2-4.gif)
 
 ## Features
 
@@ -28,13 +28,13 @@ You need **Node.js 22+**, a **GitHub Copilot subscription**, and **GitHub CLI** 
 ### macOS
 
 ```bash
-git clone https://github.com/idofrizler/cooper.git && cd cooper && npm install && npm run dist && open release/Cooper-*-arm64.dmg
+git clone https://github.com/CooperAgent/cooper.git && cd cooper && npm install && npm run dist && open release/Cooper-*-arm64.dmg
 ```
 
 ### Windows
 
 ```powershell
-git clone https://github.com/idofrizler/cooper.git; cd cooper; pwsh -NoProfile -File .\scripts\setup-windows.ps1; npm run dist:win
+git clone https://github.com/CooperAgent/cooper.git; cd cooper; pwsh -NoProfile -File .\scripts\setup-windows.ps1; npm run dist:win
 ```
 
 The setup script installs all Windows-specific prerequisites (Python, VS Build Tools, PowerShell 7+) and npm dependencies automatically.
@@ -57,7 +57,7 @@ If the automated script fails, install these manually:
 
 Tell your agent:
 
-> Clone `https://github.com/idofrizler/cooper.git`, install dependencies, and build an installer for my OS (macOS → `.dmg`, Windows → `.exe`).
+> Clone `https://github.com/CooperAgent/cooper.git`, install dependencies, and build an installer for my OS (macOS → `.dmg`, Windows → `.exe`).
 
 </details>
 
