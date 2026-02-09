@@ -1,4 +1,6 @@
 import { BrowserWindow } from 'electron';
+import { existsSync, readFileSync } from 'fs';
+import { join } from 'path';
 
 // Lazy-loaded node-pty module to improve startup time
 // node-pty is a native module that takes time to load
@@ -23,12 +25,366 @@ interface PtyInstance {
 
 const ptyInstances = new Map<string, PtyInstance>();
 
-// Get the default shell for the current platform
-function getDefaultShell(): string {
-  if (process.platform === 'win32') {
-    return process.env.COMSPEC || 'cmd.exe';
+interface WindowsTerminalProfile {
+  guid?: string;
+  name?: string;
+  commandline?: string;
+  source?: string;
+  hidden?: boolean;
+}
+
+interface WindowsTerminalSettings {
+  defaultProfile?: string;
+  profiles?: { list?: WindowsTerminalProfile[] } | WindowsTerminalProfile[];
+}
+
+interface DefaultShellConfig {
+  shell: string;
+  args: string[];
+}
+
+let cachedWindowsTerminalShell: DefaultShellConfig | null = null;
+let windowsTerminalShellChecked = false;
+
+function stripJsonComments(input: string): string {
+  let output = '';
+  let inString = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+  let escaped = false;
+  const length = input.length;
+  const isWhitespace = (value: string): boolean =>
+    value === ' ' || value === '\t' || value === '\n' || value === '\r';
+
+  const peekNextMeaningfulChar = (startIndex: number): string => {
+    let inLine = false;
+    let inBlock = false;
+    for (let i = startIndex; i < length; i++) {
+      const char = input[i];
+      const next = i + 1 < length ? input[i + 1] : '';
+
+      if (inLine) {
+        if (char === '\n') {
+          inLine = false;
+        }
+        continue;
+      }
+
+      if (inBlock) {
+        if (char === '*' && next === '/') {
+          inBlock = false;
+          i++;
+        }
+        continue;
+      }
+
+      if (char === '/' && next === '/') {
+        inLine = true;
+        i++;
+        continue;
+      }
+
+      if (char === '/' && next === '*') {
+        inBlock = true;
+        i++;
+        continue;
+      }
+
+      if (isWhitespace(char)) {
+        continue;
+      }
+
+      return char;
+    }
+    return '';
+  };
+
+  for (let i = 0; i < length; i++) {
+    const char = input[i];
+    const next = i + 1 < input.length ? input[i + 1] : '';
+
+    if (inLineComment) {
+      if (char === '\n') {
+        inLineComment = false;
+        output += char;
+      }
+      continue;
+    }
+
+    if (inBlockComment) {
+      if (char === '*' && next === '/') {
+        inBlockComment = false;
+        i++;
+      }
+      continue;
+    }
+
+    if (inString) {
+      output += char;
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '\uFEFF') {
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      output += char;
+      continue;
+    }
+
+    if (char === '/' && next === '/') {
+      inLineComment = true;
+      i++;
+      continue;
+    }
+
+    if (char === '/' && next === '*') {
+      inBlockComment = true;
+      i++;
+      continue;
+    }
+
+    if (char === ',' && (peekNextMeaningfulChar(i + 1) === '}' || peekNextMeaningfulChar(i + 1) === ']')) {
+      continue;
+    }
+
+    output += char;
   }
-  return process.env.SHELL || '/bin/bash';
+
+  return output;
+}
+
+function expandWindowsEnvVars(value: string): string {
+  return value.replace(/%([^%]+)%/g, (match, name: string) => {
+    const envValue = process.env[name];
+    return typeof envValue === 'string' ? envValue : match;
+  });
+}
+
+function getWindowsTerminalSettingsPaths(): string[] {
+  const localAppData = process.env.LOCALAPPDATA;
+  if (!localAppData) {
+    return [];
+  }
+  return [
+    join(
+      localAppData,
+      'Packages',
+      'Microsoft.WindowsTerminal_8wekyb3d8bbwe',
+      'LocalState',
+      'settings.json'
+    ),
+    join(
+      localAppData,
+      'Packages',
+      'Microsoft.WindowsTerminalPreview_8wekyb3d8bbwe',
+      'LocalState',
+      'settings.json'
+    ),
+    join(localAppData, 'Microsoft', 'Windows Terminal', 'settings.json'),
+  ];
+}
+
+function loadWindowsTerminalSettings():
+  | { settings: WindowsTerminalSettings; path: string }
+  | null {
+  const settingsPaths = getWindowsTerminalSettingsPaths();
+  for (const settingsPath of settingsPaths) {
+    if (!existsSync(settingsPath)) {
+      continue;
+    }
+    try {
+      const content = readFileSync(settingsPath, 'utf-8');
+      const parsed = JSON.parse(stripJsonComments(content)) as WindowsTerminalSettings;
+      return { settings: parsed, path: settingsPath };
+    } catch (error) {
+      console.warn(`Failed to parse Windows Terminal settings at ${settingsPath}:`, error);
+    }
+  }
+  return null;
+}
+
+function normalizeGuid(value?: string): string | null {
+  if (!value) {
+    return null;
+  }
+  return value.toLowerCase().replace(/[{}]/g, '');
+}
+
+function getWindowsTerminalProfiles(settings: WindowsTerminalSettings): WindowsTerminalProfile[] {
+  if (Array.isArray(settings.profiles)) {
+    return settings.profiles;
+  }
+  if (settings.profiles?.list && Array.isArray(settings.profiles.list)) {
+    return settings.profiles.list;
+  }
+  return [];
+}
+
+function escapeWindowsArg(value: string): string {
+  return value.replace(/"/g, '\\"');
+}
+
+function getWindowsTerminalCommandLine(profile: WindowsTerminalProfile): string | null {
+  if (profile.commandline && profile.commandline.trim()) {
+    return expandWindowsEnvVars(profile.commandline.trim());
+  }
+
+  const source = profile.source?.toLowerCase();
+  if (source?.includes('windows.terminal.wsl')) {
+    const distroName = profile.name?.trim();
+    if (distroName) {
+      return `wsl.exe -d "${escapeWindowsArg(distroName)}"`;
+    }
+    return 'wsl.exe';
+  }
+
+  if (source?.includes('windows.terminal.powershellcore')) {
+    return 'pwsh.exe';
+  }
+
+  if (source?.includes('windows.terminal.powershell')) {
+    return 'powershell.exe';
+  }
+
+  if (source?.includes('windows.terminal.cmd')) {
+    return 'cmd.exe';
+  }
+
+  return null;
+}
+
+function resolveWindowsTerminalDefaultCommandLine(): string | null {
+  const settingsResult = loadWindowsTerminalSettings();
+  if (!settingsResult) {
+    return null;
+  }
+
+  const { settings, path } = settingsResult;
+  const defaultProfileId = normalizeGuid(settings.defaultProfile);
+  if (!defaultProfileId) {
+    console.warn(`Windows Terminal settings missing defaultProfile (${path}).`);
+    return null;
+  }
+
+  const profiles = getWindowsTerminalProfiles(settings);
+  if (!profiles.length) {
+    console.warn(`Windows Terminal settings missing profiles list (${path}).`);
+    return null;
+  }
+
+  const profile = profiles.find(
+    (entry) => normalizeGuid(entry.guid) === defaultProfileId
+  );
+  if (!profile) {
+    console.warn(
+      `Windows Terminal default profile ${settings.defaultProfile} not found (${path}).`
+    );
+    return null;
+  }
+
+  const commandLine = getWindowsTerminalCommandLine(profile);
+  if (!commandLine) {
+    console.warn(
+      `Windows Terminal default profile "${
+        profile.name || profile.guid || 'unknown'
+      }" has no commandline (${path}).`
+    );
+    return null;
+  }
+
+  return commandLine;
+}
+
+function splitCommandLine(commandLine: string): string[] {
+  const args: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  let escaped = false;
+
+  for (let i = 0; i < commandLine.length; i++) {
+    const char = commandLine[i];
+    const next = i + 1 < commandLine.length ? commandLine[i + 1] : '';
+
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+
+    if (char === '\\' && inQuotes && next === '"') {
+      escaped = true;
+      continue;
+    }
+
+    if (char === '"') {
+      inQuotes = !inQuotes;
+      continue;
+    }
+
+    if (!inQuotes && /\s/.test(char)) {
+      if (current) {
+        args.push(current);
+        current = '';
+      }
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (current) {
+    args.push(current);
+  }
+
+  return args;
+}
+
+function resolveWindowsTerminalShell(): DefaultShellConfig | null {
+  if (windowsTerminalShellChecked) {
+    return cachedWindowsTerminalShell;
+  }
+
+  windowsTerminalShellChecked = true;
+  const commandLine = resolveWindowsTerminalDefaultCommandLine();
+  if (!commandLine) {
+    console.warn('Falling back to COMSPEC: Windows Terminal default profile unavailable.');
+    return null;
+  }
+
+  const parts = splitCommandLine(commandLine);
+  if (!parts.length) {
+    console.warn('Falling back to COMSPEC: Windows Terminal commandline was empty.');
+    return null;
+  }
+
+  cachedWindowsTerminalShell = { shell: parts[0], args: parts.slice(1) };
+  return cachedWindowsTerminalShell;
+}
+
+// Get the default shell for the current platform
+function getDefaultShell(): DefaultShellConfig {
+  if (process.platform === 'win32') {
+    const windowsTerminalShell = resolveWindowsTerminalShell();
+    if (windowsTerminalShell) {
+      return windowsTerminalShell;
+    }
+    return { shell: process.env.COMSPEC || 'cmd.exe', args: [] };
+  }
+  return { shell: process.env.SHELL || '/bin/bash', args: ['-l'] };
 }
 
 // Create a new PTY instance for a session
@@ -43,8 +399,7 @@ export function createPty(
   }
 
   try {
-    const shell = getDefaultShell();
-    const shellArgs = process.platform === 'win32' ? [] : ['-l'];
+    const { shell, args: shellArgs } = getDefaultShell();
 
     // Filter out undefined/null env vars that can cause issues with ConPTY on Windows
     const cleanEnv: { [key: string]: string } = {};
