@@ -3815,7 +3815,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     setStatus('connecting');
 
     try {
-      const result = await window.electronAPI.copilot.setModel(activeTab.id, model);
+      const hasMessages = activeTab.messages.length > 0;
+      const result = await window.electronAPI.copilot.setModel(activeTab.id, model, hasMessages);
       // Update the tab in-place: swap session ID and model, preserve everything else
       setTabs((prev) =>
         prev.map((t) =>
@@ -3825,6 +3826,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 id: result.sessionId,
                 model: result.model,
                 cwd: result.cwd || t.cwd,
+                // Clear messages if we created a new session (no conversation to preserve)
+                messages: result.newSession ? [] : t.messages,
               }
             : t
         )

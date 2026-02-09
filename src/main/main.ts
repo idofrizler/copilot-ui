@@ -2389,7 +2389,7 @@ ipcMain.handle(
   }
 );
 
-ipcMain.handle('copilot:setModel', async (_event, data: { sessionId: string; model: string }) => {
+ipcMain.handle('copilot:setModel', async (_event, data: { sessionId: string; model: string; hasMessages: boolean }) => {
   const validModels = getVerifiedModels().map((m) => m.id);
   if (!validModels.includes(data.model)) {
     throw new Error(`Invalid model: ${data.model}`);
@@ -2401,7 +2401,28 @@ ipcMain.handle('copilot:setModel', async (_event, data: { sessionId: string; mod
   if (sessionState) {
     const { cwd, client } = sessionState;
 
-    // Destroy local session state (conversation history is preserved on server)
+    // If session has no messages, just create a new session with the desired model
+    // instead of trying to resume (which would fail for empty sessions)
+    if (!data.hasMessages) {
+      console.log(`Creating new session with model ${data.model} (empty session)`);
+      
+      // Destroy the old session
+      await sessionState.session.destroy();
+      sessions.delete(data.sessionId);
+
+      // Create a brand new session with the desired model
+      const newSessionId = await createNewSession(data.model, cwd);
+      const newSessionState = sessions.get(newSessionId)!;
+      
+      return { 
+        sessionId: newSessionId, 
+        model: data.model, 
+        cwd,
+        newSession: true 
+      };
+    }
+
+    // Session has messages - resume to preserve conversation history
     console.log(`Destroying session ${data.sessionId} before model change to ${data.model}`);
     await sessionState.session.destroy();
     sessions.delete(data.sessionId);
