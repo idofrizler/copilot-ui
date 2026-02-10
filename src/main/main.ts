@@ -596,13 +596,14 @@ function registerSessionEventForwarding(sessionId: string, session: CopilotSessi
       mainWindow.webContents.send('copilot:message', { sessionId, content: event.data.content });
     } else if (event.type === 'session.idle') {
       const currentSessionState = sessions.get(sessionId);
-      if (currentSessionState) currentSessionState.isProcessing = false;
+      if (currentSessionState) {
+        currentSessionState.isProcessing = false;
+        log.info(`[${sessionId}] Turn complete (model=${currentSessionState.model})`);
+      }
       mainWindow.webContents.send('copilot:idle', { sessionId });
       requestUserAttention();
     } else if (event.type === 'tool.execution_start') {
-      log.debug(
-        `[${sessionId}] Tool start: ${event.data.toolName} (${event.data.toolCallId})`
-      );
+      log.debug(`[${sessionId}] Tool start: ${event.data.toolName} (${event.data.toolCallId})`);
       mainWindow.webContents.send('copilot:tool-start', {
         sessionId,
         toolCallId: event.data.toolCallId,
@@ -2047,6 +2048,8 @@ ipcMain.handle(
 
     sessionState.isProcessing = true;
 
+    log.info(`[${data.sessionId}] Sending message with model=${sessionState.model}`);
+
     const messageOptions: {
       prompt: string;
       attachments?: typeof data.attachments;
@@ -2501,11 +2504,18 @@ ipcMain.handle(
     const sessionState = sessions.get(data.sessionId);
     if (sessionState) {
       const { cwd, client } = sessionState;
+      const previousModel = sessionState.model;
+
+      log.info(
+        `[${data.sessionId}] Model switch requested: ${previousModel} → ${data.model} (hasMessages=${data.hasMessages})`
+      );
 
       // If session has no messages, just create a new session with the desired model
       // instead of trying to resume (which would fail for empty sessions)
       if (!data.hasMessages) {
-        console.log(`Creating new session with model ${data.model} (empty session)`);
+        log.info(
+          `[${data.sessionId}] Creating new session with model ${data.model} (empty session)`
+        );
 
         // Destroy the old session
         await sessionState.session.destroy();
@@ -2514,6 +2524,10 @@ ipcMain.handle(
         // Create a brand new session with the desired model
         const newSessionId = await createNewSession(data.model, cwd);
         const newSessionState = sessions.get(newSessionId)!;
+
+        log.info(
+          `[${newSessionId}] New session created for model switch: ${previousModel} → ${data.model}`
+        );
 
         return {
           sessionId: newSessionId,
@@ -2524,7 +2538,9 @@ ipcMain.handle(
       }
 
       // Session has messages - resume to preserve conversation history
-      console.log(`Destroying session ${data.sessionId} before model change to ${data.model}`);
+      log.info(
+        `[${data.sessionId}] Resuming session for model switch: ${previousModel} → ${data.model}`
+      );
       await sessionState.session.destroy();
       sessions.delete(data.sessionId);
 
@@ -2554,7 +2570,9 @@ ipcMain.handle(
       });
       activeSessionId = resumedSessionId;
 
-      console.log(`Session ${resumedSessionId} resumed with model ${data.model}`);
+      log.info(
+        `[${resumedSessionId}] Model switch complete: ${previousModel} → ${data.model} (resumed session)`
+      );
       return { sessionId: resumedSessionId, model: data.model, cwd };
     }
 

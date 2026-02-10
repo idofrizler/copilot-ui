@@ -4033,6 +4033,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 cwd: result.cwd || t.cwd,
                 // Clear messages if we created a new session (no conversation to preserve)
                 messages: result.newSession ? [] : t.messages,
+                // Reset context usage — old tokenLimit is from previous model's context window
+                contextUsage: undefined,
               }
             : t
         )
