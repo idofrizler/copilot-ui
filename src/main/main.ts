@@ -211,12 +211,31 @@ interface StoredSession {
   activeAgentName?: string;
 }
 
+const DEFAULT_ZOOM_FACTOR = 1;
+const MIN_ZOOM_FACTOR = 0.5;
+const MAX_ZOOM_FACTOR = 3;
+const ZOOM_STEP = 0.1;
+
+const clampZoomFactor = (value: number): number => {
+  if (!Number.isFinite(value)) {
+    return DEFAULT_ZOOM_FACTOR;
+  }
+  return Math.min(MAX_ZOOM_FACTOR, Math.max(MIN_ZOOM_FACTOR, value));
+};
+
+const broadcastZoomFactor = (zoomFactor: number): void => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('window:zoomChanged', { zoomFactor });
+  }
+};
+
 const store = new Store({
   defaults: {
     model: 'gpt-5.2',
     openSessions: [] as StoredSession[], // Sessions that were open in our app with their models and cwd
     trustedDirectories: [] as string[], // Directories that are always trusted
     theme: 'system' as string, // Theme preference: 'system', 'light', 'dark', or custom theme id
+    zoomFactor: DEFAULT_ZOOM_FACTOR, // Window zoom factor (1 = 100%)
     sessionCwds: {} as Record<string, string>, // Persistent map of sessionId -> cwd (survives session close)
     sessionMarks: {} as Record<string, { markedForReview?: boolean; reviewNote?: string }>, // Persistent mark/note state
     globalSafeCommands: [] as string[], // Globally safe commands that are auto-approved for all sessions
@@ -1906,6 +1925,48 @@ function createWindow(): void {
       sandbox: false,
       webSecurity: true,
     },
+  });
+
+  const savedZoomFactor = clampZoomFactor(store.get('zoomFactor') as number);
+  mainWindow.webContents.setZoomFactor(savedZoomFactor);
+  mainWindow.webContents.on('zoom-changed', () => {
+    const current = mainWindow?.webContents.getZoomFactor() ?? DEFAULT_ZOOM_FACTOR;
+    const clamped = clampZoomFactor(current);
+    if (clamped !== current) {
+      mainWindow?.webContents.setZoomFactor(clamped);
+    }
+    store.set('zoomFactor', clamped);
+    broadcastZoomFactor(clamped);
+  });
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return;
+    const modifier = input.control || input.meta;
+    if (!modifier) return;
+    if (input.key === '+' || input.key === '=' || input.code === 'Equal') {
+      event.preventDefault();
+      const current = mainWindow?.webContents.getZoomFactor() ?? DEFAULT_ZOOM_FACTOR;
+      const next = clampZoomFactor(parseFloat((current + ZOOM_STEP).toFixed(2)));
+      mainWindow?.webContents.setZoomFactor(next);
+      store.set('zoomFactor', next);
+      broadcastZoomFactor(next);
+      return;
+    }
+    if (input.key === '-' || input.code === 'Minus') {
+      event.preventDefault();
+      const current = mainWindow?.webContents.getZoomFactor() ?? DEFAULT_ZOOM_FACTOR;
+      const next = clampZoomFactor(parseFloat((current - ZOOM_STEP).toFixed(2)));
+      mainWindow?.webContents.setZoomFactor(next);
+      store.set('zoomFactor', next);
+      broadcastZoomFactor(next);
+      return;
+    }
+    if (input.key === '0' || input.code === 'Digit0') {
+      event.preventDefault();
+      const next = DEFAULT_ZOOM_FACTOR;
+      mainWindow?.webContents.setZoomFactor(next);
+      store.set('zoomFactor', next);
+      broadcastZoomFactor(next);
+    }
   });
 
   // Check for TEST_MESSAGE env var
@@ -4238,6 +4299,54 @@ ipcMain.on(
     }
   }
 );
+
+ipcMain.handle('window:getZoomFactor', () => {
+  const storedZoom = clampZoomFactor(store.get('zoomFactor') as number);
+  const currentZoom = mainWindow?.webContents.getZoomFactor() ?? storedZoom;
+  return { zoomFactor: clampZoomFactor(currentZoom) };
+});
+
+ipcMain.handle('window:setZoomFactor', (_event, zoomFactor: number) => {
+  const clamped = clampZoomFactor(zoomFactor);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.setZoomFactor(clamped);
+  }
+  store.set('zoomFactor', clamped);
+  broadcastZoomFactor(clamped);
+  return { zoomFactor: clamped };
+});
+
+ipcMain.handle('window:zoomIn', () => {
+  const current = mainWindow?.webContents.getZoomFactor() ?? DEFAULT_ZOOM_FACTOR;
+  const next = clampZoomFactor(parseFloat((current + ZOOM_STEP).toFixed(2)));
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.setZoomFactor(next);
+  }
+  store.set('zoomFactor', next);
+  broadcastZoomFactor(next);
+  return { zoomFactor: next };
+});
+
+ipcMain.handle('window:zoomOut', () => {
+  const current = mainWindow?.webContents.getZoomFactor() ?? DEFAULT_ZOOM_FACTOR;
+  const next = clampZoomFactor(parseFloat((current - ZOOM_STEP).toFixed(2)));
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.setZoomFactor(next);
+  }
+  store.set('zoomFactor', next);
+  broadcastZoomFactor(next);
+  return { zoomFactor: next };
+});
+
+ipcMain.handle('window:resetZoom', () => {
+  const next = DEFAULT_ZOOM_FACTOR;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.setZoomFactor(next);
+  }
+  store.set('zoomFactor', next);
+  broadcastZoomFactor(next);
+  return { zoomFactor: next };
+});
 
 // Theme handlers
 ipcMain.handle('theme:get', () => {

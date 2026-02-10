@@ -510,6 +510,27 @@ const electronAPI = {
     quit: (): void => {
       ipcRenderer.send('window:quit');
     },
+    getZoomFactor: (): Promise<{ zoomFactor: number }> => {
+      return ipcRenderer.invoke('window:getZoomFactor');
+    },
+    setZoomFactor: (zoomFactor: number): Promise<{ zoomFactor: number }> => {
+      return ipcRenderer.invoke('window:setZoomFactor', zoomFactor);
+    },
+    zoomIn: (): Promise<{ zoomFactor: number }> => {
+      return ipcRenderer.invoke('window:zoomIn');
+    },
+    zoomOut: (): Promise<{ zoomFactor: number }> => {
+      return ipcRenderer.invoke('window:zoomOut');
+    },
+    resetZoom: (): Promise<{ zoomFactor: number }> => {
+      return ipcRenderer.invoke('window:resetZoom');
+    },
+    onZoomChanged: (callback: (data: { zoomFactor: number }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { zoomFactor: number }): void =>
+        callback(data);
+      ipcRenderer.on('window:zoomChanged', handler);
+      return () => ipcRenderer.removeListener('window:zoomChanged', handler);
+    },
     updateTitleBarOverlay: (options: { color: string; symbolColor: string }): void => {
       ipcRenderer.send('window:updateTitleBarOverlay', options);
     },

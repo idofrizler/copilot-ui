@@ -58,3 +58,18 @@ jobs:
 
       - name: Build application
         run: npm run build
+
+      - name: Start Xvfb (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+          Xvfb :99 -screen 0 1024x768x24 &
+
+      - name: Install Electron binary
+        run: node node_modules/electron/install.js
+
+      - name: Check for module import error
+        run: node scripts/test-electron-startup.js
+        env:
+          DISPLAY: ':99'

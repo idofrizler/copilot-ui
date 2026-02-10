@@ -18,6 +18,17 @@ if (typeof window !== 'undefined') {
       worktree: {
         listSessions: vi.fn().mockResolvedValue({ sessions: [] }),
       },
+      git: {
+        listBranches: vi.fn().mockResolvedValue({ success: true, branches: ['main'] }),
+        getChangedFiles: vi.fn().mockResolvedValue({ success: true, files: [] }),
+        checkMainAhead: vi.fn().mockResolvedValue({ success: true, isAhead: false, commits: [] }),
+        getDiff: vi.fn().mockResolvedValue({ success: true, diff: '' }),
+        generateCommitMessage: vi.fn().mockResolvedValue('Update files'),
+      },
+      settings: {
+        getTargetBranch: vi.fn().mockResolvedValue({ success: true, targetBranch: 'main' }),
+        setTargetBranch: vi.fn().mockResolvedValue({ success: true }),
+      },
     },
   });
 

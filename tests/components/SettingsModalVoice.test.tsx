@@ -33,6 +33,10 @@ describe('SettingsModal Voice Section', () => {
     onClose: vi.fn(),
     soundEnabled: true,
     onSoundEnabledChange: vi.fn(),
+    zoomFactor: 1,
+    onZoomIn: vi.fn(),
+    onZoomOut: vi.fn(),
+    onResetZoom: vi.fn(),
     voiceSupported: true,
     voiceMuted: false,
     onToggleVoiceMute: vi.fn(),
@@ -55,6 +59,11 @@ describe('SettingsModal Voice Section', () => {
   it('shows Voice section in sidebar', () => {
     render(<SettingsModal {...defaultProps} />);
     expect(screen.getByText('Voice')).toBeInTheDocument();
+  });
+
+  it('shows Accessibility section in sidebar', () => {
+    render(<SettingsModal {...defaultProps} />);
+    expect(screen.getByText('Accessibility')).toBeInTheDocument();
   });
 
   it('displays voice settings when Voice section is selected', () => {
@@ -175,5 +184,16 @@ describe('SettingsModal Voice Section', () => {
     expect(
       screen.getByText('Voice features are not supported in this environment.')
     ).toBeInTheDocument();
+  });
+
+  it('displays zoom controls when Accessibility section is selected', () => {
+    render(<SettingsModal {...defaultProps} zoomFactor={1.2} />);
+    fireEvent.click(screen.getByText('Accessibility'));
+
+    expect(screen.getByText('Zoom & Font Size')).toBeInTheDocument();
+    expect(screen.getByText('120%')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Zoom in' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Zoom out' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reset zoom (Ctrl/Cmd 0)' })).toBeInTheDocument();
   });
 });

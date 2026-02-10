@@ -46,6 +46,12 @@ export const PlusIcon: React.FC<IconProps> = ({ size = 24, className, strokeWidt
   </svg>
 );
 
+export const MinusIcon: React.FC<IconProps> = ({ size = 24, className, strokeWidth = 2 }) => (
+  <svg width={size} height={size} className={className} {...defaultProps} strokeWidth={strokeWidth}>
+    <path d="M5 12h14" />
+  </svg>
+);
+
 export const MoonIcon: React.FC<IconProps> = ({ size = 24, className, strokeWidth = 2 }) => (
   <svg width={size} height={size} className={className} {...defaultProps} strokeWidth={strokeWidth}>
     <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
@@ -423,6 +429,7 @@ export const Icons = {
   ChevronRight: ChevronRightIcon,
   Close: CloseIcon,
   Plus: PlusIcon,
+  Minus: MinusIcon,
   Moon: MoonIcon,
   Sun: SunIcon,
   Monitor: MonitorIcon,

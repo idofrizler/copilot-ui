@@ -163,7 +163,12 @@ const App: React.FC = () => {
   const [cwdCopied, setCwdCopied] = useState(false);
   const [filePreviewPath, setFilePreviewPath] = useState<string | null>(null);
   const [showEnvironmentModal, setShowEnvironmentModal] = useState(false);
-  const [environmentTab, setEnvironmentTab] = useState<'instructions' | 'skills'>('instructions');
+
+  const [environmentTab, setEnvironmentTab] = useState<'instructions' | 'skills' | 'agents'>(
+    'instructions'
+  );
+  const [environmentAgentPath, setEnvironmentAgentPath] = useState<string | null>(null);
+
   const [isGitRepo, setIsGitRepo] = useState<boolean>(true);
   const commitModal = useCommitModal();
   const [allowMode, setAllowMode] = useState<'once' | 'session' | 'global'>('once');
@@ -436,8 +441,9 @@ const App: React.FC = () => {
   // Settings modal state
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [settingsDefaultSection, setSettingsDefaultSection] = useState<
-    'themes' | 'voice' | 'sounds' | 'commands' | undefined
+    'themes' | 'voice' | 'sounds' | 'commands' | 'accessibility' | undefined
   >(undefined);
+  const [zoomFactor, setZoomFactor] = useState(1);
   const [soundEnabled, setSoundEnabled] = useState(() => {
     const saved = localStorage.getItem('copilot-sound-enabled');
     return saved !== null ? saved === 'true' : true; // Default to enabled
@@ -466,6 +472,48 @@ const App: React.FC = () => {
     progress: number;
     status: string;
   } | null>(null);
+
+  useEffect(() => {
+    if (!window.electronAPI?.window?.getZoomFactor) return;
+    window.electronAPI.window.getZoomFactor().then((result) => {
+      if (typeof result.zoomFactor === 'number') {
+        setZoomFactor(result.zoomFactor);
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!window.electronAPI?.window?.onZoomChanged) return;
+    return window.electronAPI.window.onZoomChanged((data) => {
+      if (typeof data.zoomFactor === 'number') {
+        setZoomFactor(data.zoomFactor);
+      }
+    });
+  }, []);
+
+  const handleZoomIn = useCallback(async () => {
+    if (!window.electronAPI?.window?.zoomIn) return;
+    const result = await window.electronAPI.window.zoomIn();
+    if (typeof result.zoomFactor === 'number') {
+      setZoomFactor(result.zoomFactor);
+    }
+  }, []);
+
+  const handleZoomOut = useCallback(async () => {
+    if (!window.electronAPI?.window?.zoomOut) return;
+    const result = await window.electronAPI.window.zoomOut();
+    if (typeof result.zoomFactor === 'number') {
+      setZoomFactor(result.zoomFactor);
+    }
+  }, []);
+
+  const handleResetZoom = useCallback(async () => {
+    if (!window.electronAPI?.window?.resetZoom) return;
+    const result = await window.electronAPI.window.resetZoom();
+    if (typeof result.zoomFactor === 'number') {
+      setZoomFactor(result.zoomFactor);
+    }
+  }, []);
 
   // Listen for download progress updates
   useEffect(() => {
@@ -983,10 +1031,12 @@ const App: React.FC = () => {
   }, [activeTab?.cwd]);
 
   const handleOpenEnvironment = useCallback(
-    (tab: 'instructions' | 'skills', event?: React.MouseEvent) => {
+    (tab: 'instructions' | 'skills' | 'agents', event?: React.MouseEvent, agentPath?: string) => {
       event?.stopPropagation();
       setFilePreviewPath(null);
       setEnvironmentTab(tab);
+      setEnvironmentAgentPath(tab === 'agents' ? (agentPath ?? null) : null);
+
       setShowEnvironmentModal(true);
     },
     []
@@ -2497,6 +2547,16 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       }
     },
     []
+  );
+
+  const handleCopyCommitErrorToMessage = useCallback(
+    (message: string) => {
+      if (!message.trim()) return;
+      setInputValue((prev) => (prev.trim() ? `${prev}\n\n${message}` : message));
+      commitModal.closeCommitModal();
+      inputRef.current?.focus();
+    },
+    [commitModal]
   );
 
   // Handle confirmation from shrink modal
@@ -6180,22 +6240,9 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                                       {agent.type !== 'system' && (
                                         <button
                                           type="button"
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            window.electronAPI.file
-                                              .openFile(agent.path)
-                                              .then((result) => {
-                                                if (!result.success) {
-                                                  console.error(
-                                                    'Failed to open agent file:',
-                                                    result.error
-                                                  );
-                                                }
-                                              })
-                                              .catch((error) => {
-                                                console.error('Failed to open agent file:', error);
-                                              });
-                                          }}
+                                          onClick={(event) =>
+                                            handleOpenEnvironment('agents', event, agent.path)
+                                          }
                                           className="shrink-0 opacity-0 group-hover:opacity-100 text-copilot-text-muted hover:text-copilot-text transition-opacity"
                                           title="View agent file"
                                         >
@@ -7132,6 +7179,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               updateTab(activeTab.id, { untrackedFiles: newUntracked });
             }
           }}
+          onCopyErrorToMessage={handleCopyCommitErrorToMessage}
           onDismissPendingMerge={() => commitModal.setPendingMergeInfo(null)}
           onMergeNow={() =>
             activeTab && commitModal.handleMergeNow(activeTab, updateTab, handleCloseTab)
@@ -7349,8 +7397,10 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           onClose={() => setShowEnvironmentModal(false)}
           instructions={instructions}
           skills={skills}
+          agents={agents}
           cwd={activeTab?.cwd}
           initialTab={environmentTab}
+          initialAgentPath={environmentAgentPath}
           fileViewMode={activeTab?.fileViewMode || 'flat'}
           onViewModeChange={(mode) => {
             if (activeTab) {
@@ -7427,6 +7477,10 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           soundEnabled={soundEnabled}
           onSoundEnabledChange={handleSoundEnabledChange}
           defaultSection={settingsDefaultSection}
+          zoomFactor={zoomFactor}
+          onZoomIn={handleZoomIn}
+          onZoomOut={handleZoomOut}
+          onResetZoom={handleResetZoom}
           // Voice settings
           voiceSupported={voiceSpeech.isSupported}
           voiceMuted={voiceSpeech.isMuted}

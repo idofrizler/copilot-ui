@@ -1,11 +1,18 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
-import { FilePreviewModal } from '../../src/renderer/components/FilePreviewModal';
+import { EnvironmentModal } from '../../src/renderer/components/EnvironmentModal';
 
 describe('Environment modal (markdown preview)', () => {
-  const instructionPath = 'alpha/beta/guidelines.instructions.md';
-  const markdownContent = '# Alpha Guide\n\nUse the beta rules.';
+  const agentPath = 'C:/agents/helper.agent.md';
+  const markdownContent = `---
+name: Helper
+description: Assist with tasks.
+---
+
+# Helper Agent
+
+Use the helper rules.`;
 
   beforeEach(() => {
     // @ts-expect-error - mocking electron API
@@ -20,27 +27,25 @@ describe('Environment modal (markdown preview)', () => {
     };
   });
 
-  it('renders markdown content with environment title and tree path', async () => {
+  it('renders agent markdown with frontmatter', async () => {
     render(
-      <FilePreviewModal
+      <EnvironmentModal
         isOpen={true}
         onClose={vi.fn()}
-        filePath={instructionPath}
+        instructions={[]}
+        skills={[]}
+        agents={[{ name: 'Helper', path: agentPath, type: 'personal', source: 'copilot' }]}
         cwd="/project"
-        isGitRepo={false}
-        editedFiles={[instructionPath]}
-        untrackedFiles={[]}
-        conflictedFiles={[]}
+        initialTab="agents"
+        initialAgentPath={agentPath}
         fileViewMode="tree"
-        overlayTitle="Environment"
-        contentMode="markdown"
-        forceFullOverlay={true}
       />
     );
 
     expect(screen.getByText('Environment')).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByText('Alpha Guide')).toBeInTheDocument());
-    expect(screen.getByText('alpha')).toBeInTheDocument();
-    expect(screen.getByText('beta')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('Helper Agent')).toBeInTheDocument());
+    expect(screen.getByText('Frontmatter')).toBeInTheDocument();
+    expect(screen.getByText('name')).toBeInTheDocument();
+    expect(screen.getByText('Helper')).toBeInTheDocument();
   });
 });

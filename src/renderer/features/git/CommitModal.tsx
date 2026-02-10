@@ -3,7 +3,9 @@ import {
   Modal,
   Button,
   Dropdown,
+  IconButton,
   CommitIcon,
+  CopyIcon,
   FileIcon,
   ArchiveIcon,
   UnarchiveIcon,
@@ -41,6 +43,7 @@ interface CommitModalProps {
   onFilePreview: (filePath: string) => void;
   onUntrackFile: (filePath: string) => void;
   onRestoreFile: (filePath: string) => void;
+  onCopyErrorToMessage: (message: string) => void;
 
   // Incoming changes modal
   onDismissPendingMerge: () => void;
@@ -73,6 +76,7 @@ export const CommitModal: React.FC<CommitModalProps> = ({
   onFilePreview,
   onUntrackFile,
   onRestoreFile,
+  onCopyErrorToMessage,
   onDismissPendingMerge,
   onMergeNow,
 }) => {
@@ -95,6 +99,21 @@ export const CommitModal: React.FC<CommitModalProps> = ({
                 activeTab.editedFiles.includes(f)
               );
               const hasFilesToCommit = filesToCommit.length > 0;
+              const buildErrorMessage = (error: string) => {
+                const actionDescription = (() => {
+                  if (hasFilesToCommit) {
+                    if (commitAction === 'pr') return 'commit and create a PR';
+                    if (commitAction === 'merge') return 'commit and merge';
+                    return 'commit and push';
+                  }
+                  if (commitAction === 'pr') return 'create a PR';
+                  if (commitAction === 'merge') return 'merge';
+                  return 'push';
+                })();
+                const targetSuffix =
+                  commitAction === 'push' ? '' : targetBranch ? ` (target: ${targetBranch})` : '';
+                return `I hit an error while trying to ${actionDescription}${targetSuffix}.\n\n${error}`;
+              };
 
               return (
                 <>
@@ -302,7 +321,19 @@ export const CommitModal: React.FC<CommitModalProps> = ({
                   {/* Error message */}
                   {commitError && (
                     <div className="mb-3 px-3 py-2 bg-copilot-error-muted border border-copilot-error rounded text-xs text-copilot-error max-h-32 overflow-y-auto break-words whitespace-pre-wrap">
-                      {commitError}
+                      <div className="flex items-start gap-2">
+                        <div className="flex-1 min-w-0 whitespace-pre-wrap break-words">
+                          {commitError}
+                        </div>
+                        <IconButton
+                          icon={<CopyIcon size={12} />}
+                          size="xs"
+                          variant="error"
+                          onClick={() => onCopyErrorToMessage(buildErrorMessage(commitError))}
+                          title="Copy error to message"
+                          aria-label="Copy error to message"
+                        />
+                      </div>
                     </div>
                   )}
 
