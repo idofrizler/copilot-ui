@@ -129,9 +129,6 @@ const getCopilotStatePath = (): string => {
   return join(app.getPath('home'), '.copilot');
 };
 
-// Get session state base path - respects XDG_STATE_HOME
-const getSessionStatePath = (): string => join(getCopilotStatePath(), 'session-state');
-
 // Get worktree sessions directory - respects COPILOT_SESSIONS_HOME
 const getWorktreeSessionsPath = (): string => {
   const sessionsHome = process.env.COPILOT_SESSIONS_HOME;
@@ -150,7 +147,7 @@ const getSafeCopilotReadPaths = (): string[] => {
   const home = app.getPath('home');
   return [
     getWorktreeSessionsPath(), // Worktree sessions directory
-    getSessionStatePath(), // Session state (plan.md files)
+    join(getCopilotStatePath(), 'session-state'), // Session state (plan.md files)
     join(getCopilotConfigPath(), 'skills'), // Personal skills directory
     join(home, '.claude', 'skills'), // Personal Claude skills
     join(home, '.claude', 'commands'), // Legacy Claude commands
@@ -504,7 +501,7 @@ async function getClientForCwd(cwd: string): Promise<CopilotClient> {
 // This can happen when a session is resumed while a tool is executing
 // The bug inserts a session.resume event between tool.execution_start and tool.execution_complete
 async function repairDuplicateToolResults(sessionId: string): Promise<boolean> {
-  const eventsPath = join(getSessionStatePath(), sessionId, 'events.jsonl');
+  const eventsPath = join(getCopilotStatePath(), 'session-state', sessionId, 'events.jsonl');
 
   try {
     if (!existsSync(eventsPath)) {
@@ -3094,7 +3091,7 @@ ipcMain.handle('copilot:deleteSessionFromHistory', async (_event, sessionId: str
     await client.deleteSession(sessionId);
 
     // Also clean up the session-state folder if it exists
-    const sessionStateDir = join(getSessionStatePath(), sessionId);
+    const sessionStateDir = join(getCopilotStatePath(), 'session-state', sessionId);
     if (existsSync(sessionStateDir)) {
       const { rm } = await import('fs/promises');
       await rm(sessionStateDir, { recursive: true, force: true });

@@ -34,9 +34,6 @@ const getCopilotStatePath = (): string => {
   return join(app.getPath('home'), '.copilot');
 };
 
-// Get session state base path - respects XDG_STATE_HOME
-const getSessionStatePath = (): string => join(getCopilotStatePath(), 'session-state');
-
 // Get worktree sessions directory - respects COPILOT_SESSIONS_HOME
 const getWorktreeSessionsPath = (): string => {
   const sessionsHome = process.env.COPILOT_SESSIONS_HOME;
@@ -448,7 +445,7 @@ export async function removeWorktreeSession(
 
   // Clean up associated Copilot session-state folders
   if (session.copilotSessionIds && session.copilotSessionIds.length > 0) {
-    const sessionStateBase = getSessionStatePath();
+    const sessionStateBase = join(getCopilotStatePath(), 'session-state');
     for (const copilotSessionId of session.copilotSessionIds) {
       const sessionStateDir = join(sessionStateBase, copilotSessionId);
       if (existsSync(sessionStateDir)) {
