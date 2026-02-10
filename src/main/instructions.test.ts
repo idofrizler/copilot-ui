@@ -76,6 +76,9 @@ describe('instructions module', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env = { ...originalEnv };
+    // Clear XDG env vars to ensure tests use mocked app.getPath('home')
+    delete process.env.XDG_CONFIG_HOME;
+    delete process.env.XDG_STATE_HOME;
   });
 
   afterEach(() => {
