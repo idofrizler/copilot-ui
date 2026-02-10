@@ -4,6 +4,7 @@ import icqTheme from './icq-theme.json';
 import githubDimmedTheme from './github-dimmed.json';
 import xmasTheme from './xmas-theme.json';
 import kawaiiTheme from './kawaii-theme.json';
+import synthwaveTheme from './synthwave-theme.json';
 
 /**
  * Dark theme - the original Copilot UI theme
@@ -122,4 +123,5 @@ export const builtInThemes: Theme[] = [
   githubDimmedTheme as Theme,
   xmasTheme as Theme,
   kawaiiTheme as Theme,
+  synthwaveTheme as Theme,
 ];
