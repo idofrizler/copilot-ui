@@ -1,0 +1,65 @@
+name: Release (Staging)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-staging
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts && npx patch-package
+
+      - name: Cache node-pty build
+        id: cache-node-pty
+        uses: actions/cache@v4
+        with:
+          path: node_modules/node-pty/build
+          key: node-pty-Windows-node22-electron-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            node-pty-Windows-node22-electron-
+
+      - name: Rebuild node-pty (cache miss)
+        if: steps.cache-node-pty.outputs.cache-hit != 'true'
+        run: npx @electron/rebuild -w node-pty
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Build and package Windows installer
+        run: npm run prebuild-info && electron-vite build && npx electron-builder --win
+
+      - name: Get version
+        id: version
+        run: |
+          $version = node -p "require('./package.json').version"
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+        shell: pwsh
+
+      - name: Create staging pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}-staging.${{ github.run_number }}
+          name: v${{ steps.version.outputs.version }} (Staging)
+          body: |
+            ⚠️ **Staging build — for testing only.**
+
+            Built from `staging` branch, commit ${{ github.sha }}.
+          prerelease: true
+          files: |
+            release/*.exe
