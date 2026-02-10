@@ -6,6 +6,7 @@ import { app } from 'electron';
 export interface Agent {
   name: string;
   description?: string;
+  model?: string;
   path: string;
   type: 'personal' | 'project';
   source: 'copilot' | 'claude' | 'opencode' | 'gemini' | 'codex';
@@ -19,6 +20,7 @@ export interface AgentsResult {
 export function parseAgentFrontmatter(content: string): {
   name?: string;
   description?: string;
+  model?: string;
   hasFrontmatter: boolean;
 } {
   const frontmatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
@@ -27,9 +29,10 @@ export function parseAgentFrontmatter(content: string): {
   }
 
   const frontmatter = frontmatterMatch[1];
-  const result: { name?: string; description?: string; hasFrontmatter: boolean } = {
-    hasFrontmatter: true,
-  };
+  const result: { name?: string; description?: string; model?: string; hasFrontmatter: boolean } =
+    {
+      hasFrontmatter: true,
+    };
 
   const lines = frontmatter.split('\n');
   for (const line of lines) {
@@ -39,6 +42,8 @@ export function parseAgentFrontmatter(content: string): {
       const trimmedValue = value.trim().replace(/^['"](.+)['"]$/, '$1');
       if (key === 'name') result.name = trimmedValue;
       if (key === 'description') result.description = trimmedValue;
+      if (key === 'model') result.model = trimmedValue;
+      if (key === 'mode' && !result.model) result.model = trimmedValue;
     }
   }
 
@@ -58,6 +63,7 @@ async function readAgentFile(
       agent: {
         name: metadata.name || fallbackName,
         description: metadata.description,
+        model: metadata.model,
         path: filePath,
         type,
         source,

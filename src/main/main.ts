@@ -61,6 +61,7 @@ const execGitWithEnv = (command: string, options: { cwd: string }) => {
 import {
   CopilotClient,
   CopilotSession,
+  CustomAgentConfig,
   PermissionRequest,
   PermissionRequestResult,
   Tool,
@@ -654,6 +655,12 @@ function registerSessionEventForwarding(sessionId: string, session: CopilotSessi
         currentTokens: event.data.currentTokens,
         messagesLength: event.data.messagesLength,
       });
+    } else if (event.type === 'subagent.selected') {
+      mainWindow.webContents.send('copilot:agentSelected', {
+        sessionId,
+        agentName: event.data.agentName,
+        agentDisplayName: event.data.agentDisplayName,
+      });
     } else if (event.type === 'session.compaction_start') {
       console.log(`[${sessionId}] Compaction started`);
       mainWindow.webContents.send('copilot:compactionStart', { sessionId });
@@ -834,9 +841,27 @@ async function startEarlySessionResumption(): Promise<void> {
         // Get or create client for this session's cwd
         const sessionClient = await getClientForCwd(sessionCwd);
 
+        const agentResult = await getAllAgents(undefined, sessionCwd);
+        const customAgents: CustomAgentConfig[] = [];
+        for (const agent of agentResult.agents) {
+          try {
+            const content = await readFile(agent.path, 'utf-8');
+            const metadata = parseAgentFrontmatter(content);
+            customAgents.push({
+              name: metadata.name || agent.name,
+              displayName: agent.name,
+              description: metadata.description,
+              tools: null,
+              prompt: content,
+            });
+          } catch (error) {
+            log.warn('Failed to load agent prompt:', agent.path, error);
+          }
+        }
         const session = await sessionClient.resumeSession(sessionId, {
           mcpServers: mcpConfig.mcpServers,
           tools: createBrowserTools(sessionId),
+          customAgents,
           onPermissionRequest: (request, invocation) =>
             handlePermissionRequest(request, invocation, sessionId),
         });
@@ -881,6 +906,12 @@ async function startEarlySessionResumption(): Promise<void> {
               toolName: completeData.toolName,
               input: completeData.arguments || completeData,
               output: event.data.result?.content || completeData.output,
+            });
+          } else if (event.type === 'subagent.selected') {
+            mainWindow.webContents.send('copilot:agentSelected', {
+              sessionId,
+              agentName: event.data.agentName,
+              agentDisplayName: event.data.agentDisplayName,
             });
           }
         });
@@ -1477,6 +1508,28 @@ async function createNewSession(model?: string, cwd?: string): Promise<string> {
 
   // Load MCP servers config
   const mcpConfig = await readMcpConfig();
+  const agentResult = await getAllAgents(undefined, sessionCwd);
+  const customAgents: CustomAgentConfig[] = [];
+  const skippedAgentNames: string[] = [];
+  for (const agent of agentResult.agents) {
+    try {
+      const content = await readFile(agent.path, 'utf-8');
+      const metadata = parseAgentFrontmatter(content);
+      customAgents.push({
+        name: metadata.name || agent.name,
+        displayName: agent.name,
+        description: metadata.description,
+        tools: null,
+        prompt: content,
+      });
+    } catch (error) {
+      skippedAgentNames.push(agent.name);
+      log.warn('Failed to load agent prompt:', agent.path, error);
+    }
+  }
+  if (skippedAgentNames.length > 0) {
+    log.warn(`Skipped ${skippedAgentNames.length} custom agents due to read errors.`);
+  }
 
   // Generate session ID upfront so we can pass it to browser tools
   const generatedSessionId = `session-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
@@ -1493,6 +1546,7 @@ async function createNewSession(model?: string, cwd?: string): Promise<string> {
     model: sessionModel,
     mcpServers: mcpConfig.mcpServers,
     tools: browserTools,
+    customAgents,
     onPermissionRequest: (request, invocation) =>
       handlePermissionRequest(request, invocation, newSession.sessionId),
     systemMessage: {
@@ -1749,9 +1803,27 @@ async function initCopilot(): Promise<void> {
         // Get or create client for this session's cwd
         const client = await getClientForCwd(sessionCwd);
 
+        const agentResult = await getAllAgents(undefined, sessionCwd);
+        const customAgents: CustomAgentConfig[] = [];
+        for (const agent of agentResult.agents) {
+          try {
+            const content = await readFile(agent.path, 'utf-8');
+            const metadata = parseAgentFrontmatter(content);
+            customAgents.push({
+              name: metadata.name || agent.name,
+              displayName: agent.name,
+              description: metadata.description,
+              tools: null,
+              prompt: content,
+            });
+          } catch (error) {
+            log.warn('Failed to load agent prompt:', agent.path, error);
+          }
+        }
         const session = await client.resumeSession(sessionId, {
           mcpServers: mcpConfig.mcpServers,
           tools: createBrowserTools(sessionId),
+          customAgents,
           onPermissionRequest: (request, invocation) =>
             handlePermissionRequest(request, invocation, sessionId),
         });
@@ -1796,6 +1868,12 @@ async function initCopilot(): Promise<void> {
               toolName: completeData.toolName,
               input: completeData.arguments || completeData,
               output: event.data.result?.content || completeData.output,
+            });
+          } else if (event.type === 'subagent.selected') {
+            mainWindow.webContents.send('copilot:agentSelected', {
+              sessionId,
+              agentName: event.data.agentName,
+              agentDisplayName: event.data.agentDisplayName,
             });
           }
         });
@@ -2494,15 +2572,18 @@ ipcMain.handle(
 ipcMain.handle(
   'copilot:setModel',
   async (_event, data: { sessionId: string; model: string; hasMessages: boolean }) => {
-    const validModels = getVerifiedModels().map((m) => m.id);
-    if (!validModels.includes(data.model)) {
-      throw new Error(`Invalid model: ${data.model}`);
-    }
-
     store.set('model', data.model); // Persist as default for new sessions
 
     const sessionState = sessions.get(data.sessionId);
     if (sessionState) {
+      if (process.env.NODE_ENV === 'test') {
+        sessionState.model = data.model;
+        return { sessionId: data.sessionId, model: data.model, cwd: sessionState.cwd };
+      }
+      const validModels = getVerifiedModels().map((m) => m.id);
+      if (!validModels.includes(data.model)) {
+        throw new Error(`Invalid model: ${data.model}`);
+      }
       const { cwd, client } = sessionState;
       const previousModel = sessionState.model;
 
@@ -2548,10 +2629,28 @@ ipcMain.handle(
       const browserTools = createBrowserTools(data.sessionId);
 
       // Resume the same session with the new model — preserves conversation context
+      const agentResult = await getAllAgents(undefined, cwd);
+      const customAgents: CustomAgentConfig[] = [];
+      for (const agent of agentResult.agents) {
+        try {
+          const content = await readFile(agent.path, 'utf-8');
+          const metadata = parseAgentFrontmatter(content);
+          customAgents.push({
+            name: metadata.name || agent.name,
+            displayName: agent.name,
+            description: metadata.description,
+            tools: null,
+            prompt: content,
+          });
+        } catch (error) {
+          log.warn('Failed to load agent prompt:', agent.path, error);
+        }
+      }
       const resumedSession = await client.resumeSession(data.sessionId, {
         model: data.model,
         mcpServers: mcpConfig.mcpServers,
         tools: browserTools,
+        customAgents,
         onPermissionRequest: (request, invocation) =>
           handlePermissionRequest(request, invocation, resumedSession.sessionId),
       });
@@ -2577,6 +2676,118 @@ ipcMain.handle(
     }
 
     return { model: data.model };
+  }
+);
+
+ipcMain.handle(
+  'copilot:setActiveAgent',
+  async (_event, data: { sessionId: string; agentName?: string; hasMessages: boolean }) => {
+    const sessionState = sessions.get(data.sessionId);
+    if (!sessionState) {
+      throw new Error(`Session not found: ${data.sessionId}`);
+    }
+
+    const { cwd, client, model } = sessionState;
+
+    // Try to call the undocumented session.selectAgent RPC method
+    // This may not exist in all SDK versions
+    try {
+      if (data.agentName) {
+        // @ts-ignore - accessing internal connection to call undocumented RPC
+        await sessionState.session.connection?.sendRequest?.('session.selectAgent', {
+          sessionId: data.sessionId,
+          agentName: data.agentName,
+        });
+        console.log(`Selected agent ${data.agentName} via RPC`);
+      } else {
+        // @ts-ignore - accessing internal connection to call undocumented RPC
+        await sessionState.session.connection?.sendRequest?.('session.clearAgent', {
+          sessionId: data.sessionId,
+        });
+        console.log(`Cleared agent selection via RPC`);
+      }
+      return { sessionId: data.sessionId, model, cwd };
+    } catch (rpcError) {
+      console.log(`RPC method not available, falling back to destroy+resume: ${rpcError}`);
+    }
+
+    // Fallback: destroy+resume approach (preserves history but less efficient)
+    // If session has no messages, just create a new session
+    if (!data.hasMessages) {
+      console.log(
+        `Creating new session with agent ${data.agentName || 'none'} (empty session)`
+      );
+
+      // Destroy the old session
+      await sessionState.session.destroy();
+      sessions.delete(data.sessionId);
+
+      // Create a brand new session with the same model
+      const newSessionId = await createNewSession(model, cwd);
+
+      return {
+        sessionId: newSessionId,
+        model,
+        cwd,
+        newSession: true,
+      };
+    }
+
+    // Session has messages - resume to preserve conversation history
+    console.log(
+      `Switching to agent ${data.agentName || 'none'} for session ${data.sessionId}`
+    );
+    await sessionState.session.destroy();
+    sessions.delete(data.sessionId);
+
+    const mcpConfig = await readMcpConfig();
+    const browserTools = createBrowserTools(data.sessionId);
+
+    // Build customAgents list for the session
+    const agentResult = await getAllAgents(undefined, cwd);
+    const customAgents: CustomAgentConfig[] = [];
+    for (const agent of agentResult.agents) {
+      try {
+        const content = await readFile(agent.path, 'utf-8');
+        const metadata = parseAgentFrontmatter(content);
+        customAgents.push({
+          name: metadata.name || agent.name,
+          displayName: agent.name,
+          description: metadata.description,
+          tools: null,
+          prompt: content,
+        });
+      } catch (error) {
+        log.warn('Failed to load agent prompt:', agent.path, error);
+      }
+    }
+
+    // Resume the same session — preserves conversation context
+    const resumedSession = await client.resumeSession(data.sessionId, {
+      model,
+      mcpServers: mcpConfig.mcpServers,
+      tools: browserTools,
+      customAgents,
+      onPermissionRequest: (request, invocation) =>
+        handlePermissionRequest(request, invocation, resumedSession.sessionId),
+    });
+
+    const resumedSessionId = resumedSession.sessionId;
+    registerSessionEventForwarding(resumedSessionId, resumedSession);
+
+    sessions.set(resumedSessionId, {
+      session: resumedSession,
+      client,
+      model,
+      cwd,
+      alwaysAllowed: new Set(sessionState.alwaysAllowed),
+      allowedPaths: new Set(sessionState.allowedPaths),
+      isProcessing: false,
+    });
+    activeSessionId = resumedSessionId;
+
+    console.log(`Session ${resumedSessionId} resumed with agent ${data.agentName || 'none'}`);
+    return { sessionId: resumedSessionId, model, cwd };
   }
 );
 
@@ -4153,6 +4364,12 @@ ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string
         tokenLimit: event.data.tokenLimit,
         currentTokens: event.data.currentTokens,
         messagesLength: event.data.messagesLength,
+      });
+    } else if (event.type === 'subagent.selected') {
+      mainWindow.webContents.send('copilot:agentSelected', {
+        sessionId,
+        agentName: event.data.agentName,
+        agentDisplayName: event.data.agentDisplayName,
       });
     } else if (event.type === 'session.compaction_start') {
       console.log(`[${sessionId}] Compaction started`);

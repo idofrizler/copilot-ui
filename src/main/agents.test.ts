@@ -73,6 +73,7 @@ describe('agents module', () => {
     mocks.readFile.mockResolvedValue(`---
 name: alpha
 description: "Alpha agent"
+model: gpt-4.1
 ---`);
 
     const result = await getAllAgents();
@@ -80,6 +81,7 @@ description: "Alpha agent"
     expect(result.agents.length).toBe(1);
     expect(result.agents[0].name).toBe('alpha');
     expect(result.agents[0].description).toBe('Alpha agent');
+    expect(result.agents[0].model).toBe('gpt-4.1');
     expect(result.agents[0].type).toBe('personal');
     expect(result.agents[0].source).toBe('copilot');
   });
@@ -93,12 +95,14 @@ description: "Alpha agent"
     ]);
     mocks.readFile.mockResolvedValue(`---
 name: beta
+mode: gpt-4.5
 ---`);
 
     const result = await getAllAgents('/project');
 
     expect(result.agents.length).toBe(1);
     expect(result.agents[0].name).toBe('beta');
+    expect(result.agents[0].model).toBe('gpt-4.5');
     expect(result.agents[0].type).toBe('project');
     expect(result.agents[0].source).toBe('copilot');
   });

@@ -1,12 +1,10 @@
 import { test, expect, _electron as electron, ElectronApplication, Page } from '@playwright/test'
 import path from 'path'
 
-// Voice debug tests commented out pending further stabilization
-test.describe.skip('Voice Input Debug', () => {
-  
-  await window.waitForLoadState('domcontentloaded')
-  await window.waitForTimeout(3000) // Wait for app to fully initialize
-})
+let electronApp: ElectronApplication | undefined
+let window: Page
+const consoleLogs: { type: string; text: string }[] = []
+const consoleErrors: string[] = []
 
 test.afterAll(async () => {
   console.log('\n=== FULL CONSOLE LOG SUMMARY ===')
@@ -21,7 +19,7 @@ test.afterAll(async () => {
   await electronApp?.close()
 })
 
-test.describe('Voice Input Debug', () => {
+test.describe.skip('Voice Input Debug', () => {
   test('should check speech recognition support and errors', async () => {
     // Check if SpeechRecognition is available
     const speechSupport = await window.evaluate(() => {

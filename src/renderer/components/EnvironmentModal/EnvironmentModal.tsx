@@ -28,6 +28,8 @@ export interface EnvironmentModalProps {
   agents: Agent[];
   cwd?: string;
   initialTab?: 'instructions' | 'skills' | 'agents';
+  initialInstructionPath?: string | null;
+  initialSkillPath?: string | null;
   initialAgentPath?: string | null;
   fileViewMode?: 'flat' | 'tree';
   onViewModeChange?: (mode: 'flat' | 'tree') => void;
@@ -189,6 +191,8 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
   agents,
   cwd,
   initialTab = 'instructions',
+  initialInstructionPath = null,
+  initialSkillPath = null,
   initialAgentPath = null,
 
   fileViewMode = 'flat',
@@ -286,10 +290,17 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
       setSelectedInstructionFile(null);
       return;
     }
+    // Only use initialInstructionPath if no instruction is currently selected
     if (!selectedInstructionFile || !instructionPaths.includes(selectedInstructionFile)) {
-      setSelectedInstructionFile(instructionPaths[0]);
+      if (initialInstructionPath && instructionPaths.includes(initialInstructionPath)) {
+        console.log('[EnvironmentModal] Setting instruction to initialInstructionPath:', initialInstructionPath);
+        setSelectedInstructionFile(initialInstructionPath);
+      } else {
+        console.log('[EnvironmentModal] Setting instruction to first:', instructionPaths[0], 'initialInstructionPath was:', initialInstructionPath, 'available paths:', instructionPaths);
+        setSelectedInstructionFile(instructionPaths[0]);
+      }
     }
-  }, [instructionPaths, selectedInstructionFile]);
+  }, [instructionPaths, initialInstructionPath, selectedInstructionFile]);
 
   const ensureDefaultSkillSelection = useCallback(() => {
     const allFiles = skillEntries.flatMap((entry) => entry.fileEntries);
@@ -297,34 +308,37 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
       setSelectedSkillFile(null);
       return;
     }
-    const defaultSkillFile =
-      allFiles.find((entry) => entry.relativePath.split('/').pop()?.toLowerCase() === 'skill.md')
-        ?.path || allFiles[0].path;
+    // Only use initialSkillPath if no skill is currently selected
     if (!selectedSkillFile || !allFiles.some((entry) => entry.path === selectedSkillFile)) {
-      setSelectedSkillFile(defaultSkillFile);
+      if (initialSkillPath && allFiles.some((entry) => entry.path === initialSkillPath)) {
+        console.log('[EnvironmentModal] Setting skill to initialSkillPath:', initialSkillPath);
+        setSelectedSkillFile(initialSkillPath);
+      } else {
+        console.log('[EnvironmentModal] Setting skill to default. initialSkillPath was:', initialSkillPath, 'available paths:', allFiles.map(f => f.path));
+        const defaultSkillFile =
+          allFiles.find((entry) => entry.relativePath.split('/').pop()?.toLowerCase() === 'skill.md')
+            ?.path || allFiles[0].path;
+        setSelectedSkillFile(defaultSkillFile);
+      }
     }
-  }, [skillEntries, selectedSkillFile]);
+  }, [skillEntries, initialSkillPath, selectedSkillFile]);
 
   const ensureDefaultAgentSelection = useCallback(() => {
     if (agentPaths.length === 0) {
       setSelectedAgentFile(null);
       return;
     }
-    if (initialAgentPath && agentPaths.includes(initialAgentPath)) {
-      setSelectedAgentFile(initialAgentPath);
-      return;
-    }
+    // Only use initialAgentPath if no agent is currently selected
     if (!selectedAgentFile || !agentPaths.includes(selectedAgentFile)) {
-      setSelectedAgentFile(agentPaths[0]);
+      if (initialAgentPath && agentPaths.includes(initialAgentPath)) {
+        console.log('[EnvironmentModal] Setting agent to initialAgentPath:', initialAgentPath);
+        setSelectedAgentFile(initialAgentPath);
+      } else {
+        console.log('[EnvironmentModal] Setting agent to first:', agentPaths[0], 'initialAgentPath was:', initialAgentPath, 'available paths:', agentPaths);
+        setSelectedAgentFile(agentPaths[0]);
+      }
     }
   }, [agentPaths, initialAgentPath, selectedAgentFile]);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    if (activeTab !== 'agents') {
-      setSelectedAgentFile(initialAgentPath ?? null);
-    }
-  }, [activeTab, initialAgentPath, isOpen]);
 
   useEffect(() => {
     if (isOpen) {
@@ -334,19 +348,68 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
 
   useEffect(() => {
     if (!isOpen) return;
-    ensureDefaultInstructionSelection();
-  }, [ensureDefaultInstructionSelection, isOpen]);
+    // When modal opens with an initial instruction path, select it
+    if (initialInstructionPath && instructionPaths.includes(initialInstructionPath)) {
+      setSelectedInstructionFile(initialInstructionPath);
+    } else if (instructionPaths.length > 0 && !instructionPaths.includes(selectedInstructionFile || '')) {
+      setSelectedInstructionFile(instructionPaths[0]);
+    }
+  }, [initialInstructionPath, instructionPaths, isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
-    ensureDefaultSkillSelection();
-  }, [ensureDefaultSkillSelection, isOpen]);
+    const allFiles = skillEntries.flatMap((entry) => entry.fileEntries);
+    // When modal opens with an initial skill path, select it
+    if (initialSkillPath && allFiles.some((entry) => entry.path === initialSkillPath)) {
+      setSelectedSkillFile(initialSkillPath);
+      
+      // Find which skill folder this file belongs to and expand it
+      const skillEntry = skillEntries.find((entry) => 
+        entry.fileEntries.some((file) => file.path === initialSkillPath)
+      );
+      if (skillEntry) {
+        // Force flat view for skill selection and expand just this root folder
+        onViewModeChange?.('flat');
+
+        // Normalize path before adding to Set (works for both flat and tree view)
+        const normalizedSkillPath = normalizePath(skillEntry.path);
+        setExpandedSkillRoots(new Set([normalizedSkillPath]));
+        
+        // Also expand all parent folders within the skill tree leading to the file
+        const fileEntry = skillEntry.fileEntries.find((f) => f.path === initialSkillPath);
+        if (fileEntry) {
+          const relativePath = fileEntry.relativePath;
+          const pathParts = relativePath.split('/');
+          const foldersToExpand: string[] = [];
+          
+          // Build all parent folder paths (normalized)
+          for (let i = 0; i < pathParts.length - 1; i++) {
+            const folderPath = normalizePath(`${skillEntry.path}/${pathParts.slice(0, i + 1).join('/')}`);
+            foldersToExpand.push(folderPath);
+          }
+          
+          if (foldersToExpand.length > 0) {
+            setExpandedSkillFolders(new Set(foldersToExpand));
+          }
+        }
+      }
+    } else if (allFiles.length > 0 && !allFiles.some((entry) => entry.path === (selectedSkillFile || ''))) {
+      const defaultSkillFile =
+        allFiles.find((entry) => entry.relativePath.split('/').pop()?.toLowerCase() === 'skill.md')
+          ?.path || allFiles[0].path;
+      setSelectedSkillFile(defaultSkillFile);
+    }
+  }, [initialSkillPath, skillEntries, isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
-
-    ensureDefaultAgentSelection();
-  }, [ensureDefaultAgentSelection, isOpen]);
+    // When modal opens with an initial agent path, select it
+    if (initialAgentPath && agentPaths.includes(initialAgentPath)) {
+      setSelectedAgentFile(initialAgentPath);
+    } else if (agentPaths.length > 0 && !agentPaths.includes(selectedAgentFile || '')) {
+      setSelectedAgentFile(agentPaths[0]);
+    }
+  }, [initialAgentPath, agentPaths, isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -399,13 +462,13 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
 
     if (fileViewMode === 'tree') {
       setExpandedInstructionFolders(instructionFolders);
-      setExpandedSkillRoots(new Set<string>(skillEntries.map((entry) => entry.path)));
+      setExpandedSkillRoots(new Set<string>(skillEntries.map((entry) => normalizePath(entry.path))));
       setExpandedSkillFolders(skillFullFolderSet);
 
       setExpandedAgentFolders(agentFolders);
     } else {
       setExpandedInstructionFolders(new Set());
-      setExpandedSkillRoots(new Set());
+      // Leave skill roots alone so the selected skill can remain expanded in flat view
       setExpandedSkillFolders(skillFolderSet);
 
       setExpandedAgentFolders(new Set());
@@ -425,12 +488,13 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
   }, []);
 
   const toggleSkillRoot = useCallback((path: string) => {
+    const normalizedPath = normalizePath(path);
     setExpandedSkillRoots((prev) => {
       const next = new Set(prev);
-      if (next.has(path)) {
-        next.delete(path);
+      if (next.has(normalizedPath)) {
+        next.delete(normalizedPath);
       } else {
-        next.add(path);
+        next.add(normalizedPath);
       }
       return next;
     });
@@ -465,6 +529,7 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
     setLoading(true);
     setFrontmatter(null);
     setMarkdownBody(null);
+    setFileContent(null); // Clear old content immediately
     try {
       const resolvedPath =
         activeTab === 'instructions' ? resolvePath(selectedFile, cwd) : selectedFile;
@@ -490,6 +555,11 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
   useEffect(() => {
     if (isOpen && selectedFile) {
       loadFileContent();
+    } else if (!selectedFile) {
+      // Clear content when no file is selected
+      setFileContent(null);
+      setFrontmatter(null);
+      setMarkdownBody(null);
     }
   }, [isOpen, selectedFile, loadFileContent]);
 
@@ -823,7 +893,8 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
   };
 
   const renderSkillRoot = (skill: (typeof skillEntries)[number]) => {
-    const isExpanded = expandedSkillRoots.has(skill.path);
+    const normalizedSkillPath = normalizePath(skill.path);
+    const isExpanded = expandedSkillRoots.has(normalizedSkillPath);
     const skillLabel = skill.path.split(/[/\\]/).pop() || skill.name;
     return (
       <div key={skill.path}>
@@ -843,7 +914,11 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
           )}
           <span className="truncate font-mono">{skillLabel}</span>
         </button>
-        {isExpanded && skill.tree.map((node) => renderSkillTreeNode(skill.path, node, 1))}
+        {isExpanded && skill.tree && skill.tree.length > 0 && (
+          <div>
+            {skill.tree.map((node) => renderSkillTreeNode(skill.path, node, 1))}
+          </div>
+        )}
       </div>
     );
   };
@@ -885,7 +960,7 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
                       ? `Instructions (${instructionCount})`
                       : tab === 'skills'
                         ? `Skills (${skillCount})`
-                        : `Agents (${agentCount})`;
+                        : `Subagents (${agentCount})`;
 
                   return (
                     <button
@@ -972,7 +1047,7 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
                   <div className="py-1">{skillEntries.map((skill) => renderSkillRoot(skill))}</div>
                 )
               ) : agentPaths.length === 0 ? (
-                <div className="px-3 py-2 text-[10px] text-copilot-text-muted">No agents found</div>
+                <div className="px-3 py-2 text-[10px] text-copilot-text-muted">No subagents found</div>
               ) : fileViewMode === 'tree' ? (
                 <div className="py-1">{agentTree.map((node) => renderAgentTreeNode(node))}</div>
               ) : (

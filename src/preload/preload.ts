@@ -220,6 +220,13 @@ const electronAPI = {
     ): Promise<{ sessionId: string; model: string; cwd?: string; newSession?: boolean }> => {
       return ipcRenderer.invoke('copilot:setModel', { sessionId, model, hasMessages });
     },
+    setActiveAgent: (
+      sessionId: string,
+      agentName: string | undefined,
+      hasMessages: boolean
+    ): Promise<{ sessionId: string; model: string; cwd?: string }> => {
+      return ipcRenderer.invoke('copilot:setActiveAgent', { sessionId, agentName, hasMessages });
+    },
     getModels: (): Promise<{
       models: { id: string; name: string; multiplier: number }[];
       current: string;
@@ -241,6 +248,16 @@ const electronAPI = {
       ): void => callback(data);
       ipcRenderer.on('copilot:message', handler);
       return () => ipcRenderer.removeListener('copilot:message', handler);
+    },
+    onAgentSelected: (
+      callback: (data: { sessionId: string; agentName: string; agentDisplayName?: string }) => void
+    ): (() => void) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        data: { sessionId: string; agentName: string; agentDisplayName?: string }
+      ): void => callback(data);
+      ipcRenderer.on('copilot:agentSelected', handler);
+      return () => ipcRenderer.removeListener('copilot:agentSelected', handler);
     },
     onIdle: (callback: (data: { sessionId: string }) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string }): void =>
@@ -1151,6 +1168,7 @@ interface Skill {
 interface Agent {
   name: string;
   description?: string;
+  model?: string;
   path: string;
   type: 'personal' | 'project' | 'system';
   source: 'copilot' | 'claude' | 'opencode' | 'gemini' | 'codex';
