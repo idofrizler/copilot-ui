@@ -53,7 +53,9 @@ import { parseSkillFrontmatter, scanSkillsDirectory, getAllSkills } from './skil
 
 describe('skills module', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    mocks.existsSync.mockReset();
+    mocks.readdirSync.mockReset();
+    mocks.readFile.mockReset();
   });
 
   describe('parseSkillFrontmatter', () => {
@@ -117,7 +119,12 @@ description: still works
     it('should return empty when directory does not exist', async () => {
       mocks.existsSync.mockReturnValue(false);
 
-      const result = await scanSkillsDirectory('/nonexistent', 'personal', 'copilot');
+      const result = await scanSkillsDirectory(
+        '/nonexistent',
+        'personal',
+        'copilot',
+        '~/.copilot/skills'
+      );
 
       expect(result.skills).toEqual([]);
       expect(result.errors).toEqual([]);
@@ -130,7 +137,16 @@ description: still works
         return p === '/test/skills' || p === '/test/skills/my-skill/SKILL.md';
       });
 
-      mocks.readdirSync.mockReturnValue([{ name: 'my-skill', isDirectory: () => true }]);
+      mocks.readdirSync.mockImplementation((path: string) => {
+        const p = normalizePath(path);
+        if (p === '/test/skills') {
+          return [{ name: 'my-skill', isDirectory: () => true }];
+        }
+        if (p === '/test/skills/my-skill') {
+          return [{ name: 'SKILL.md', isDirectory: () => false }];
+        }
+        return [];
+      });
 
       mocks.readFile.mockResolvedValue(`---
 name: my-skill
@@ -138,13 +154,19 @@ description: Test skill
 ---
 Content`);
 
-      const result = await scanSkillsDirectory('/test/skills', 'personal', 'copilot');
+      const result = await scanSkillsDirectory(
+        '/test/skills',
+        'personal',
+        'copilot',
+        '~/.copilot/skills'
+      );
 
       expect(result.skills.length).toBe(1);
       expect(result.skills[0].name).toBe('my-skill');
       expect(result.skills[0].description).toBe('Test skill');
       expect(result.skills[0].type).toBe('personal');
       expect(result.skills[0].source).toBe('copilot');
+      expect(result.skills[0].locationLabel).toBe('~/.copilot/skills');
       expect(normalizePath(result.skills[0].path)).toBe('/test/skills/my-skill');
     });
 
@@ -157,7 +179,12 @@ Content`);
 
       mocks.readdirSync.mockReturnValue([{ name: 'not-a-skill', isDirectory: () => true }]);
 
-      const result = await scanSkillsDirectory('/test/skills', 'personal', 'copilot');
+      const result = await scanSkillsDirectory(
+        '/test/skills',
+        'personal',
+        'copilot',
+        '~/.copilot/skills'
+      );
 
       expect(result.skills).toEqual([]);
       expect(result.errors).toEqual([]);
@@ -173,7 +200,12 @@ name: bad-skill
 ---
 No description!`);
 
-      const result = await scanSkillsDirectory('/test/skills', 'project', 'claude');
+      const result = await scanSkillsDirectory(
+        '/test/skills',
+        'project',
+        'claude',
+        './.claude/skills'
+      );
 
       expect(result.skills).toEqual([]);
       expect(result.errors.length).toBe(1);
@@ -188,7 +220,12 @@ No description!`);
         { name: '.DS_Store', isDirectory: () => false },
       ]);
 
-      const result = await scanSkillsDirectory('/test/skills', 'personal', 'copilot');
+      const result = await scanSkillsDirectory(
+        '/test/skills',
+        'personal',
+        'copilot',
+        '~/.copilot/skills'
+      );
 
       expect(result.skills).toEqual([]);
     });
@@ -214,7 +251,13 @@ No description!`);
         );
       });
 
-      mocks.readdirSync.mockReturnValue([{ name: 'test-skill', isDirectory: () => true }]);
+      mocks.readdirSync.mockImplementation((path: string) => {
+        const p = normalizePath(path);
+        if (p === '/project/.github/skills') {
+          return [{ name: 'test-skill', isDirectory: () => true }];
+        }
+        return [];
+      });
 
       mocks.readFile.mockResolvedValue(`---
 name: project-skill
@@ -227,6 +270,7 @@ description: A project skill
       expect(result.skills[0].name).toBe('project-skill');
       expect(result.skills[0].type).toBe('project');
       expect(result.skills[0].source).toBe('copilot');
+      expect(result.skills[0].locationLabel).toBe('./.github/skills');
     });
 
     it('should combine skills from multiple directories', async () => {
@@ -275,10 +319,130 @@ description: Project claude skill
       const personalSkill = result.skills.find((s) => s.type === 'personal');
       expect(personalSkill?.name).toBe('personal-copilot-skill');
       expect(personalSkill?.source).toBe('copilot');
+      expect(personalSkill?.locationLabel).toBe('~/.copilot/skills');
 
       const projectSkill = result.skills.find((s) => s.type === 'project');
       expect(projectSkill?.name).toBe('project-claude-skill');
       expect(projectSkill?.source).toBe('claude');
+      expect(projectSkill?.locationLabel).toBe('./.claude/skills');
+    });
+
+    it('should detect .agents and .claude/commands locations', async () => {
+      mocks.existsSync.mockImplementation((path: string) => {
+        const p = normalizePath(path);
+        return (
+          p === '/project/.agents/skills' ||
+          p === '/project/.agents/skills/agents-skill/SKILL.md' ||
+          p === '/project/.claude/commands' ||
+          p === '/project/.claude/commands/legacy-skill/SKILL.md'
+        );
+      });
+
+      mocks.readdirSync.mockImplementation((path: string) => {
+        const p = normalizePath(path);
+        if (p === '/project/.agents/skills') {
+          return [{ name: 'agents-skill', isDirectory: () => true }];
+        }
+        if (p === '/project/.claude/commands') {
+          return [{ name: 'legacy-skill', isDirectory: () => true }];
+        }
+        return [];
+      });
+
+      mocks.readFile.mockImplementation((path: string) => {
+        if (path.includes('agents-skill')) {
+          return Promise.resolve(`---
+name: agents-skill
+description: Agents skill
+---`);
+        }
+        if (path.includes('legacy-skill')) {
+          return Promise.resolve(`---
+name: legacy-skill
+description: Claude commands skill
+---`);
+        }
+        return Promise.reject(new Error('Not found'));
+      });
+
+      const result = await getAllSkills('/project');
+
+      const agentsSkill = result.skills.find((skill) => skill.name === 'agents-skill');
+      expect(agentsSkill?.source).toBe('agents');
+      expect(agentsSkill?.locationLabel).toBe('./.agents/skills');
+
+      const commandsSkill = result.skills.find((skill) => skill.name === 'legacy-skill');
+      expect(commandsSkill?.source).toBe('claude');
+      expect(commandsSkill?.locationLabel).toBe('./.claude/commands');
+    });
+
+    it('should discover nested .claude skills directories', async () => {
+      mocks.existsSync.mockImplementation((path: string) => {
+        const p = normalizePath(path);
+        return (
+          p === '/project/packages/app/.claude/skills' ||
+          p === '/project/packages/app/.claude/skills/nested-skill/SKILL.md'
+        );
+      });
+
+      mocks.readdirSync.mockImplementation((path: string) => {
+        const p = normalizePath(path);
+        if (p === '/project') {
+          return [{ name: 'packages', isDirectory: () => true }];
+        }
+        if (p === '/project/packages') {
+          return [{ name: 'app', isDirectory: () => true }];
+        }
+        if (p === '/project/packages/app') {
+          return [{ name: '.claude', isDirectory: () => true }];
+        }
+        if (p === '/project/packages/app/.claude/skills') {
+          return [{ name: 'nested-skill', isDirectory: () => true }];
+        }
+        return [];
+      });
+
+      mocks.readFile.mockResolvedValue(`---
+name: nested-skill
+description: Nested skill
+---`);
+
+      const result = await getAllSkills('/project');
+
+      const nestedSkill = result.skills.find((skill) => skill.name === 'nested-skill');
+      expect(nestedSkill?.source).toBe('claude');
+      expect(nestedSkill?.locationLabel).toBe('./packages/app/.claude/skills');
+    });
+
+    it('should include custom locations from environment', async () => {
+      process.env.COPILOT_AGENT_SKILLS_LOCATIONS = '/custom/skills';
+
+      mocks.existsSync.mockImplementation((path: string) => {
+        const p = normalizePath(path);
+        return p === '/custom/skills' || p === '/custom/skills/custom-skill/SKILL.md';
+      });
+
+      mocks.readdirSync.mockImplementation((path: string) => {
+        const p = normalizePath(path);
+        if (p === '/custom/skills') {
+          return [{ name: 'custom-skill', isDirectory: () => true }];
+        }
+        if (p === '/custom/skills/custom-skill') {
+          return [{ name: 'SKILL.md', isDirectory: () => false }];
+        }
+        return [];
+      });
+      mocks.readFile.mockResolvedValue(`---
+name: custom-skill
+description: Custom skill
+---`);
+
+      const result = await getAllSkills();
+
+      const customSkill = result.skills.find((skill) => skill.name === 'custom-skill');
+      expect(customSkill?.source).toBe('custom');
+      expect(customSkill?.locationLabel).toBe('/custom/skills');
+      delete process.env.COPILOT_AGENT_SKILLS_LOCATIONS;
     });
   });
 });

@@ -4,7 +4,7 @@
  * This is now just a minimal status indicator
  */
 import React from 'react';
-import { MicrophoneIcon } from '../Icons';
+import { MicrophoneIcon } from '../../components/Icons';
 
 interface VoiceKeywordsPanelProps {
   isRecording: boolean;

@@ -23,7 +23,7 @@ export const UpdateAvailableModal: React.FC<UpdateAvailableModalProps> = ({
   };
 
   const handleOpenReleases = () => {
-    window.electronAPI.updates.openDownloadUrl('https://github.com/idofrizler/cooper');
+    window.electronAPI.updates.openDownloadUrl('https://github.com/CooperAgent/cooper');
   };
 
   return (
@@ -35,7 +35,7 @@ export const UpdateAvailableModal: React.FC<UpdateAvailableModalProps> = ({
       testId="update-available-modal"
       showCloseButton
     >
-      <Modal.Body data-clarity-mask="true">
+      <Modal.Body>
         <div className="space-y-4">
           <div className="flex items-center justify-center mb-2">
             <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center">

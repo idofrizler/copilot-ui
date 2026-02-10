@@ -44,21 +44,23 @@ const tourSteps: TourStep[] = [
     position: 'bottom',
     requiresClick: true,
     cleanupOnNext: '[data-tour="terminal-toggle"]',
+    highlightPadding: { top: 4, right: 6, bottom: 4, left: 4 },
+    highlightPaddingAfterClick: { top: 0, right: 0, bottom: 12, left: 0 },
   },
   {
     selector: '[data-tour="agent-modes"]',
     selectorAfterClick: '[data-tour="agent-modes-panel"]',
-    expandToIncludeOriginal: true, // Keep chevron highlighted when expanded
-    title: 'Agent Modes (Ralph & Lisa)',
-    description: 'Click this to reveal the agent modes.',
+    expandToIncludeOriginal: true,
+    title: 'Agent Loops (Ralph & Lisa)',
+    description: 'Click this to reveal the agent loop modes.',
     descriptionAfterClick:
       'Ralph Wiggum runs iterative loops. Lisa Simpson does multi-phase analysis. Try them!',
     position: 'top',
     positionAfterClick: 'top',
     requiresClick: true,
     cleanupOnNext: '[data-tour="agent-modes"]',
-    highlightPadding: { right: 8 }, // Extra padding to center around chevron
-    highlightPaddingAfterClick: { left: 8, right: 8, bottom: 8 }, // Padding around expanded panel
+    highlightPadding: { top: 4, right: 4, bottom: 4, left: 4 },
+    highlightPaddingAfterClick: { top: 0, left: 0, right: 0, bottom: 8 },
   },
   {
     selector: '[data-tour="model-selector"]',
@@ -85,7 +87,7 @@ const tourSteps: TourStep[] = [
     selector: '[data-tour="mcp-skills"]',
     title: 'MCP Servers & Skills',
     description:
-      'Connect external tools via MCP servers and add custom agent skills to extend capabilities.',
+      'Connect external tools via MCP servers and add custom agent skills to extend capabilities. Click the + button to add MCP servers, or create SKILL.md files in ~/.copilot/skills/, ~/.claude/skills/, ~/.agents/skills/ (personal) or .github/skills/, .claude/skills/, .agents/skills/ (project) to define reusable instructions.',
     position: 'left',
   },
 ];
@@ -207,8 +209,8 @@ export const SpotlightTour: React.FC<SpotlightTourProps> = ({ isOpen, onClose, o
             left: Math.min(rect.right + padding, viewportWidth - tooltipWidth - padding),
             top: tooltipTop,
           };
-          // Arrow points to vertical center of element
-          arrow = rect.top + rect.height / 2 - tooltipTop;
+          // Arrow points to vertical center of element, clamped within tooltip
+          arrow = Math.max(16, Math.min(rect.top + rect.height / 2 - tooltipTop, 180));
           break;
         }
         case 'left': {
@@ -221,38 +223,45 @@ export const SpotlightTour: React.FC<SpotlightTourProps> = ({ isOpen, onClose, o
             left: Math.max(padding, rect.left - tooltipWidth - padding),
             top: tooltipTop,
           };
-          // Arrow points to vertical center of element
-          arrow = rect.top + rect.height / 2 - tooltipTop;
+          // Arrow points to vertical center of element, clamped within tooltip
+          arrow = Math.max(16, Math.min(rect.top + rect.height / 2 - tooltipTop, 180));
           break;
         }
-        case 'bottom':
+        case 'bottom': {
           // Position below element, centered horizontally
+          const tooltipLeft = Math.max(
+            padding,
+            Math.min(
+              rect.left + rect.width / 2 - tooltipWidth / 2,
+              viewportWidth - tooltipWidth - padding
+            )
+          );
           style = {
-            left: Math.max(
-              padding,
-              Math.min(
-                rect.left + rect.width / 2 - tooltipWidth / 2,
-                viewportWidth - tooltipWidth - padding
-              )
-            ),
+            left: tooltipLeft,
             top: rect.bottom + padding,
           };
+          // Horizontal arrow offset: point at center of element
+          arrow = rect.left + rect.width / 2 - tooltipLeft;
           break;
-        case 'top':
+        }
+        case 'top': {
           // Position above element using bottom anchor, centered horizontally
-          // Calculate from bottom of viewport to top of element
           const distanceFromBottom = viewportHeight - rect.top + padding;
+          const tooltipLeft = Math.max(
+            padding,
+            Math.min(
+              rect.left + rect.width / 2 - tooltipWidth / 2,
+              viewportWidth - tooltipWidth - padding
+            )
+          );
           style = {
-            left: Math.max(
-              padding,
-              Math.min(
-                rect.left + rect.width / 2 - tooltipWidth / 2,
-                viewportWidth - tooltipWidth - padding
-              )
-            ),
+            left: tooltipLeft,
             bottom: distanceFromBottom,
           };
+          // Horizontal arrow offset: point at center of element
+          arrow = rect.left + rect.width / 2 - tooltipLeft;
           break;
+        }
       }
 
       setTooltipStyle(style);
@@ -494,13 +503,15 @@ export const SpotlightTour: React.FC<SpotlightTourProps> = ({ isOpen, onClose, o
               : currentPosition === 'left'
                 ? '-right-1.5 border-r border-t'
                 : currentPosition === 'bottom'
-                  ? '-top-1.5 left-1/2 -translate-x-1/2 border-l border-t'
-                  : '-bottom-1.5 left-1/2 -translate-x-1/2 border-r border-b'
+                  ? '-top-1.5 border-l border-t'
+                  : '-bottom-1.5 border-r border-b'
           }`}
           style={
             (currentPosition === 'left' || currentPosition === 'right') && arrowOffset !== null
               ? { top: arrowOffset, transform: 'translateY(-50%) rotate(45deg)' }
-              : undefined
+              : (currentPosition === 'top' || currentPosition === 'bottom') && arrowOffset !== null
+                ? { left: arrowOffset, transform: 'translateX(-50%) rotate(45deg)' }
+                : undefined
           }
         />
 

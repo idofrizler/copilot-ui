@@ -1,8 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Modal } from '../Modal';
-import { Button } from '../Button';
-import { Spinner } from '../Spinner';
-import { RalphIcon, LisaIcon, ChevronDownIcon, ChevronRightIcon } from '../Icons/Icons';
+import { Modal } from '../../components/Modal';
+import { Button } from '../../components/Button';
+import { Spinner } from '../../components/Spinner';
+import {
+  RalphIcon,
+  LisaIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+} from '../../components/Icons/Icons';
 
 export interface IssueComment {
   body: string;
@@ -191,7 +196,7 @@ export const CreateWorktreeSession: React.FC<CreateWorktreeSessionProps> = ({
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="New Worktree Session" width="450px">
-      <Modal.Body data-clarity-mask="true">
+      <Modal.Body>
         {gitSupported === false ? (
           <div className="text-copilot-error text-sm mb-4">
             Git 2.20+ required for worktree support. Found: {gitVersion}

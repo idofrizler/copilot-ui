@@ -12,12 +12,13 @@ import {
   GlobeIcon,
   CloseIcon,
   PlusIcon,
+  MinusIcon,
 } from '../Icons';
 import { useTheme } from '../../context/ThemeContext';
 import { trackEvent, TelemetryEvents } from '../../utils/telemetry';
 import { VOICE_KEYWORDS } from '../../hooks/useVoiceSpeech';
 
-type SettingsSection = 'themes' | 'voice' | 'sounds' | 'commands';
+type SettingsSection = 'themes' | 'voice' | 'sounds' | 'commands' | 'accessibility';
 
 export interface SettingsModalProps {
   isOpen: boolean;
@@ -50,6 +51,11 @@ export interface SettingsModalProps {
   globalSafeCommands?: string[];
   onAddGlobalSafeCommand?: (cmd: string) => Promise<void>;
   onRemoveGlobalSafeCommand?: (cmd: string) => Promise<void>;
+  // Zoom controls
+  zoomFactor?: number;
+  onZoomIn?: () => Promise<void> | void;
+  onZoomOut?: () => Promise<void> | void;
+  onResetZoom?: () => Promise<void> | void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -82,6 +88,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   globalSafeCommands = [],
   onAddGlobalSafeCommand,
   onRemoveGlobalSafeCommand,
+  // Zoom controls
+  zoomFactor = 1,
+  onZoomIn,
+  onZoomOut,
+  onResetZoom,
 }) => {
   const [activeSection, setActiveSection] = useState<SettingsSection>('themes');
   const [newCommandValue, setNewCommandValue] = useState('');
@@ -96,6 +107,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const sections: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
     { id: 'themes', label: 'Themes', icon: <PaletteIcon size={16} /> },
+    { id: 'accessibility', label: 'Accessibility', icon: <MonitorIcon size={16} /> },
     { id: 'commands', label: 'Commands', icon: <GlobeIcon size={16} /> },
     { id: 'voice', label: 'Voice', icon: <MicIcon size={16} /> },
     { id: 'sounds', label: 'Sounds', icon: <VolumeIcon size={16} /> },
@@ -526,10 +538,83 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     );
   };
 
+  const renderAccessibilitySection = () => {
+    const percent = Math.round(zoomFactor * 100);
+    return (
+      <div>
+        <h4 className="text-[11px] font-semibold uppercase tracking-wider text-copilot-text-muted mb-1">
+          Zoom &amp; Font Size
+        </h4>
+        <p className="text-xs text-copilot-text-muted mb-3">
+          Adjust the overall UI and terminal font size.
+        </p>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => onZoomOut?.()}
+            className="flex items-center justify-center w-8 h-8 rounded border border-copilot-border text-copilot-text hover:bg-copilot-surface-hover"
+            title="Zoom out (Ctrl/Cmd -)"
+            aria-label="Zoom out"
+          >
+            <MinusIcon size={14} />
+          </button>
+          <div className="min-w-[70px] text-center text-sm text-copilot-text">
+            {percent}%
+          </div>
+          <button
+            onClick={() => onZoomIn?.()}
+            className="flex items-center justify-center w-8 h-8 rounded border border-copilot-border text-copilot-text hover:bg-copilot-surface-hover"
+            title="Zoom in (Ctrl/Cmd +)"
+            aria-label="Zoom in"
+          >
+            <PlusIcon size={14} />
+          </button>
+          <button
+            onClick={() => onResetZoom?.()}
+            className="px-2.5 py-1.5 text-xs bg-copilot-surface border border-copilot-border rounded text-copilot-text hover:bg-copilot-surface-hover"
+            title="Reset zoom (Ctrl/Cmd 0)"
+            aria-label="Reset zoom (Ctrl/Cmd 0)"
+          >
+            Reset
+          </button>
+        </div>
+        <div className="mt-3 text-xs text-copilot-text-muted space-y-1">
+          <div>
+            Shortcuts:{' '}
+            <kbd className="px-1 py-0.5 rounded border border-copilot-border bg-copilot-surface">
+              Ctrl/Cmd
+            </kbd>{' '}
+            +{' '}
+            <kbd className="px-1 py-0.5 rounded border border-copilot-border bg-copilot-surface">
+              +
+            </kbd>
+            ,{' '}
+            <kbd className="px-1 py-0.5 rounded border border-copilot-border bg-copilot-surface">
+              Ctrl/Cmd
+            </kbd>{' '}
+            +{' '}
+            <kbd className="px-1 py-0.5 rounded border border-copilot-border bg-copilot-surface">
+              -
+            </kbd>{' '}
+            ,{' '}
+            <kbd className="px-1 py-0.5 rounded border border-copilot-border bg-copilot-surface">
+              Ctrl/Cmd
+            </kbd>{' '}
+            +{' '}
+            <kbd className="px-1 py-0.5 rounded border border-copilot-border bg-copilot-surface">
+              0
+            </kbd>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderContent = () => {
     switch (activeSection) {
       case 'themes':
         return renderThemesSection();
+      case 'accessibility':
+        return renderAccessibilitySection();
       case 'commands':
         return renderCommandsSection();
       case 'voice':

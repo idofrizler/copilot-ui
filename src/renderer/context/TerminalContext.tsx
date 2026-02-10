@@ -46,7 +46,15 @@ export const TerminalProvider: React.FC<TerminalProviderProps> = ({
       // Send command to terminal with newline to execute it
       // Small delay to ensure terminal is ready if it was just opened
       const sendCommand = () => {
-        window.electronAPI.pty.write(sessionId, command + '\n');
+        if (typeof window === 'undefined') {
+          return;
+        }
+        const write = window.electronAPI?.pty?.write;
+        if (!write) {
+          console.error('Cannot run command: terminal API not available');
+          return;
+        }
+        write(sessionId, command + '\n');
       };
 
       // If terminal was closed, give it a moment to initialize

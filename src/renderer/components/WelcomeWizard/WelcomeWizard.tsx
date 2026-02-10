@@ -80,7 +80,7 @@ const steps: WizardStep[] = [
     description:
       'Iterative agent mode that loops until tasks are complete. Set completion criteria and the agent will work, check results, and continue automatically until done—up to N iterations.',
     locationHint:
-      '📍 Click the ▸ chevron at the LEFT of the input box to reveal Agent Modes (Ralph & Lisa).',
+      '📍 Click the "Loops" selector in the input bar to configure Agent Loops (Ralph & Lisa).',
     icon: (
       <svg
         className="w-12 h-12 text-copilot-accent"
@@ -124,7 +124,7 @@ const steps: WizardStep[] = [
     description:
       'Customize your experience with custom themes (including nostalgic ones like ICQ!). Switch between GPT-4.1, GPT-5, Claude Opus-4, Sonnet, Haiku, Gemini, and more models per session.',
     locationHint:
-      '📍 Click the ⚙️ gear icon in the sidebar, or use the model dropdown in the input area.',
+      '📍 Click the ⚙️ gear icon in the sidebar, or use the Models selector in the input bar.',
     icon: (
       <svg
         className="w-12 h-12 text-copilot-accent"
@@ -194,7 +194,7 @@ export const WelcomeWizard: React.FC<WelcomeWizardProps> = ({ isOpen, onClose, o
       width="600px"
       testId="welcome-wizard"
     >
-      <Modal.Body className="p-6" data-clarity-mask="true">
+      <Modal.Body className="p-6">
         <div className="space-y-6">
           {/* Progress indicator */}
           <div className="flex items-center justify-center gap-2">

@@ -215,9 +215,10 @@ const electronAPI = {
     },
     setModel: (
       sessionId: string,
-      model: string
-    ): Promise<{ sessionId: string; model: string; cwd?: string }> => {
-      return ipcRenderer.invoke('copilot:setModel', { sessionId, model });
+      model: string,
+      hasMessages: boolean
+    ): Promise<{ sessionId: string; model: string; cwd?: string; newSession?: boolean }> => {
+      return ipcRenderer.invoke('copilot:setModel', { sessionId, model, hasMessages });
     },
     getModels: (): Promise<{
       models: { id: string; name: string; multiplier: number }[];
@@ -508,6 +509,27 @@ const electronAPI = {
     },
     quit: (): void => {
       ipcRenderer.send('window:quit');
+    },
+    getZoomFactor: (): Promise<{ zoomFactor: number }> => {
+      return ipcRenderer.invoke('window:getZoomFactor');
+    },
+    setZoomFactor: (zoomFactor: number): Promise<{ zoomFactor: number }> => {
+      return ipcRenderer.invoke('window:setZoomFactor', zoomFactor);
+    },
+    zoomIn: (): Promise<{ zoomFactor: number }> => {
+      return ipcRenderer.invoke('window:zoomIn');
+    },
+    zoomOut: (): Promise<{ zoomFactor: number }> => {
+      return ipcRenderer.invoke('window:zoomOut');
+    },
+    resetZoom: (): Promise<{ zoomFactor: number }> => {
+      return ipcRenderer.invoke('window:resetZoom');
+    },
+    onZoomChanged: (callback: (data: { zoomFactor: number }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { zoomFactor: number }): void =>
+        callback(data);
+      ipcRenderer.on('window:zoomChanged', handler);
+      return () => ipcRenderer.removeListener('window:zoomChanged', handler);
     },
     updateTitleBarOverlay: (options: { color: string; symbolColor: string }): void => {
       ipcRenderer.send('window:updateTitleBarOverlay', options);
@@ -829,6 +851,12 @@ const electronAPI = {
       return ipcRenderer.invoke('skills:getAll', cwd);
     },
   },
+  // Agent Discovery
+  agents: {
+    getAll: (cwd?: string): Promise<{ agents: Agent[]; errors: string[] }> => {
+      return ipcRenderer.invoke('agents:getAll', cwd);
+    },
+  },
   // Copilot Instructions Management
   instructions: {
     getAll: (cwd?: string): Promise<{ instructions: Instruction[]; errors: string[] }> => {
@@ -1114,12 +1142,34 @@ interface Skill {
   source: 'copilot' | 'claude';
 }
 
+// Agent types
+interface Agent {
+  name: string;
+  description?: string;
+  path: string;
+  type: 'personal' | 'project' | 'system';
+  source: 'copilot' | 'claude' | 'opencode' | 'gemini' | 'codex';
+}
+
 // Copilot Instruction types
 interface Instruction {
   name: string;
   path: string;
   type: 'personal' | 'project' | 'organization';
   scope: 'repository' | 'path-specific';
+}
+
+// Custom agent discovery
+interface CustomAgentProfile {
+  name: string;
+  description?: string;
+  model?: string;
+  tools?: string[];
+  target?: string;
+  path: string;
+  source: 'project' | 'organization' | 'personal' | 'custom';
+  sourceLabel: string;
+  prompt?: string;
 }
 
 // Worktree Session types
