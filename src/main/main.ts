@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  crashReporter,
   ipcMain,
   shell,
   dialog,
@@ -168,6 +169,16 @@ import { getAllAgents } from './agents';
 // Set up file logging only - no IPC to renderer (causes errors)
 log.transports.file.level = 'info';
 log.transports.console.level = 'info';
+
+// Crash reporter (local-only)
+const crashDumpsDir = join(app.getPath('userData'), 'crash-dumps');
+if (!existsSync(crashDumpsDir)) {
+  mkdirSync(crashDumpsDir, { recursive: true });
+}
+app.setPath('crashDumps', crashDumpsDir);
+crashReporter.start({
+  uploadToServer: false,
+});
 
 // Handle EIO errors from terminal disconnection - expected for GUI apps
 process.on('uncaughtException', (err) => {
@@ -577,7 +588,7 @@ function registerSessionEventForwarding(sessionId: string, session: CopilotSessi
   session.on((event) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
 
-    console.log(`[${sessionId}] Event:`, event.type);
+    log.debug(`[${sessionId}] Event: ${event.type}`);
 
     if (event.type === 'assistant.message_delta') {
       mainWindow.webContents.send('copilot:delta', { sessionId, content: event.data.deltaContent });
@@ -589,7 +600,9 @@ function registerSessionEventForwarding(sessionId: string, session: CopilotSessi
       mainWindow.webContents.send('copilot:idle', { sessionId });
       requestUserAttention();
     } else if (event.type === 'tool.execution_start') {
-      console.log(`[${sessionId}] Tool start FULL:`, JSON.stringify(event.data, null, 2));
+      log.debug(
+        `[${sessionId}] Tool start: ${event.data.toolName} (${event.data.toolCallId})`
+      );
       mainWindow.webContents.send('copilot:tool-start', {
         sessionId,
         toolCallId: event.data.toolCallId,
@@ -597,7 +610,7 @@ function registerSessionEventForwarding(sessionId: string, session: CopilotSessi
         input: event.data.arguments || (event.data as Record<string, unknown>),
       });
     } else if (event.type === 'tool.execution_complete') {
-      console.log(`[${sessionId}] Tool end FULL:`, JSON.stringify(event.data, null, 2));
+      log.debug(`[${sessionId}] Tool end: ${event.data.toolCallId}`);
       const completeData = event.data as Record<string, unknown>;
       mainWindow.webContents.send('copilot:tool-end', {
         sessionId,
@@ -831,7 +844,7 @@ async function startEarlySessionResumption(): Promise<void> {
         session.on((event) => {
           if (!mainWindow || mainWindow.isDestroyed()) return;
 
-          console.log(`[${sessionId}] Event:`, event.type);
+          log.debug(`[${sessionId}] Event: ${event.type}`);
 
           if (event.type === 'assistant.message_delta') {
             mainWindow.webContents.send('copilot:delta', {
@@ -849,7 +862,9 @@ async function startEarlySessionResumption(): Promise<void> {
             mainWindow.webContents.send('copilot:idle', { sessionId });
             requestUserAttention();
           } else if (event.type === 'tool.execution_start') {
-            console.log(`[${sessionId}] Tool start FULL:`, JSON.stringify(event.data, null, 2));
+            log.debug(
+              `[${sessionId}] Tool start: ${event.data.toolName} (${event.data.toolCallId})`
+            );
             mainWindow.webContents.send('copilot:tool-start', {
               sessionId,
               toolCallId: event.data.toolCallId,
@@ -857,7 +872,7 @@ async function startEarlySessionResumption(): Promise<void> {
               input: event.data.arguments || (event.data as Record<string, unknown>),
             });
           } else if (event.type === 'tool.execution_complete') {
-            console.log(`[${sessionId}] Tool end FULL:`, JSON.stringify(event.data, null, 2));
+            log.debug(`[${sessionId}] Tool end: ${event.data.toolCallId}`);
             const completeData = event.data as Record<string, unknown>;
             mainWindow.webContents.send('copilot:tool-end', {
               sessionId,
@@ -1744,7 +1759,7 @@ async function initCopilot(): Promise<void> {
         session.on((event) => {
           if (!mainWindow || mainWindow.isDestroyed()) return;
 
-          console.log(`[${sessionId}] Event:`, event.type);
+          log.debug(`[${sessionId}] Event: ${event.type}`);
 
           if (event.type === 'assistant.message_delta') {
             mainWindow.webContents.send('copilot:delta', {
@@ -1762,7 +1777,9 @@ async function initCopilot(): Promise<void> {
             mainWindow.webContents.send('copilot:idle', { sessionId });
             requestUserAttention();
           } else if (event.type === 'tool.execution_start') {
-            console.log(`[${sessionId}] Tool start FULL:`, JSON.stringify(event.data, null, 2));
+            log.debug(
+              `[${sessionId}] Tool start: ${event.data.toolName} (${event.data.toolCallId})`
+            );
             mainWindow.webContents.send('copilot:tool-start', {
               sessionId,
               toolCallId: event.data.toolCallId,
@@ -1770,7 +1787,7 @@ async function initCopilot(): Promise<void> {
               input: event.data.arguments || (event.data as Record<string, unknown>),
             });
           } else if (event.type === 'tool.execution_complete') {
-            console.log(`[${sessionId}] Tool end FULL:`, JSON.stringify(event.data, null, 2));
+            log.debug(`[${sessionId}] Tool end: ${event.data.toolCallId}`);
             const completeData = event.data as Record<string, unknown>;
             mainWindow.webContents.send('copilot:tool-end', {
               sessionId,
@@ -1992,6 +2009,14 @@ function createWindow(): void {
 
   mainWindow.webContents.once('did-finish-load', () => {
     initCopilot();
+  });
+
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    log.error('Renderer process gone:', details);
+  });
+
+  mainWindow.webContents.on('child-process-gone', (_event, details) => {
+    log.error('Renderer child process gone:', details);
   });
 
   // Set main window for voice service
@@ -3307,7 +3332,9 @@ ipcMain.handle('git:getBranch', async (_event, cwd: string) => {
     const { stdout } = await execAsync('git branch --show-current', { cwd });
     return { branch: stdout.trim(), success: true };
   } catch (error) {
-    console.error('Git branch failed:', error);
+    if (!String(error).includes('not a git repository')) {
+      console.error('Git branch failed:', error);
+    }
     return { branch: null, success: false, error: String(error) };
   }
 });
@@ -4046,7 +4073,7 @@ ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string
   session.on((event) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
 
-    console.log(`[${sessionId}] Event:`, event.type);
+    log.debug(`[${sessionId}] Event: ${event.type}`);
 
     if (event.type === 'assistant.message_delta') {
       mainWindow.webContents.send('copilot:delta', { sessionId, content: event.data.deltaContent });
@@ -4058,7 +4085,7 @@ ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string
       mainWindow.webContents.send('copilot:idle', { sessionId });
       requestUserAttention();
     } else if (event.type === 'tool.execution_start') {
-      console.log(`[${sessionId}] Tool start FULL:`, JSON.stringify(event.data, null, 2));
+      log.debug(`[${sessionId}] Tool start: ${event.data.toolName} (${event.data.toolCallId})`);
       mainWindow.webContents.send('copilot:tool-start', {
         sessionId,
         toolCallId: event.data.toolCallId,
@@ -4066,7 +4093,7 @@ ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string
         input: event.data.arguments || (event.data as Record<string, unknown>),
       });
     } else if (event.type === 'tool.execution_complete') {
-      console.log(`[${sessionId}] Tool end FULL:`, JSON.stringify(event.data, null, 2));
+      log.debug(`[${sessionId}] Tool end: ${event.data.toolCallId}`);
       const completeData = event.data as Record<string, unknown>;
       mainWindow.webContents.send('copilot:tool-end', {
         sessionId,
@@ -4539,6 +4566,10 @@ if (!gotTheLock) {
 
     createWindow();
 
+    app.on('child-process-gone', (_event, details) => {
+      log.error('Child process gone:', details);
+    });
+
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
         createWindow();
@@ -4838,6 +4869,13 @@ ipcMain.handle('file:openFile', async (_event, filePath: string) => {
     console.error('Failed to open file:', error);
     return { success: false, error: String(error) };
   }
+});
+
+// Crash diagnostics
+ipcMain.handle('diagnostics:getPaths', async () => {
+  const logFilePath = log.transports.file.getFile().path;
+  const crashDumpsPath = app.getPath('crashDumps');
+  return { logFilePath, crashDumpsPath };
 });
 
 // ============================================================================

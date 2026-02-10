@@ -197,3 +197,37 @@ describe('SettingsModal Voice Section', () => {
     expect(screen.getByRole('button', { name: 'Reset zoom (Ctrl/Cmd 0)' })).toBeInTheDocument();
   });
 });
+
+describe('SettingsModal Diagnostics Section', () => {
+  it('shows diagnostics paths and triggers reveal handlers', () => {
+    const onRevealLogFile = vi.fn();
+    const onOpenCrashDumps = vi.fn();
+    render(
+      <SettingsModal
+        isOpen={true}
+        onClose={vi.fn()}
+        soundEnabled={true}
+        onSoundEnabledChange={vi.fn()}
+        diagnosticsPaths={{
+          logFilePath: 'C:\\logs\\main.log',
+          crashDumpsPath: 'C:\\crash-dumps',
+        }}
+        onRevealLogFile={onRevealLogFile}
+        onOpenCrashDumps={onOpenCrashDumps}
+      />
+    );
+
+    fireEvent.click(screen.getByText('Diagnostics'));
+
+    expect(screen.getByText('Crash Diagnostics')).toBeInTheDocument();
+    expect(screen.getByText('Logs')).toBeInTheDocument();
+    expect(screen.getByText('Crash dumps')).toBeInTheDocument();
+
+    const revealButtons = screen.getAllByText('Reveal');
+    fireEvent.click(revealButtons[0]);
+    fireEvent.click(revealButtons[1]);
+
+    expect(onRevealLogFile).toHaveBeenCalledWith('C:\\logs\\main.log');
+    expect(onOpenCrashDumps).toHaveBeenCalledWith('C:\\crash-dumps');
+  });
+});

@@ -13,12 +13,13 @@ import {
   CloseIcon,
   PlusIcon,
   MinusIcon,
+  WarningIcon,
 } from '../Icons';
 import { useTheme } from '../../context/ThemeContext';
 import { trackEvent, TelemetryEvents } from '../../utils/telemetry';
 import { VOICE_KEYWORDS } from '../../hooks/useVoiceSpeech';
 
-type SettingsSection = 'themes' | 'voice' | 'sounds' | 'commands' | 'accessibility';
+type SettingsSection = 'themes' | 'voice' | 'sounds' | 'commands' | 'accessibility' | 'diagnostics';
 
 export interface SettingsModalProps {
   isOpen: boolean;
@@ -56,6 +57,9 @@ export interface SettingsModalProps {
   onZoomIn?: () => Promise<void> | void;
   onZoomOut?: () => Promise<void> | void;
   onResetZoom?: () => Promise<void> | void;
+  diagnosticsPaths?: { logFilePath: string; crashDumpsPath: string } | null;
+  onRevealLogFile?: (path: string) => Promise<void>;
+  onOpenCrashDumps?: (path: string) => Promise<void>;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -93,6 +97,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onZoomIn,
   onZoomOut,
   onResetZoom,
+  diagnosticsPaths = null,
+  onRevealLogFile,
+  onOpenCrashDumps,
 }) => {
   const [activeSection, setActiveSection] = useState<SettingsSection>('themes');
   const [newCommandValue, setNewCommandValue] = useState('');
@@ -111,6 +118,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     { id: 'commands', label: 'Commands', icon: <GlobeIcon size={16} /> },
     { id: 'voice', label: 'Voice', icon: <MicIcon size={16} /> },
     { id: 'sounds', label: 'Sounds', icon: <VolumeIcon size={16} /> },
+    { id: 'diagnostics', label: 'Diagnostics', icon: <WarningIcon size={16} /> },
   ];
 
   const renderThemesSection = () => (
@@ -606,6 +614,56 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       </div>
     );
   };
+  const renderDiagnosticsSection = () => (
+    <div>
+      <h4 className="text-[11px] font-semibold uppercase tracking-wider text-copilot-text-muted mb-1">
+        Crash Diagnostics
+      </h4>
+      <p className="text-xs text-copilot-text-muted mb-3">
+        Crash reports are stored locally only. Use the buttons below to open their locations.
+      </p>
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-sm text-copilot-text">Logs</div>
+            <div className="text-xs text-copilot-text-muted break-all">
+              {diagnosticsPaths?.logFilePath ?? 'Loading...'}
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              if (diagnosticsPaths?.logFilePath) {
+                onRevealLogFile?.(diagnosticsPaths.logFilePath);
+              }
+            }}
+            className="shrink-0 px-2 py-1.5 text-xs bg-copilot-surface text-copilot-text border border-copilot-border rounded hover:bg-copilot-surface-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={!diagnosticsPaths?.logFilePath}
+          >
+            Reveal
+          </button>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-sm text-copilot-text">Crash dumps</div>
+            <div className="text-xs text-copilot-text-muted break-all">
+              {diagnosticsPaths?.crashDumpsPath ?? 'Loading...'}
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              if (diagnosticsPaths?.crashDumpsPath) {
+                onOpenCrashDumps?.(diagnosticsPaths.crashDumpsPath);
+              }
+            }}
+            className="shrink-0 px-2 py-1.5 text-xs bg-copilot-surface text-copilot-text border border-copilot-border rounded hover:bg-copilot-surface-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={!diagnosticsPaths?.crashDumpsPath}
+          >
+            Reveal
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 
   const renderContent = () => {
     switch (activeSection) {
@@ -619,6 +677,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         return renderVoiceSection();
       case 'sounds':
         return renderSoundsSection();
+      case 'diagnostics':
+        return renderDiagnosticsSection();
     }
   };
 

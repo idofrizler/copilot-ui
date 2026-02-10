@@ -174,6 +174,10 @@ const App: React.FC = () => {
   const [allowMode, setAllowMode] = useState<'once' | 'session' | 'global'>('once');
   const [showAllowDropdown, setShowAllowDropdown] = useState(false);
   const allowDropdownRef = useRef<HTMLDivElement>(null);
+  const [diagnosticsPaths, setDiagnosticsPaths] = useState<{
+    logFilePath: string;
+    crashDumpsPath: string;
+  } | null>(null);
 
   // Close allow dropdown when clicking outside
   const closeAllowDropdown = useCallback(() => {
@@ -586,6 +590,24 @@ const App: React.FC = () => {
   useEffect(() => {
     soundEnabledRef.current = soundEnabled;
   }, [soundEnabled]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadDiagnostics = async () => {
+      try {
+        const paths = await window.electronAPI.diagnostics.getPaths();
+        if (isMounted) {
+          setDiagnosticsPaths(paths);
+        }
+      } catch (error) {
+        console.error('Failed to load diagnostics paths:', error);
+      }
+    };
+    loadDiagnostics();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Keep ref in sync with state (update prevActiveTabIdRef BEFORE activeTabIdRef)
   useEffect(() => {
@@ -7512,6 +7534,21 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
             }
           }}
           onRemoveGlobalSafeCommand={handleRemoveGlobalSafeCommand}
+          diagnosticsPaths={diagnosticsPaths}
+          onRevealLogFile={async (pathToReveal) => {
+            try {
+              await window.electronAPI.file.revealInFolder(pathToReveal);
+            } catch (error) {
+              console.error('Failed to reveal log path:', error);
+            }
+          }}
+          onOpenCrashDumps={async (pathToOpen) => {
+            try {
+              await window.electronAPI.file.openFile(pathToOpen);
+            } catch (error) {
+              console.error('Failed to reveal crash dumps path:', error);
+            }
+          }}
         />
 
         {/* Welcome Wizard - Spotlight Tour */}

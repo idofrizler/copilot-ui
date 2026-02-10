@@ -1049,6 +1049,11 @@ const electronAPI = {
       return ipcRenderer.invoke('file:openFile', filePath);
     },
   },
+  diagnostics: {
+    getPaths: (): Promise<{ logFilePath: string; crashDumpsPath: string }> => {
+      return ipcRenderer.invoke('diagnostics:getPaths');
+    },
+  },
   // Updates and Release Notes
   updates: {
     checkForUpdate: (): Promise<{
