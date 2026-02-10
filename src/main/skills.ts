@@ -1,5 +1,4 @@
 import { existsSync, readdirSync } from 'fs';
-import { readFile } from 'fs/promises';
 import { dirname, join, relative } from 'path';
 import { app } from 'electron';
 import { formatRelativeDisplayPath, PathFormatOptions } from './path-utils';
@@ -59,35 +58,6 @@ const collectSkillFiles = (skillDir: string): string[] => {
   return files;
 };
 
-// Parse SKILL.md frontmatter to extract skill metadata
-export function parseSkillFrontmatter(content: string): {
-  name?: string;
-  description?: string;
-  license?: string;
-} {
-  const frontmatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
-  if (!frontmatterMatch) {
-    return {};
-  }
-
-  const frontmatter = frontmatterMatch[1];
-  const result: { name?: string; description?: string; license?: string } = {};
-
-  // Parse YAML-style frontmatter (simple key: value parsing)
-  const lines = frontmatter.split('\n');
-  for (const line of lines) {
-    const match = line.match(/^(\w+):\s*(.+)$/);
-    if (match) {
-      const [, key, value] = match;
-      if (key === 'name') result.name = value.trim();
-      else if (key === 'description') result.description = value.trim();
-      else if (key === 'license') result.license = value.trim();
-    }
-  }
-
-  return result;
-}
-
 // Scan a skills directory and return all valid skills
 export async function scanSkillsDirectory(
   basePath: string,
@@ -118,42 +88,27 @@ export async function scanSkillsDirectory(
         continue;
       }
 
+      let files: string[] = [];
       try {
-        const content = await readFile(skillMdPath, 'utf-8');
-        const metadata = parseSkillFrontmatter(content);
-
-        if (!metadata.name || !metadata.description) {
-          errors.push(`Skill at ${skillDir} is missing required name or description in SKILL.md`);
-          continue;
-        }
-
-        let files: string[] = [];
-        try {
-          files = collectSkillFiles(skillDir).sort((a, b) =>
-            normalizePath(a).localeCompare(normalizePath(b))
-          );
-        } catch (err) {
-          errors.push(
-            `Failed to list files for skill at ${skillDir}: ${err instanceof Error ? err.message : String(err)}`
-          );
-        }
-
-        skills.push({
-          name: metadata.name,
-          description: metadata.description,
-          license: metadata.license,
-          path: skillDir,
-          files,
-          type,
-          source,
-          relativePath: formatRelativeDisplayPath(skillDir, displayBaseDir, options),
-          locationLabel,
-        });
+        files = collectSkillFiles(skillDir).sort((a, b) =>
+          normalizePath(a).localeCompare(normalizePath(b))
+        );
       } catch (err) {
         errors.push(
-          `Failed to read SKILL.md at ${skillMdPath}: ${err instanceof Error ? err.message : String(err)}`
+          `Failed to list files for skill at ${skillDir}: ${err instanceof Error ? err.message : String(err)}`
         );
       }
+
+      skills.push({
+        name: entry.name,
+        description: '',
+        path: skillDir,
+        files,
+        type,
+        source,
+        relativePath: formatRelativeDisplayPath(skillDir, displayBaseDir, options),
+        locationLabel,
+      });
     }
   } catch (err) {
     errors.push(

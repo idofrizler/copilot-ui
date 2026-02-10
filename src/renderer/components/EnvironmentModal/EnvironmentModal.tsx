@@ -271,7 +271,6 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
         : selectedAgentFile;
 
   const selectedFileName = selectedFile?.split(/[/\\]/).pop() || '';
-  const isSkillMarkdown = activeTab === 'skills' && selectedFileName.toLowerCase() === 'skill.md';
   const isMarkdownFile =
     activeTab === 'instructions' ||
     activeTab === 'agents' ||
@@ -468,8 +467,7 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
       const result = await window.electronAPI.file.readContent(resolvedPath);
       setFileContent(result);
 
-      const shouldParseFrontmatter =
-        (activeTab === 'skills' && isSkillMarkdown) || activeTab === 'agents';
+      const shouldParseFrontmatter = activeTab === 'agents';
       if (result.success && result.content && shouldParseFrontmatter) {
         const parsed = parseMarkdownFrontmatter(result.content);
         setFrontmatter(parsed.frontmatter);
@@ -483,7 +481,7 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [activeTab, cwd, isSkillMarkdown, selectedFile]);
+  }, [activeTab, cwd, selectedFile]);
 
   useEffect(() => {
     if (isOpen && selectedFile) {
