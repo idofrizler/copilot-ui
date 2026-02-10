@@ -14,13 +14,36 @@ import { net } from 'electron';
 
 const execAsync = promisify(exec);
 
-// Get session state base path - respects XDG_STATE_HOME for dev isolation
-const getSessionStatePath = (): string => {
+// XDG Base Directory helpers - respect standard env vars for config/state isolation
+
+// Get .copilot config base path - respects XDG_CONFIG_HOME
+const getCopilotConfigPath = (): string => {
+  const xdgConfigHome = process.env.XDG_CONFIG_HOME;
+  if (xdgConfigHome) {
+    return join(xdgConfigHome, '.copilot');
+  }
+  return join(app.getPath('home'), '.copilot');
+};
+
+// Get .copilot state base path - respects XDG_STATE_HOME
+const getCopilotStatePath = (): string => {
   const xdgStateHome = process.env.XDG_STATE_HOME;
   if (xdgStateHome) {
-    return join(xdgStateHome, '.copilot', 'session-state');
+    return join(xdgStateHome, '.copilot');
   }
-  return join(app.getPath('home'), '.copilot', 'session-state');
+  return join(app.getPath('home'), '.copilot');
+};
+
+// Get session state base path - respects XDG_STATE_HOME
+const getSessionStatePath = (): string => join(getCopilotStatePath(), 'session-state');
+
+// Get worktree sessions directory - respects COPILOT_SESSIONS_HOME
+const getWorktreeSessionsPath = (): string => {
+  const sessionsHome = process.env.COPILOT_SESSIONS_HOME;
+  if (sessionsHome) {
+    return sessionsHome;
+  }
+  return join(app.getPath('home'), '.copilot-sessions');
 };
 
 // GitHub issue types
@@ -85,14 +108,14 @@ interface WorktreeConfig {
 }
 
 const DEFAULT_CONFIG: WorktreeConfig = {
-  directory: join(app.getPath('home'), '.copilot-sessions'),
+  directory: getWorktreeSessionsPath(),
   pruneAfterDays: 30,
   warnDiskThresholdMB: 1024,
 };
 
-// Get config path
+// Get config path - respects XDG_CONFIG_HOME
 function getConfigPath(): string {
-  return join(app.getPath('home'), '.copilot', 'config.json');
+  return join(getCopilotConfigPath(), 'config.json');
 }
 
 // Get sessions directory
@@ -124,7 +147,7 @@ export function loadConfig(): WorktreeConfig {
 // Save configuration
 export function saveConfig(config: Partial<WorktreeConfig>): void {
   const configPath = getConfigPath();
-  const configDir = join(app.getPath('home'), '.copilot');
+  const configDir = getCopilotConfigPath();
 
   if (!existsSync(configDir)) {
     mkdirSync(configDir, { recursive: true });

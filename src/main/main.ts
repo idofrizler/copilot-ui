@@ -108,26 +108,50 @@ interface MCPConfigFile {
   mcpServers: Record<string, MCPServerConfig>;
 }
 
-// Path to MCP config file
-const getMcpConfigPath = (): string => join(app.getPath('home'), '.copilot', 'mcp-config.json');
+// XDG Base Directory helpers - respect standard env vars for config/state isolation
+// See: https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html
 
-// Get session state base path - respects XDG_STATE_HOME for dev isolation
-const getSessionStatePath = (): string => {
+// Get .copilot config base path - respects XDG_CONFIG_HOME
+const getCopilotConfigPath = (): string => {
+  const xdgConfigHome = process.env.XDG_CONFIG_HOME;
+  if (xdgConfigHome) {
+    return join(xdgConfigHome, '.copilot');
+  }
+  return join(app.getPath('home'), '.copilot');
+};
+
+// Get .copilot state base path - respects XDG_STATE_HOME
+const getCopilotStatePath = (): string => {
   const xdgStateHome = process.env.XDG_STATE_HOME;
   if (xdgStateHome) {
-    return join(xdgStateHome, '.copilot', 'session-state');
+    return join(xdgStateHome, '.copilot');
   }
-  return join(app.getPath('home'), '.copilot', 'session-state');
+  return join(app.getPath('home'), '.copilot');
 };
+
+// Get session state base path - respects XDG_STATE_HOME
+const getSessionStatePath = (): string => join(getCopilotStatePath(), 'session-state');
+
+// Get worktree sessions directory - respects COPILOT_SESSIONS_HOME
+const getWorktreeSessionsPath = (): string => {
+  const sessionsHome = process.env.COPILOT_SESSIONS_HOME;
+  if (sessionsHome) {
+    return sessionsHome;
+  }
+  return join(app.getPath('home'), '.copilot-sessions');
+};
+
+// Path to MCP config file
+const getMcpConfigPath = (): string => join(getCopilotConfigPath(), 'mcp-config.json');
 
 // Copilot folders that are safe to read from without permission (Issue #87)
 // These contain session state data (plans, configs) and are low-risk for read-only access
 const getSafeCopilotReadPaths = (): string[] => {
   const home = app.getPath('home');
   return [
-    join(home, '.copilot-sessions'), // Worktree sessions directory
+    getWorktreeSessionsPath(), // Worktree sessions directory
     getSessionStatePath(), // Session state (plan.md files)
-    join(home, '.copilot', 'skills'), // Personal skills directory
+    join(getCopilotConfigPath(), 'skills'), // Personal skills directory
     join(home, '.claude', 'skills'), // Personal Claude skills
     join(home, '.claude', 'commands'), // Legacy Claude commands
     join(home, '.agents', 'skills'), // Personal .agents skills
@@ -154,7 +178,7 @@ async function readMcpConfig(): Promise<MCPConfigFile> {
 // Write MCP config to file
 async function writeMcpConfig(config: MCPConfigFile): Promise<void> {
   const configPath = getMcpConfigPath();
-  const configDir = join(app.getPath('home'), '.copilot');
+  const configDir = getCopilotConfigPath();
 
   // Ensure directory exists
   if (!existsSync(configDir)) {
@@ -2832,7 +2856,7 @@ ipcMain.handle(
   'copilot:saveImageToTemp',
   async (_event, data: { dataUrl: string; filename: string }) => {
     try {
-      const imageDir = join(app.getPath('home'), '.copilot', 'images');
+      const imageDir = join(getCopilotStatePath(), 'images');
       if (!existsSync(imageDir)) {
         mkdirSync(imageDir, { recursive: true });
       }
@@ -2916,7 +2940,7 @@ ipcMain.handle('copilot:fetchImageFromUrl', async (_event, url: string) => {
     const extension = contentType.split('/')[1]?.split(';')[0] || 'png';
     const filename = `image-${Date.now()}.${extension}`;
 
-    const imageDir = join(app.getPath('home'), '.copilot', 'images');
+    const imageDir = join(getCopilotStatePath(), 'images');
     if (!existsSync(imageDir)) {
       mkdirSync(imageDir, { recursive: true });
     }
@@ -2947,7 +2971,7 @@ ipcMain.handle(
   'copilot:saveFileToTemp',
   async (_event, data: { dataUrl: string; filename: string; mimeType: string }) => {
     try {
-      const filesDir = join(app.getPath('home'), '.copilot', 'files');
+      const filesDir = join(getCopilotStatePath(), 'files');
       if (!existsSync(filesDir)) {
         mkdirSync(filesDir, { recursive: true });
       }
@@ -4782,7 +4806,7 @@ if (!gotTheLock) {
     Menu.setApplicationMenu(menu);
 
     // Clean up old cached images async (non-blocking to improve startup time)
-    const imageDir = join(app.getPath('home'), '.copilot', 'images');
+    const imageDir = join(getCopilotStatePath(), 'images');
     setImmediate(() => {
       if (existsSync(imageDir)) {
         const now = Date.now();

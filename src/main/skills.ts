@@ -144,8 +144,17 @@ export async function getAllSkills(projectCwd?: string): Promise<SkillsResult> {
     directoryEntries.push({ path: basePath, type, source });
   };
 
-  // Personal skills directories
-  addSkillDirectory(join(homePath, '.copilot', 'skills'), 'personal', 'copilot');
+  // Get .copilot config path - respects XDG_CONFIG_HOME
+  const getCopilotConfigPath = (): string => {
+    const xdgConfigHome = process.env.XDG_CONFIG_HOME;
+    if (xdgConfigHome) {
+      return join(xdgConfigHome, '.copilot');
+    }
+    return join(homePath, '.copilot');
+  };
+
+  // Personal skills directories (copilot respects XDG_CONFIG_HOME, others don't)
+  addSkillDirectory(join(getCopilotConfigPath(), 'skills'), 'personal', 'copilot');
   addSkillDirectory(join(homePath, '.claude', 'skills'), 'personal', 'claude');
   addSkillDirectory(join(homePath, '.claude', 'commands'), 'personal', 'claude');
   addSkillDirectory(join(homePath, '.agents', 'skills'), 'personal', 'agents');
