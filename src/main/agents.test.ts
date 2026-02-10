@@ -89,7 +89,7 @@ description: "Alpha agent"
       return normalizePath(path) === '/project/.github/agents';
     });
     mocks.readdirSync.mockReturnValue([
-      { name: 'beta.agent.md', isFile: () => true, isDirectory: () => false },
+      { name: 'beta.md', isFile: () => true, isDirectory: () => false },
     ]);
     mocks.readFile.mockResolvedValue(`---
 name: beta
@@ -101,6 +101,20 @@ name: beta
     expect(result.agents[0].name).toBe('beta');
     expect(result.agents[0].type).toBe('project');
     expect(result.agents[0].source).toBe('copilot');
+  });
+
+  it('should ignore markdown files without frontmatter in agent directories', async () => {
+    mocks.existsSync.mockImplementation((path: string) => {
+      return normalizePath(path) === '/project/.github/agents';
+    });
+    mocks.readdirSync.mockReturnValue([
+      { name: 'SKILLS_MAPPING.md', isFile: () => true, isDirectory: () => false },
+    ]);
+    mocks.readFile.mockResolvedValue('# Agent Skills Mapping');
+
+    const result = await getAllAgents('/project');
+
+    expect(result.agents).toEqual([]);
   });
 
   it('should find gemini and codex agent files', async () => {

@@ -157,7 +157,10 @@ function stripJsonComments(input: string): string {
       continue;
     }
 
-    if (char === ',' && (peekNextMeaningfulChar(i + 1) === '}' || peekNextMeaningfulChar(i + 1) === ']')) {
+    if (
+      char === ',' &&
+      (peekNextMeaningfulChar(i + 1) === '}' || peekNextMeaningfulChar(i + 1) === ']')
+    ) {
       continue;
     }
 
@@ -198,9 +201,7 @@ function getWindowsTerminalSettingsPaths(): string[] {
   ];
 }
 
-function loadWindowsTerminalSettings():
-  | { settings: WindowsTerminalSettings; path: string }
-  | null {
+function loadWindowsTerminalSettings(): { settings: WindowsTerminalSettings; path: string } | null {
   const settingsPaths = getWindowsTerminalSettingsPaths();
   for (const settingsPath of settingsPaths) {
     if (!existsSync(settingsPath)) {
@@ -286,9 +287,7 @@ function resolveWindowsTerminalDefaultCommandLine(): string | null {
     return null;
   }
 
-  const profile = profiles.find(
-    (entry) => normalizeGuid(entry.guid) === defaultProfileId
-  );
+  const profile = profiles.find((entry) => normalizeGuid(entry.guid) === defaultProfileId);
   if (!profile) {
     console.warn(
       `Windows Terminal default profile ${settings.defaultProfile} not found (${path}).`

@@ -4190,15 +4190,18 @@ ipcMain.handle('mcp:getConfigPath', async () => {
 // Agent Skills handlers
 ipcMain.handle('skills:getAll', async (_event, cwd?: string) => {
   // Use provided cwd or try to get from active session
-  let projectCwd = cwd;
-  if (!projectCwd && sessions.size > 0) {
+  let workingDir = cwd;
+  if (!workingDir && sessions.size > 0) {
     // Get cwd from first active session
     const firstSession = sessions.values().next().value;
     if (firstSession) {
-      projectCwd = firstSession.cwd;
+      workingDir = firstSession.cwd;
     }
   }
-  const result = await getAllSkills(projectCwd);
+
+  const gitRoot = workingDir ? await getGitRoot(workingDir) : null;
+  const projectRoot = gitRoot || workingDir;
+  const result = await getAllSkills(projectRoot);
   console.log(`Found ${result.skills.length} skills (${result.errors.length} errors)`);
   return result;
 });

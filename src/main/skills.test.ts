@@ -49,70 +49,13 @@ vi.mock('fs/promises', async (importOriginal) => {
 });
 
 // Import module under test after mocks are set up
-import { parseSkillFrontmatter, scanSkillsDirectory, getAllSkills } from './skills';
+import { scanSkillsDirectory, getAllSkills } from './skills';
 
 describe('skills module', () => {
   beforeEach(() => {
     mocks.existsSync.mockReset();
     mocks.readdirSync.mockReset();
     mocks.readFile.mockReset();
-  });
-
-  describe('parseSkillFrontmatter', () => {
-    it('should parse valid frontmatter with all fields', () => {
-      const content = `---
-name: my-skill
-description: A test skill for testing
-license: MIT
----
-
-# My Skill
-Some content here.
-`;
-      const result = parseSkillFrontmatter(content);
-
-      expect(result.name).toBe('my-skill');
-      expect(result.description).toBe('A test skill for testing');
-      expect(result.license).toBe('MIT');
-    });
-
-    it('should parse frontmatter with only required fields', () => {
-      const content = `---
-name: minimal-skill
-description: A minimal skill
----
-
-Content here.
-`;
-      const result = parseSkillFrontmatter(content);
-
-      expect(result.name).toBe('minimal-skill');
-      expect(result.description).toBe('A minimal skill');
-      expect(result.license).toBeUndefined();
-    });
-
-    it('should return empty object when no frontmatter present', () => {
-      const content = `# No Frontmatter
-Just regular markdown.
-`;
-      const result = parseSkillFrontmatter(content);
-
-      expect(result.name).toBeUndefined();
-      expect(result.description).toBeUndefined();
-    });
-
-    it('should handle malformed frontmatter gracefully', () => {
-      const content = `---
-name: test
-invalid line without colon
-description: still works
----
-`;
-      const result = parseSkillFrontmatter(content);
-
-      expect(result.name).toBe('test');
-      expect(result.description).toBe('still works');
-    });
   });
 
   describe('scanSkillsDirectory', () => {
@@ -148,12 +91,6 @@ description: still works
         return [];
       });
 
-      mocks.readFile.mockResolvedValue(`---
-name: my-skill
-description: Test skill
----
-Content`);
-
       const result = await scanSkillsDirectory(
         '/test/skills',
         'personal',
@@ -163,7 +100,7 @@ Content`);
 
       expect(result.skills.length).toBe(1);
       expect(result.skills[0].name).toBe('my-skill');
-      expect(result.skills[0].description).toBe('Test skill');
+      expect(result.skills[0].description).toBe('');
       expect(result.skills[0].type).toBe('personal');
       expect(result.skills[0].source).toBe('copilot');
       expect(result.skills[0].locationLabel).toBe('~/.copilot/skills');
@@ -190,15 +127,19 @@ Content`);
       expect(result.errors).toEqual([]);
     });
 
-    it('should report error for skills missing name or description', async () => {
+    it('should include skills without frontmatter', async () => {
       mocks.existsSync.mockReturnValue(true);
 
-      mocks.readdirSync.mockReturnValue([{ name: 'bad-skill', isDirectory: () => true }]);
-
-      mocks.readFile.mockResolvedValue(`---
-name: bad-skill
----
-No description!`);
+      mocks.readdirSync.mockImplementation((path: string) => {
+        const p = normalizePath(path);
+        if (p === '/test/skills') {
+          return [{ name: 'plain-skill', isDirectory: () => true }];
+        }
+        if (p === '/test/skills/plain-skill') {
+          return [{ name: 'SKILL.md', isDirectory: () => false }];
+        }
+        return [];
+      });
 
       const result = await scanSkillsDirectory(
         '/test/skills',
@@ -207,9 +148,8 @@ No description!`);
         './.claude/skills'
       );
 
-      expect(result.skills).toEqual([]);
-      expect(result.errors.length).toBe(1);
-      expect(result.errors[0]).toContain('missing required name or description');
+      expect(result.skills.length).toBe(1);
+      expect(result.errors).toEqual([]);
     });
 
     it('should skip non-directory entries', async () => {
@@ -256,18 +196,17 @@ No description!`);
         if (p === '/project/.github/skills') {
           return [{ name: 'test-skill', isDirectory: () => true }];
         }
+        if (p === '/project/.github/skills/test-skill') {
+          return [{ name: 'SKILL.md', isDirectory: () => false }];
+        }
         return [];
       });
-
-      mocks.readFile.mockResolvedValue(`---
-name: project-skill
-description: A project skill
----`);
 
       const result = await getAllSkills('/project');
 
       expect(result.skills.length).toBe(1);
-      expect(result.skills[0].name).toBe('project-skill');
+      expect(result.skills[0].name).toBe('test-skill');
+      expect(result.skills[0].description).toBe('');
       expect(result.skills[0].type).toBe('project');
       expect(result.skills[0].source).toBe('copilot');
       expect(result.skills[0].locationLabel).toBe('./.github/skills');
@@ -290,26 +229,16 @@ description: A project skill
         if (p === '/tmp/test-home/.copilot/skills') {
           return [{ name: 'personal-skill', isDirectory: () => true }];
         }
+        if (p === '/tmp/test-home/.copilot/skills/personal-skill') {
+          return [{ name: 'SKILL.md', isDirectory: () => false }];
+        }
         if (p === '/project/.claude/skills') {
           return [{ name: 'project-skill', isDirectory: () => true }];
         }
+        if (p === '/project/.claude/skills/project-skill') {
+          return [{ name: 'SKILL.md', isDirectory: () => false }];
+        }
         return [];
-      });
-
-      mocks.readFile.mockImplementation((path: string) => {
-        if (path.includes('personal-skill')) {
-          return Promise.resolve(`---
-name: personal-copilot-skill
-description: Personal copilot skill
----`);
-        }
-        if (path.includes('project-skill')) {
-          return Promise.resolve(`---
-name: project-claude-skill
-description: Project claude skill
----`);
-        }
-        return Promise.reject(new Error('Not found'));
       });
 
       const result = await getAllSkills('/project');
@@ -317,12 +246,12 @@ description: Project claude skill
       expect(result.skills.length).toBe(2);
 
       const personalSkill = result.skills.find((s) => s.type === 'personal');
-      expect(personalSkill?.name).toBe('personal-copilot-skill');
+      expect(personalSkill?.name).toBe('personal-skill');
       expect(personalSkill?.source).toBe('copilot');
       expect(personalSkill?.locationLabel).toBe('~/.copilot/skills');
 
       const projectSkill = result.skills.find((s) => s.type === 'project');
-      expect(projectSkill?.name).toBe('project-claude-skill');
+      expect(projectSkill?.name).toBe('project-skill');
       expect(projectSkill?.source).toBe('claude');
       expect(projectSkill?.locationLabel).toBe('./.claude/skills');
     });
@@ -343,26 +272,16 @@ description: Project claude skill
         if (p === '/project/.agents/skills') {
           return [{ name: 'agents-skill', isDirectory: () => true }];
         }
+        if (p === '/project/.agents/skills/agents-skill') {
+          return [{ name: 'SKILL.md', isDirectory: () => false }];
+        }
         if (p === '/project/.claude/commands') {
           return [{ name: 'legacy-skill', isDirectory: () => true }];
         }
+        if (p === '/project/.claude/commands/legacy-skill') {
+          return [{ name: 'SKILL.md', isDirectory: () => false }];
+        }
         return [];
-      });
-
-      mocks.readFile.mockImplementation((path: string) => {
-        if (path.includes('agents-skill')) {
-          return Promise.resolve(`---
-name: agents-skill
-description: Agents skill
----`);
-        }
-        if (path.includes('legacy-skill')) {
-          return Promise.resolve(`---
-name: legacy-skill
-description: Claude commands skill
----`);
-        }
-        return Promise.reject(new Error('Not found'));
       });
 
       const result = await getAllSkills('/project');
@@ -399,13 +318,11 @@ description: Claude commands skill
         if (p === '/project/packages/app/.claude/skills') {
           return [{ name: 'nested-skill', isDirectory: () => true }];
         }
+        if (p === '/project/packages/app/.claude/skills/nested-skill') {
+          return [{ name: 'SKILL.md', isDirectory: () => false }];
+        }
         return [];
       });
-
-      mocks.readFile.mockResolvedValue(`---
-name: nested-skill
-description: Nested skill
----`);
 
       const result = await getAllSkills('/project');
 
@@ -432,10 +349,6 @@ description: Nested skill
         }
         return [];
       });
-      mocks.readFile.mockResolvedValue(`---
-name: custom-skill
-description: Custom skill
----`);
 
       const result = await getAllSkills();
 

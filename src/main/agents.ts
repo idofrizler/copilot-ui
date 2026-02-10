@@ -19,14 +19,17 @@ export interface AgentsResult {
 export function parseAgentFrontmatter(content: string): {
   name?: string;
   description?: string;
+  hasFrontmatter: boolean;
 } {
   const frontmatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
   if (!frontmatterMatch) {
-    return {};
+    return { hasFrontmatter: false };
   }
 
   const frontmatter = frontmatterMatch[1];
-  const result: { name?: string; description?: string } = {};
+  const result: { name?: string; description?: string; hasFrontmatter: boolean } = {
+    hasFrontmatter: true,
+  };
 
   const lines = frontmatter.split('\n');
   for (const line of lines) {
@@ -47,7 +50,7 @@ async function readAgentFile(
   type: Agent['type'],
   source: Agent['source'],
   fallbackName: string
-): Promise<{ agent?: Agent; error?: string }> {
+): Promise<{ agent?: Agent; error?: string; hasFrontmatter: boolean }> {
   try {
     const content = await readFile(filePath, 'utf-8');
     const metadata = parseAgentFrontmatter(content);
@@ -59,10 +62,12 @@ async function readAgentFile(
         type,
         source,
       },
+      hasFrontmatter: metadata.hasFrontmatter,
     };
   } catch (err) {
     return {
       error: `Failed to read agent file ${filePath}: ${err instanceof Error ? err.message : String(err)}`,
+      hasFrontmatter: false,
     };
   }
 }
@@ -82,11 +87,20 @@ export async function scanAgentsDirectory(
   try {
     const entries = readdirSync(basePath, { withFileTypes: true });
     for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.endsWith('.agent.md')) continue;
+      if (!entry.isFile()) continue;
+      const isAgentFile = entry.name.endsWith('.agent.md');
+      const isMarkdown = entry.name.endsWith('.md');
+      if (!isMarkdown) continue;
 
       const filePath = join(basePath, entry.name);
-      const fallbackName = entry.name.replace(/\.agent\.md$/, '');
-      const { agent, error } = await readAgentFile(filePath, type, source, fallbackName);
+      const fallbackName = entry.name.replace(/\.agent\.md$/, '').replace(/\.md$/, '');
+      const { agent, error, hasFrontmatter } = await readAgentFile(
+        filePath,
+        type,
+        source,
+        fallbackName
+      );
+      if (!isAgentFile && !hasFrontmatter) continue;
       if (agent) agents.push(agent);
       if (error) errors.push(error);
     }

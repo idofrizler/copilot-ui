@@ -16,6 +16,7 @@ import { Spinner } from '../Spinner';
 import { CodeBlockWithCopy } from '../CodeBlock';
 import { isAsciiDiagram } from '../../utils/isAsciiDiagram';
 import { isCliCommand } from '../../utils/isCliCommand';
+
 import type { Agent, Instruction, Skill } from '../../types';
 
 export interface EnvironmentModalProps {
@@ -23,6 +24,7 @@ export interface EnvironmentModalProps {
   onClose: () => void;
   instructions: Instruction[];
   skills: Skill[];
+
   agents: Agent[];
   cwd?: string;
   initialTab?: 'instructions' | 'skills' | 'agents';
@@ -183,10 +185,12 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
   onClose,
   instructions,
   skills,
+
   agents,
   cwd,
   initialTab = 'instructions',
   initialAgentPath = null,
+
   fileViewMode = 'flat',
   onViewModeChange,
   onTabChange,
@@ -195,12 +199,15 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
   const [selectedInstructionFile, setSelectedInstructionFile] = useState<string | null>(null);
   const [selectedSkillFile, setSelectedSkillFile] = useState<string | null>(null);
   const [selectedAgentFile, setSelectedAgentFile] = useState<string | null>(null);
+
   const [expandedInstructionFolders, setExpandedInstructionFolders] = useState<Set<string>>(
     new Set()
   );
   const [expandedSkillFolders, setExpandedSkillFolders] = useState<Set<string>>(new Set());
   const [expandedSkillRoots, setExpandedSkillRoots] = useState<Set<string>>(new Set());
+
   const [expandedAgentFolders, setExpandedAgentFolders] = useState<Set<string>>(new Set());
+
   const [loading, setLoading] = useState(true);
   const [fileContent, setFileContent] = useState<FileContent | null>(null);
   const [frontmatter, setFrontmatter] = useState<Record<string, unknown> | null>(null);
@@ -264,7 +271,6 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
         : selectedAgentFile;
 
   const selectedFileName = selectedFile?.split(/[/\\]/).pop() || '';
-  const isSkillMarkdown = activeTab === 'skills' && selectedFileName.toLowerCase() === 'skill.md';
   const isMarkdownFile =
     activeTab === 'instructions' ||
     activeTab === 'agents' ||
@@ -334,11 +340,13 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
 
   useEffect(() => {
     if (!isOpen) return;
+
     ensureDefaultAgentSelection();
   }, [ensureDefaultAgentSelection, isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
+
     const instructionFolders = new Set<string>();
     const collectInstructionFolders = (nodes: FileTreeNode[]) => {
       for (const node of nodes) {
@@ -389,11 +397,13 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
       setExpandedInstructionFolders(instructionFolders);
       setExpandedSkillRoots(new Set<string>(skillEntries.map((entry) => entry.path)));
       setExpandedSkillFolders(skillFullFolderSet);
+
       setExpandedAgentFolders(agentFolders);
     } else {
       setExpandedInstructionFolders(new Set());
       setExpandedSkillRoots(new Set());
       setExpandedSkillFolders(skillFolderSet);
+
       setExpandedAgentFolders(new Set());
     }
   }, [agentTree, fileViewMode, instructionPaths, skillEntries, skillFullTree, isOpen]);
@@ -456,8 +466,8 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
         activeTab === 'instructions' ? resolvePath(selectedFile, cwd) : selectedFile;
       const result = await window.electronAPI.file.readContent(resolvedPath);
       setFileContent(result);
-      const shouldParseFrontmatter =
-        (activeTab === 'skills' && isSkillMarkdown) || activeTab === 'agents';
+
+      const shouldParseFrontmatter = activeTab === 'agents';
       if (result.success && result.content && shouldParseFrontmatter) {
         const parsed = parseMarkdownFrontmatter(result.content);
         setFrontmatter(parsed.frontmatter);
@@ -471,7 +481,7 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [activeTab, cwd, isSkillMarkdown, selectedFile]);
+  }, [activeTab, cwd, selectedFile]);
 
   useEffect(() => {
     if (isOpen && selectedFile) {
@@ -856,6 +866,7 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
         aria-labelledby="environment-modal-title"
       >
         {/* Header */}
+
         <div className="px-4 py-3 border-b border-copilot-border shrink-0">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
@@ -871,6 +882,7 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
                       : tab === 'skills'
                         ? `Skills (${skillCount})`
                         : `Agents (${agentCount})`;
+
                   return (
                     <button
                       key={tab}
@@ -891,6 +903,7 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
                 })}
               </div>
             </div>
+
             <div className="flex items-center gap-2 shrink-0">
               {onViewModeChange && (
                 <button
@@ -955,9 +968,7 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
                   <div className="py-1">{skillEntries.map((skill) => renderSkillRoot(skill))}</div>
                 )
               ) : agentPaths.length === 0 ? (
-                <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
-                  No agents found
-                </div>
+                <div className="px-3 py-2 text-[10px] text-copilot-text-muted">No agents found</div>
               ) : fileViewMode === 'tree' ? (
                 <div className="py-1">{agentTree.map((node) => renderAgentTreeNode(node))}</div>
               ) : (

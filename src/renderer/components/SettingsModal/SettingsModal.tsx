@@ -557,9 +557,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           >
             <MinusIcon size={14} />
           </button>
-          <div className="min-w-[70px] text-center text-sm text-copilot-text">
-            {percent}%
-          </div>
+          <div className="min-w-[70px] text-center text-sm text-copilot-text">{percent}%</div>
           <button
             onClick={() => onZoomIn?.()}
             className="flex items-center justify-center w-8 h-8 rounded border border-copilot-border text-copilot-text hover:bg-copilot-surface-hover"

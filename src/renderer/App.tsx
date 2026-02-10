@@ -163,10 +163,12 @@ const App: React.FC = () => {
   const [cwdCopied, setCwdCopied] = useState(false);
   const [filePreviewPath, setFilePreviewPath] = useState<string | null>(null);
   const [showEnvironmentModal, setShowEnvironmentModal] = useState(false);
+
   const [environmentTab, setEnvironmentTab] = useState<'instructions' | 'skills' | 'agents'>(
     'instructions'
   );
   const [environmentAgentPath, setEnvironmentAgentPath] = useState<string | null>(null);
+
   const [isGitRepo, setIsGitRepo] = useState<boolean>(true);
   const commitModal = useCommitModal();
   const [allowMode, setAllowMode] = useState<'once' | 'session' | 'global'>('once');
@@ -1033,7 +1035,8 @@ const App: React.FC = () => {
       event?.stopPropagation();
       setFilePreviewPath(null);
       setEnvironmentTab(tab);
-      setEnvironmentAgentPath(tab === 'agents' ? agentPath ?? null : null);
+      setEnvironmentAgentPath(tab === 'agents' ? (agentPath ?? null) : null);
+
       setShowEnvironmentModal(true);
     },
     []
