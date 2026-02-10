@@ -258,6 +258,10 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
   const skillFullTree = useMemo(() => buildFileTree(skillFilePaths), [skillFilePaths]);
 
   const agentPaths = useMemo(() => agents.map((agent) => agent.path).sort(), [agents]);
+  const agentNameMap = useMemo(
+    () => new Map(agents.map((agent) => [agent.path, agent.name])),
+    [agents]
+  );
   const agentTree = useMemo(() => buildFileTree(agentPaths), [agentPaths]);
   const instructionCount = instructionPaths.length;
   const skillCount = skillEntries.length;
@@ -666,8 +670,8 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
   };
 
   const renderAgentItem = (path: string, paddingLeft: number, inTreeView: boolean) => {
-    const name = path.split(/[/\\]/).pop() || path;
-    const displayName = inTreeView ? name : path;
+    const name = agentNameMap.get(path) || path.split(/[/\\]/).pop() || path;
+    const displayName = inTreeView ? path.split(/[/\\]/).pop() || path : name;
     const isSelected = selectedAgentFile === path;
 
     return (
