@@ -2,7 +2,7 @@ name: Release
 
 on:
   push:
-    branches: [main]
+    branches: [main, staging]
     paths-ignore:
       - '*.md'
       - 'docs/**'
@@ -12,16 +12,21 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-main
-  cancel-in-progress: true
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # Job 1: Validate release conditions and determine version/tag
+  # ---------------------------------------------------------------------------
   validate:
     runs-on: ubuntu-latest
     outputs:
       should_release: ${{ steps.check.outputs.should_release }}
       tag_exists: ${{ steps.version.outputs.tag_exists }}
       version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
 
     steps:
       - uses: actions/checkout@v4
@@ -31,115 +36,208 @@ jobs:
       - name: Check release notes exist
         id: check
         run: |
+          # Only allow releases from main or staging
+          branch="${{ github.ref_name }}"
+          if [ "$branch" != "main" ] && [ "$branch" != "staging" ]; then
+            echo "::warning::Releases are only created from main or staging (got '$branch')"
+            echo "should_release=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
           if [ ! -f "RELEASE_NOTES.md" ]; then
-            echo "❌ RELEASE_NOTES.md not found!"
             echo "should_release=false" >> $GITHUB_OUTPUT
             exit 0
           fi
-
-          # Check if release notes have content for this release
           if ! grep -q "^## " RELEASE_NOTES.md; then
-            echo "❌ RELEASE_NOTES.md must have at least one version heading (## x.y.z)"
             echo "should_release=false" >> $GITHUB_OUTPUT
             exit 0
           fi
-
-          echo "✅ Release notes found and valid"
           echo "should_release=true" >> $GITHUB_OUTPUT
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Get current version and check tag
+      - name: Determine version and tag
         id: version
         run: |
           version=$(node -p "require('./package.json').version")
-          echo "Version: $version"
           echo "version=$version" >> $GITHUB_OUTPUT
 
-          # Check if tag already exists
-          if git rev-parse "v$version" >/dev/null 2>&1; then
-            echo "⚠️ Tag v$version already exists - skipping release"
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            tag="v$version"
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+          else
+            tag="v$version-rc.${{ github.run_number }}"
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          fi
+          echo "tag=$tag" >> $GITHUB_OUTPUT
+
+          if git rev-parse "$tag" >/dev/null 2>&1; then
             echo "tag_exists=true" >> $GITHUB_OUTPUT
           else
             echo "tag_exists=false" >> $GITHUB_OUTPUT
           fi
 
-  test:
+  # ---------------------------------------------------------------------------
+  # Job 2: Build binaries on each platform
+  # ---------------------------------------------------------------------------
+  build:
     needs: validate
     if: needs.validate.outputs.should_release == 'true' && needs.validate.outputs.tag_exists != 'true'
-    runs-on: ${{ matrix.os }}
     strategy:
-      matrix:
-        os: [macos-14, ubuntu-latest, windows-latest]
-        node-version: [22]
       fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: mac
+          - os: windows-latest
+            platform: win
+    runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
-          cache: npm
-
-      - name: Install dependencies (Windows)
-        if: runner.os == 'Windows'
-        run: npm ci --ignore-scripts && npx patch-package
-
-      # Cache must be AFTER npm ci (which deletes node_modules)
-      - name: Cache node-pty build (Windows)
-        if: runner.os == 'Windows'
-        id: cache-node-pty
-        uses: actions/cache@v4
-        with:
-          path: node_modules/node-pty/build
-          key: node-pty-${{ runner.os }}-node${{ matrix.node-version }}-electron-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            node-pty-${{ runner.os }}-node${{ matrix.node-version }}-electron-
-
-      - name: Rebuild node-pty (Windows, cache miss)
-        if: runner.os == 'Windows' && steps.cache-node-pty.outputs.cache-hit != 'true'
-        run: npx @electron/rebuild -w node-pty
-
-      - name: Install dependencies (Unix)
-        if: runner.os != 'Windows'
-        run: npm ci --ignore-scripts && npm run rebuild-pty || true
-
-      - name: Run unit tests
-        run: npm test
-
-      - name: Build application
-        run: npm run build
-
-  release:
-    needs: [validate, test]
-    if: needs.validate.outputs.should_release == 'true' && needs.validate.outputs.tag_exists != 'true'
-    runs-on: macos-14
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
 
-      - name: Extract release notes for this version
+      # --- Windows setup ---
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: npm ci --ignore-scripts && npx patch-package
+
+      - name: Cache node-pty build (Windows)
+        if: runner.os == 'Windows'
+        id: cache-node-pty-win
+        uses: actions/cache@v4
+        with:
+          path: node_modules/node-pty/build
+          key: node-pty-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+
+      - name: Rebuild node-pty (Windows)
+        if: runner.os == 'Windows' && steps.cache-node-pty-win.outputs.cache-hit != 'true'
+        run: npx @electron/rebuild -w node-pty
+
+      - name: Install native dependency binaries (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          node node_modules/ffmpeg-static/install.js
+          node node_modules/vosk-koffi/scripts/postinstall.js
+
+      # --- macOS setup ---
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: npm ci --ignore-scripts && npx patch-package && npm run rebuild-pty
+
+      - name: Install native dependency binaries (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          node node_modules/ffmpeg-static/install.js
+          node node_modules/vosk-koffi/scripts/postinstall.js
+
+      # --- macOS code signing ---
+      - name: Import code signing certificate
+        if: runner.os == 'macOS'
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.MAC_CERTS }}
+          p12-password: ${{ secrets.MAC_CERTS_PASSWORD }}
+
+      - name: Extract signing identity
+        if: runner.os == 'macOS'
+        id: signing
+        run: |
+          IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1)
+          HASH=$(echo "$IDENTITY" | awk '{print $2}')
+          echo "Signing identity: $IDENTITY"
+          if [ -z "$HASH" ]; then
+            echo "::warning::No Developer ID Application certificate found — building unsigned"
+          fi
+          echo "hash=$HASH" >> $GITHUB_OUTPUT
+
+      # --- Common steps ---
+      - name: Run tests
+        run: npm test
+
+      - name: Build application
+        run: npm run prebuild-info && npx electron-vite build
+
+      - name: Build distributables (macOS)
+        if: runner.os == 'macOS'
+        run: npx electron-builder --mac --publish never
+        timeout-minutes: 15
+        env:
+          CSC_NAME: ${{ steps.signing.outputs.hash }}
+          CSC_ENTITLEMENTS: build/entitlements.mac.plist
+
+      - name: Build distributables (Windows)
+        if: runner.os == 'Windows'
+        run: npx electron-builder --win --publish never
+        env:
+          # Azure Trusted Signing (no-op when secrets are not set)
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_ENDPOINT: ${{ secrets.AZURE_ENDPOINT }}
+          AZURE_CODE_SIGNING_ACCOUNT: ${{ secrets.AZURE_CODE_SIGNING_ACCOUNT }}
+          AZURE_CERT_PROFILE: ${{ secrets.AZURE_CERT_PROFILE }}
+
+      - name: Upload DMG (macOS)
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cooper-DMG
+          path: release/*.dmg
+          if-no-files-found: error
+          retention-days: 5
+
+      - name: Upload Installer (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cooper-Setup
+          path: release/*-Setup.exe
+          if-no-files-found: error
+          retention-days: 5
+
+      - name: Upload Portable (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cooper-Portable
+          path: release/*-Portable.exe
+          if-no-files-found: error
+          retention-days: 5
+
+  # ---------------------------------------------------------------------------
+  # Job 3: Create GitHub Release with artifacts
+  # ---------------------------------------------------------------------------
+  release:
+    needs: [validate, build]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -la artifacts/
+
+      - name: Extract release notes
         id: release_notes
         run: |
           version="${{ needs.validate.outputs.version }}"
-          # Extract notes between this version header and the next one (or EOF)
           notes=$(awk "/^## ${version//./\\.}/,/^## [0-9]+\.[0-9]+\.[0-9]+/{if(/^## [0-9]+\.[0-9]+\.[0-9]+/ && !/^## ${version//./\\.}/)exit; print}" RELEASE_NOTES.md | tail -n +2)
-
           if [ -z "$notes" ]; then
             notes="Release $version"
           fi
-
-          # Handle multiline output
           echo "notes<<EOF" >> $GITHUB_OUTPUT
           echo "$notes" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
@@ -148,46 +246,9 @@ jobs:
         id: create_release
         uses: ncipollo/release-action@v1
         with:
-          tag: v${{ needs.validate.outputs.version }}
-          name: v${{ needs.validate.outputs.version }}
+          tag: ${{ needs.validate.outputs.tag }}
+          name: ${{ needs.validate.outputs.tag }}
           body: ${{ steps.release_notes.outputs.notes }}
-          makeLatest: true
-
-  build-windows:
-    needs: [validate, test, release]
-    if: needs.validate.outputs.should_release == 'true' && needs.validate.outputs.tag_exists != 'true'
-    runs-on: windows-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci --ignore-scripts && npx patch-package
-
-      - name: Cache node-pty build
-        id: cache-node-pty
-        uses: actions/cache@v4
-        with:
-          path: node_modules/node-pty/build
-          key: node-pty-Windows-node22-electron-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            node-pty-Windows-node22-electron-
-
-      - name: Rebuild node-pty (cache miss)
-        if: steps.cache-node-pty.outputs.cache-hit != 'true'
-        run: npx @electron/rebuild -w node-pty
-
-      - name: Build and package Windows installer
-        run: npm run prebuild-info && electron-vite build && npx electron-builder --win
-
-      - name: Upload Windows installers to release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ needs.validate.outputs.version }}
-          files: |
-            release/*.exe
+          artifacts: artifacts/*
+          prerelease: ${{ needs.validate.outputs.is_prerelease == 'true' }}
+          makeLatest: ${{ needs.validate.outputs.is_prerelease != 'true' }}

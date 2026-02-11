@@ -1,0 +1,115 @@
+name: Build Check
+
+on:
+  pull_request:
+    branches: [main, staging]
+    paths-ignore:
+      - '*.md'
+      - 'docs/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: mac
+          - os: windows-latest
+            platform: win
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # --- Windows setup ---
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: npm ci --ignore-scripts && npx patch-package
+
+      - name: Cache node-pty build (Windows)
+        if: runner.os == 'Windows'
+        id: cache-node-pty-win
+        uses: actions/cache@v4
+        with:
+          path: node_modules/node-pty/build
+          key: node-pty-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+
+      - name: Rebuild node-pty (Windows)
+        if: runner.os == 'Windows' && steps.cache-node-pty-win.outputs.cache-hit != 'true'
+        run: npx @electron/rebuild -w node-pty
+
+      - name: Install native dependency binaries (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          node node_modules/ffmpeg-static/install.js
+          node node_modules/vosk-koffi/scripts/postinstall.js
+
+      # --- macOS setup ---
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: npm ci --ignore-scripts && npx patch-package && npm run rebuild-pty
+
+      - name: Install native dependency binaries (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          node node_modules/ffmpeg-static/install.js
+          node node_modules/vosk-koffi/scripts/postinstall.js
+
+      # --- Build & package (no signing) ---
+      - name: Run tests
+        run: npm test
+
+      - name: Build application
+        run: npm run prebuild-info && npx electron-vite build
+
+      - name: Package distributables (macOS, unsigned)
+        if: runner.os == 'macOS'
+        run: npx electron-builder --mac --publish never
+        timeout-minutes: 15
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Package distributables (Windows, unsigned)
+        if: runner.os == 'Windows'
+        run: npx electron-builder --win --publish never
+
+      # --- Upload artifacts for reviewers to test ---
+      - name: Upload DMG (macOS)
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cooper-DMG
+          path: release/*.dmg
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Upload Installer (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cooper-Setup
+          path: release/*-Setup.exe
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Upload Portable (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cooper-Portable
+          path: release/*-Portable.exe
+          if-no-files-found: error
+          retention-days: 3

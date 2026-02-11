@@ -21,7 +21,7 @@
     "rebuild-pty": "npx @electron/rebuild -f -w node-pty",
     "prebuild-info": "node scripts/build-info.js",
     "clean": "node -e \"const fs=require('fs');['out','release'].forEach(d=>{try{fs.rmSync(d,{recursive:true,force:true})}catch{}})\"",
-    "dist": "npm run test && npm run clean && npm run prebuild-info && electron-vite build && electron-builder --mac --dir && node -e \"const pkg=require('./package.json'); const {execSync}=require('child_process'); const dmg='release/Cooper-'+pkg.version+'-arm64.dmg'; execSync('hdiutil create -volname \\'Cooper\\' -srcfolder release/mac-arm64 -ov -format UDZO '+dmg, {stdio:'inherit'})\"",
+    "dist": "npm run test && npm run clean && npm run prebuild-info && electron-vite build && electron-builder --mac",
     "dist:win": "npm run test && npm run clean && npm run prebuild-info && electron-vite build && electron-builder --win",
     "prepare": "husky",
     "format": "prettier --write .",
@@ -49,22 +49,64 @@
     "mac": {
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.icns",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "sign": "build/sign.js",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "notarize": false,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
       "extendInfo": {
         "NSMicrophoneUsageDescription": "This app needs microphone access for voice input and speech-to-text features."
       }
     },
+    "dmg": {
+      "artifactName": "${productName}-${version}-mac-${arch}.${ext}",
+      "backgroundColor": "#ffffff",
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
     "win": {
       "target": [
-        "nsis",
-        "portable"
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "icon": "build/icon.ico"
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "${productName}-${version}-win-${arch}-Setup.${ext}"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-win-${arch}-Portable.${ext}"
     }
   },
   "dependencies": {
