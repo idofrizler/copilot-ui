@@ -1,0 +1,75 @@
+name: Build Staging
+
+on:
+  push:
+    branches: [staging]
+  pull_request:
+    branches: [staging]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-14, ubuntu-latest, windows-latest]
+        node-version: [22]
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: npm ci --ignore-scripts && npx patch-package
+
+      # Cache must be AFTER npm ci (which deletes node_modules)
+      - name: Cache node-pty build (Windows)
+        if: runner.os == 'Windows'
+        id: cache-node-pty
+        uses: actions/cache@v4
+        with:
+          path: node_modules/node-pty/build
+          key: node-pty-${{ runner.os }}-node${{ matrix.node-version }}-electron-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            node-pty-${{ runner.os }}-node${{ matrix.node-version }}-electron-
+
+      - name: Rebuild node-pty (Windows, cache miss)
+        if: runner.os == 'Windows' && steps.cache-node-pty.outputs.cache-hit != 'true'
+        run: npx @electron/rebuild -w node-pty
+
+      - name: Install dependencies (Unix)
+        if: runner.os != 'Windows'
+        run: npm ci --ignore-scripts && npm run rebuild-pty || true
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Build application
+        run: npm run build
+
+      - name: Start Xvfb (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+          Xvfb :99 -screen 0 1024x768x24 &
+
+      - name: Install Electron binary
+        run: node node_modules/electron/install.js
+
+      - name: Check for module import error
+        run: node scripts/test-electron-startup.js
+        env:
+          DISPLAY: ':99'
