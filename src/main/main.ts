@@ -1614,23 +1614,7 @@ async function createNewSession(model?: string, cwd?: string): Promise<string> {
       content: `
 ## Subagents and Task Delegation
 
-You have access to specialized subagents via the \`task\` tool. **Use subagents proactively** when they're better suited for the task:
-
-**Available subagents:**
-- \`explore\` - Fast codebase exploration, answering questions about code, finding files/patterns
-- \`task\` - Executing commands with verbose output (tests, builds, lints, installs)
-- \`general-purpose\` - Complex multi-step tasks requiring full toolset
-- \`code-review\` - Reviewing code changes (staged/unstaged/branch diffs) with high signal-to-noise
-- Custom agents (if configured): \`cooper-coordinator\`, \`cooper-debugger\`, \`copilot-sdk-specialist\`, \`electron-main-developer\`, \`renderer-ui-developer\`, etc.
-
-**When to delegate to subagents:**
-- Break complex tasks into focused sub-tasks that specialized agents handle better
-- For codebase questions, use \`explore\` instead of grepping yourself (faster, cleaner)
-- For running tests/builds, use \`task\` to keep your context clean
-- For code reviews, use \`code-review\` instead of manually analyzing diffs
-- For architecture decisions, consult \`cooper-coordinator\` or relevant specialists
-
-**Subagent visibility:** The user can see which subagents you invoke - they show with a 🤖 indicator in the chat.
+You have access to specialized subagents via the \`task\` tool. **Use subagents proactively** when they're better suited for the task.
 
 ## Web Information Lookup
 
