@@ -160,12 +160,10 @@ async function writeMcpConfig(config: MCPConfigFile): Promise<void> {
 import { getAllSkills } from './skills';
 
 // Agent discovery - imported from agents module
-import { getAllAgents } from './agents';
+import { getAllAgents, parseAgentFrontmatter } from './agents';
 
 // Copilot Instructions - imported from instructions module
 import { getAllInstructions, getGitRoot } from './instructions';
-
-import { getAllAgents } from './agents';
 
 // Set up file logging only - no IPC to renderer (causes errors)
 log.transports.file.level = 'info';
