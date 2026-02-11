@@ -41,7 +41,7 @@ const tourSteps: TourStep[] = [
     title: 'Embedded Terminal',
     description: 'Click here to open the terminal.',
     descriptionAfterClick: 'Use "Add to Message" to attach terminal output to your prompt!',
-    position: 'top',
+    position: 'bottom',
     requiresClick: true,
     cleanupOnNext: '[data-tour="terminal-toggle"]',
     highlightPadding: { top: 4, right: 6, bottom: 4, left: 4 },
@@ -55,8 +55,8 @@ const tourSteps: TourStep[] = [
     description: 'Click this to reveal the agent loop modes.',
     descriptionAfterClick:
       'Ralph Wiggum runs iterative loops. Lisa Simpson does multi-phase analysis. Try them!',
-    position: 'bottom',
-    positionAfterClick: 'bottom',
+    position: 'top',
+    positionAfterClick: 'top',
     requiresClick: true,
     cleanupOnNext: '[data-tour="agent-modes"]',
     highlightPadding: { top: 4, right: 4, bottom: 4, left: 4 },
@@ -87,7 +87,7 @@ const tourSteps: TourStep[] = [
     selector: '[data-tour="mcp-skills"]',
     title: 'MCP Servers & Skills',
     description:
-      'Connect external tools via MCP servers and add custom agent skills to extend capabilities. Click the + button to add MCP servers, or create SKILL.md files in ~/.copilot/skills/ (personal) or .github/skills/ (project) to define reusable instructions.',
+      'Connect external tools via MCP servers and add custom agent skills to extend capabilities. Click the + button to add MCP servers, or create SKILL.md files in ~/.copilot/skills/, ~/.claude/skills/, ~/.agents/skills/ (personal) or .github/skills/, .claude/skills/, .agents/skills/ (project) to define reusable instructions.',
     position: 'left',
   },
 ];

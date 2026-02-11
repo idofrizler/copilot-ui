@@ -58,7 +58,7 @@ const steps: WizardStep[] = [
     title: '💻 Embedded Terminal',
     description:
       'Each session has a built-in terminal running in its working directory. Click "Add to Message" to attach terminal output to your next prompt. No copy-paste needed—full context in one click.',
-    locationHint: '📍 Click the >_ terminal icon at the LEFT of the input box to toggle it.',
+    locationHint: '📍 Look at the TOP of the chat area — click "Terminal ▼" to expand it.',
     icon: (
       <svg
         className="w-12 h-12 text-copilot-accent"
@@ -80,7 +80,7 @@ const steps: WizardStep[] = [
     description:
       'Iterative agent mode that loops until tasks are complete. Set completion criteria and the agent will work, check results, and continue automatically until done—up to N iterations.',
     locationHint:
-      '📍 Click the "Loops" selector in the top bar of the chat area to configure Agent Loops (Ralph & Lisa).',
+      '📍 Click the "Loops" selector in the input bar to configure Agent Loops (Ralph & Lisa).',
     icon: (
       <svg
         className="w-12 h-12 text-copilot-accent"
@@ -124,7 +124,7 @@ const steps: WizardStep[] = [
     description:
       'Customize your experience with custom themes (including nostalgic ones like ICQ!). Switch between GPT-4.1, GPT-5, Claude Opus-4, Sonnet, Haiku, Gemini, and more models per session.',
     locationHint:
-      '📍 Click the ⚙️ gear icon in the sidebar, or use the Models selector in the top bar.',
+      '📍 Click the ⚙️ gear icon in the sidebar, or use the Models selector in the input bar.',
     icon: (
       <svg
         className="w-12 h-12 text-copilot-accent"

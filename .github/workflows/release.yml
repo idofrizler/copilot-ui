@@ -243,6 +243,7 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
+        id: create_release
         uses: ncipollo/release-action@v1
         with:
           tag: ${{ needs.validate.outputs.tag }}

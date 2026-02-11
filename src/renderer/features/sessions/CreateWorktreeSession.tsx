@@ -1,8 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Modal } from '../Modal';
-import { Button } from '../Button';
-import { Spinner } from '../Spinner';
-import { RalphIcon, LisaIcon, ChevronDownIcon, ChevronRightIcon } from '../Icons/Icons';
+import { Modal } from '../../components/Modal';
+import { Button } from '../../components/Button';
+import { Spinner } from '../../components/Spinner';
+import {
+  RalphIcon,
+  LisaIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+} from '../../components/Icons/Icons';
 
 export interface IssueComment {
   body: string;

@@ -9,12 +9,17 @@ import {
   MoonIcon,
   SunIcon,
   UploadIcon,
+  GlobeIcon,
+  CloseIcon,
+  PlusIcon,
+  MinusIcon,
+  WarningIcon,
 } from '../Icons';
 import { useTheme } from '../../context/ThemeContext';
 import { trackEvent, TelemetryEvents } from '../../utils/telemetry';
 import { VOICE_KEYWORDS } from '../../hooks/useVoiceSpeech';
 
-type SettingsSection = 'themes' | 'voice' | 'sounds';
+type SettingsSection = 'themes' | 'voice' | 'sounds' | 'commands' | 'accessibility' | 'diagnostics';
 
 export interface SettingsModalProps {
   isOpen: boolean;
@@ -43,6 +48,18 @@ export interface SettingsModalProps {
   availableVoices?: SpeechSynthesisVoice[];
   selectedVoiceURI?: string | null;
   onVoiceChange?: (uri: string | null) => void;
+  // Global commands
+  globalSafeCommands?: string[];
+  onAddGlobalSafeCommand?: (cmd: string) => Promise<void>;
+  onRemoveGlobalSafeCommand?: (cmd: string) => Promise<void>;
+  // Zoom controls
+  zoomFactor?: number;
+  onZoomIn?: () => Promise<void> | void;
+  onZoomOut?: () => Promise<void> | void;
+  onResetZoom?: () => Promise<void> | void;
+  diagnosticsPaths?: { logFilePath: string; crashDumpsPath: string } | null;
+  onRevealLogFile?: (path: string) => Promise<void>;
+  onOpenCrashDumps?: (path: string) => Promise<void>;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -71,8 +88,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   availableVoices = [],
   selectedVoiceURI = null,
   onVoiceChange,
+  // Global commands
+  globalSafeCommands = [],
+  onAddGlobalSafeCommand,
+  onRemoveGlobalSafeCommand,
+  // Zoom controls
+  zoomFactor = 1,
+  onZoomIn,
+  onZoomOut,
+  onResetZoom,
+  diagnosticsPaths = null,
+  onRevealLogFile,
+  onOpenCrashDumps,
 }) => {
   const [activeSection, setActiveSection] = useState<SettingsSection>('themes');
+  const [newCommandValue, setNewCommandValue] = useState('');
   const { themePreference, setTheme, availableThemes, activeTheme, importTheme } = useTheme();
 
   // Switch to requested section when modal opens
@@ -84,8 +114,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const sections: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
     { id: 'themes', label: 'Themes', icon: <PaletteIcon size={16} /> },
+    { id: 'accessibility', label: 'Accessibility', icon: <MonitorIcon size={16} /> },
+    { id: 'commands', label: 'Commands', icon: <GlobeIcon size={16} /> },
     { id: 'voice', label: 'Voice', icon: <MicIcon size={16} /> },
     { id: 'sounds', label: 'Sounds', icon: <VolumeIcon size={16} /> },
+    { id: 'diagnostics', label: 'Diagnostics', icon: <WarningIcon size={16} /> },
   ];
 
   const renderThemesSection = () => (
@@ -440,14 +473,212 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     </div>
   );
 
+  const renderCommandsSection = () => {
+    const handleAdd = async () => {
+      if (!newCommandValue.trim() || !onAddGlobalSafeCommand) return;
+      if (newCommandValue.trim().toLowerCase().startsWith('write')) return;
+      await onAddGlobalSafeCommand(newCommandValue.trim());
+      setNewCommandValue('');
+    };
+
+    return (
+      <div>
+        <h4 className="text-[11px] font-semibold uppercase tracking-wider text-copilot-text-muted mb-1">
+          Global Allowed Commands
+        </h4>
+        <p className="text-xs text-copilot-text-muted mb-3">
+          Commands allowed across all sessions. Session-specific commands can be managed from the
+          activity panel.
+        </p>
+
+        {/* Add command input */}
+        <div className="flex items-center gap-2 mb-3">
+          <input
+            type="text"
+            value={newCommandValue}
+            onChange={(e) => setNewCommandValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleAdd();
+            }}
+            placeholder="e.g., npm, git, python"
+            className="flex-1 px-2 py-1.5 text-xs bg-copilot-surface border border-copilot-border rounded text-copilot-text placeholder:text-copilot-text-muted focus:outline-none focus:border-copilot-accent"
+          />
+          <button
+            onClick={handleAdd}
+            disabled={
+              !newCommandValue.trim() || newCommandValue.trim().toLowerCase().startsWith('write')
+            }
+            className="flex items-center gap-1 px-2 py-1.5 text-xs bg-copilot-accent text-copilot-text rounded hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <PlusIcon size={12} />
+            Add
+          </button>
+        </div>
+
+        {/* Commands list */}
+        <div className="space-y-1">
+          {globalSafeCommands.length === 0 ? (
+            <div className="text-xs text-copilot-text-muted py-2">
+              No global commands configured.
+            </div>
+          ) : (
+            globalSafeCommands.map((cmd) => (
+              <div
+                key={cmd}
+                className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-copilot-surface-hover transition-colors"
+              >
+                <GlobeIcon size={12} className="shrink-0 text-copilot-accent" />
+                <span className="flex-1 truncate font-mono text-xs text-copilot-text-muted">
+                  {cmd}
+                </span>
+                <button
+                  onClick={() => onRemoveGlobalSafeCommand?.(cmd)}
+                  className="shrink-0 p-1 text-copilot-error hover:bg-copilot-surface rounded transition-colors"
+                  title="Remove"
+                >
+                  <CloseIcon size={12} />
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderAccessibilitySection = () => {
+    const percent = Math.round(zoomFactor * 100);
+    return (
+      <div>
+        <h4 className="text-[11px] font-semibold uppercase tracking-wider text-copilot-text-muted mb-1">
+          Zoom &amp; Font Size
+        </h4>
+        <p className="text-xs text-copilot-text-muted mb-3">
+          Adjust the overall UI and terminal font size.
+        </p>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => onZoomOut?.()}
+            className="flex items-center justify-center w-8 h-8 rounded border border-copilot-border text-copilot-text hover:bg-copilot-surface-hover"
+            title="Zoom out (Ctrl/Cmd -)"
+            aria-label="Zoom out"
+          >
+            <MinusIcon size={14} />
+          </button>
+          <div className="min-w-[70px] text-center text-sm text-copilot-text">{percent}%</div>
+          <button
+            onClick={() => onZoomIn?.()}
+            className="flex items-center justify-center w-8 h-8 rounded border border-copilot-border text-copilot-text hover:bg-copilot-surface-hover"
+            title="Zoom in (Ctrl/Cmd +)"
+            aria-label="Zoom in"
+          >
+            <PlusIcon size={14} />
+          </button>
+          <button
+            onClick={() => onResetZoom?.()}
+            className="px-2.5 py-1.5 text-xs bg-copilot-surface border border-copilot-border rounded text-copilot-text hover:bg-copilot-surface-hover"
+            title="Reset zoom (Ctrl/Cmd 0)"
+            aria-label="Reset zoom (Ctrl/Cmd 0)"
+          >
+            Reset
+          </button>
+        </div>
+        <div className="mt-3 text-xs text-copilot-text-muted space-y-1">
+          <div>
+            Shortcuts:{' '}
+            <kbd className="px-1 py-0.5 rounded border border-copilot-border bg-copilot-surface">
+              Ctrl/Cmd
+            </kbd>{' '}
+            +{' '}
+            <kbd className="px-1 py-0.5 rounded border border-copilot-border bg-copilot-surface">
+              +
+            </kbd>
+            ,{' '}
+            <kbd className="px-1 py-0.5 rounded border border-copilot-border bg-copilot-surface">
+              Ctrl/Cmd
+            </kbd>{' '}
+            +{' '}
+            <kbd className="px-1 py-0.5 rounded border border-copilot-border bg-copilot-surface">
+              -
+            </kbd>{' '}
+            ,{' '}
+            <kbd className="px-1 py-0.5 rounded border border-copilot-border bg-copilot-surface">
+              Ctrl/Cmd
+            </kbd>{' '}
+            +{' '}
+            <kbd className="px-1 py-0.5 rounded border border-copilot-border bg-copilot-surface">
+              0
+            </kbd>
+          </div>
+        </div>
+      </div>
+    );
+  };
+  const renderDiagnosticsSection = () => (
+    <div>
+      <h4 className="text-[11px] font-semibold uppercase tracking-wider text-copilot-text-muted mb-1">
+        Crash Diagnostics
+      </h4>
+      <p className="text-xs text-copilot-text-muted mb-3">
+        Crash reports are stored locally only. Use the buttons below to open their locations.
+      </p>
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-sm text-copilot-text">Logs</div>
+            <div className="text-xs text-copilot-text-muted break-all">
+              {diagnosticsPaths?.logFilePath ?? 'Loading...'}
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              if (diagnosticsPaths?.logFilePath) {
+                onRevealLogFile?.(diagnosticsPaths.logFilePath);
+              }
+            }}
+            className="shrink-0 px-2 py-1.5 text-xs bg-copilot-surface text-copilot-text border border-copilot-border rounded hover:bg-copilot-surface-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={!diagnosticsPaths?.logFilePath}
+          >
+            Reveal
+          </button>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-sm text-copilot-text">Crash dumps</div>
+            <div className="text-xs text-copilot-text-muted break-all">
+              {diagnosticsPaths?.crashDumpsPath ?? 'Loading...'}
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              if (diagnosticsPaths?.crashDumpsPath) {
+                onOpenCrashDumps?.(diagnosticsPaths.crashDumpsPath);
+              }
+            }}
+            className="shrink-0 px-2 py-1.5 text-xs bg-copilot-surface text-copilot-text border border-copilot-border rounded hover:bg-copilot-surface-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={!diagnosticsPaths?.crashDumpsPath}
+          >
+            Reveal
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   const renderContent = () => {
     switch (activeSection) {
       case 'themes':
         return renderThemesSection();
+      case 'accessibility':
+        return renderAccessibilitySection();
+      case 'commands':
+        return renderCommandsSection();
       case 'voice':
         return renderVoiceSection();
       case 'sounds':
         return renderSoundsSection();
+      case 'diagnostics':
+        return renderDiagnosticsSection();
     }
   };
 

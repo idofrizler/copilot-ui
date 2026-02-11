@@ -23,7 +23,7 @@ export const UpdateAvailableModal: React.FC<UpdateAvailableModalProps> = ({
   };
 
   const handleOpenReleases = () => {
-    window.electronAPI.updates.openDownloadUrl('https://github.com/idofrizler/cooper');
+    window.electronAPI.updates.openDownloadUrl('https://github.com/CooperAgent/cooper');
   };
 
   return (

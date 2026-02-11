@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Modal } from '../Modal';
-import { Button } from '../Button';
-import { Spinner } from '../Spinner';
+import { Modal } from '../../components/Modal';
+import { Button } from '../../components/Button';
+import { Spinner } from '../../components/Spinner';
 
 interface WorktreeSession {
   id: string;

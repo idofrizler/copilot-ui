@@ -67,9 +67,17 @@ const electronAPI = {
         editedFiles?: string[];
         alwaysAllowed?: string[];
         name?: string;
+        yoloMode?: boolean;
       }[]
     ): Promise<{ success: boolean }> => {
       return ipcRenderer.invoke('copilot:saveOpenSessions', sessions);
+    },
+    // Persist a single session's mark/note immediately
+    saveSessionMark: (
+      sessionId: string,
+      mark: { markedForReview?: boolean; reviewNote?: string }
+    ): Promise<{ success: boolean }> => {
+      return ipcRenderer.invoke('copilot:saveSessionMark', { sessionId, mark });
     },
     renameSession: (sessionId: string, name: string): Promise<{ success: boolean }> => {
       return ipcRenderer.invoke('copilot:renameSession', { sessionId, name });
@@ -207,9 +215,17 @@ const electronAPI = {
     },
     setModel: (
       sessionId: string,
-      model: string
+      model: string,
+      hasMessages: boolean
+    ): Promise<{ sessionId: string; model: string; cwd?: string; newSession?: boolean }> => {
+      return ipcRenderer.invoke('copilot:setModel', { sessionId, model, hasMessages });
+    },
+    setActiveAgent: (
+      sessionId: string,
+      agentName: string | undefined,
+      hasMessages: boolean
     ): Promise<{ sessionId: string; model: string; cwd?: string }> => {
-      return ipcRenderer.invoke('copilot:setModel', { sessionId, model });
+      return ipcRenderer.invoke('copilot:setActiveAgent', { sessionId, agentName, hasMessages });
     },
     getModels: (): Promise<{
       models: { id: string; name: string; multiplier: number }[];
@@ -232,6 +248,16 @@ const electronAPI = {
       ): void => callback(data);
       ipcRenderer.on('copilot:message', handler);
       return () => ipcRenderer.removeListener('copilot:message', handler);
+    },
+    onAgentSelected: (
+      callback: (data: { sessionId: string; agentName: string; agentDisplayName?: string }) => void
+    ): (() => void) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        data: { sessionId: string; agentName: string; agentDisplayName?: string }
+      ): void => callback(data);
+      ipcRenderer.on('copilot:agentSelected', handler);
+      return () => ipcRenderer.removeListener('copilot:agentSelected', handler);
     },
     onIdle: (callback: (data: { sessionId: string }) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string }): void =>
@@ -309,6 +335,19 @@ const electronAPI = {
     }): Promise<{ success: boolean }> => {
       return ipcRenderer.invoke('copilot:permissionResponse', data);
     },
+    setYoloMode: (sessionId: string, enabled: boolean): Promise<{ success: boolean }> => {
+      return ipcRenderer.invoke('copilot:setYoloMode', { sessionId, enabled });
+    },
+    onYoloModeChanged: (
+      callback: (data: { sessionId: string; enabled: boolean; flushedCount: number }) => void
+    ): (() => void) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        data: { sessionId: string; enabled: boolean; flushedCount: number }
+      ): void => callback(data);
+      ipcRenderer.on('copilot:yoloModeChanged', handler);
+      return () => ipcRenderer.removeListener('copilot:yoloModeChanged', handler);
+    },
     getAlwaysAllowed: (sessionId: string): Promise<string[]> => {
       return ipcRenderer.invoke('copilot:getAlwaysAllowed', sessionId);
     },
@@ -326,6 +365,16 @@ const electronAPI = {
     },
     removeGlobalSafeCommand: (command: string): Promise<{ success: boolean }> => {
       return ipcRenderer.invoke('copilot:removeGlobalSafeCommand', command);
+    },
+    // Favorite models management
+    getFavoriteModels: (): Promise<string[]> => {
+      return ipcRenderer.invoke('copilot:getFavoriteModels');
+    },
+    addFavoriteModel: (modelId: string): Promise<{ success: boolean }> => {
+      return ipcRenderer.invoke('copilot:addFavoriteModel', modelId);
+    },
+    removeFavoriteModel: (modelId: string): Promise<{ success: boolean }> => {
+      return ipcRenderer.invoke('copilot:removeFavoriteModel', modelId);
     },
     // URL allowlist/denylist management
     getAllowedUrls: (): Promise<string[]> => {
@@ -477,6 +526,27 @@ const electronAPI = {
     },
     quit: (): void => {
       ipcRenderer.send('window:quit');
+    },
+    getZoomFactor: (): Promise<{ zoomFactor: number }> => {
+      return ipcRenderer.invoke('window:getZoomFactor');
+    },
+    setZoomFactor: (zoomFactor: number): Promise<{ zoomFactor: number }> => {
+      return ipcRenderer.invoke('window:setZoomFactor', zoomFactor);
+    },
+    zoomIn: (): Promise<{ zoomFactor: number }> => {
+      return ipcRenderer.invoke('window:zoomIn');
+    },
+    zoomOut: (): Promise<{ zoomFactor: number }> => {
+      return ipcRenderer.invoke('window:zoomOut');
+    },
+    resetZoom: (): Promise<{ zoomFactor: number }> => {
+      return ipcRenderer.invoke('window:resetZoom');
+    },
+    onZoomChanged: (callback: (data: { zoomFactor: number }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { zoomFactor: number }): void =>
+        callback(data);
+      ipcRenderer.on('window:zoomChanged', handler);
+      return () => ipcRenderer.removeListener('window:zoomChanged', handler);
     },
     updateTitleBarOverlay: (options: { color: string; symbolColor: string }): void => {
       ipcRenderer.send('window:updateTitleBarOverlay', options);
@@ -798,6 +868,18 @@ const electronAPI = {
       return ipcRenderer.invoke('skills:getAll', cwd);
     },
   },
+  // Agent Discovery
+  agents: {
+    getAll: (cwd?: string): Promise<{ agents: Agent[]; errors: string[] }> => {
+      return ipcRenderer.invoke('agents:getAll', cwd);
+    },
+  },
+  // Copilot Instructions Management
+  instructions: {
+    getAll: (cwd?: string): Promise<{ instructions: Instruction[]; errors: string[] }> => {
+      return ipcRenderer.invoke('instructions:getAll', cwd);
+    },
+  },
   // Browser Automation Management
   browser: {
     hasActive: (): Promise<{ active: boolean }> => {
@@ -984,6 +1066,11 @@ const electronAPI = {
       return ipcRenderer.invoke('file:openFile', filePath);
     },
   },
+  diagnostics: {
+    getPaths: (): Promise<{ logFilePath: string; crashDumpsPath: string }> => {
+      return ipcRenderer.invoke('diagnostics:getPaths');
+    },
+  },
   // Updates and Release Notes
   updates: {
     checkForUpdate: (): Promise<{
@@ -1075,6 +1162,37 @@ interface Skill {
   path: string;
   type: 'personal' | 'project';
   source: 'copilot' | 'claude';
+}
+
+// Agent types
+interface Agent {
+  name: string;
+  description?: string;
+  model?: string;
+  path: string;
+  type: 'personal' | 'project' | 'system';
+  source: 'copilot' | 'claude' | 'opencode' | 'gemini' | 'codex';
+}
+
+// Copilot Instruction types
+interface Instruction {
+  name: string;
+  path: string;
+  type: 'personal' | 'project' | 'organization';
+  scope: 'repository' | 'path-specific';
+}
+
+// Custom agent discovery
+interface CustomAgentProfile {
+  name: string;
+  description?: string;
+  model?: string;
+  tools?: string[];
+  target?: string;
+  path: string;
+  source: 'project' | 'organization' | 'personal' | 'custom';
+  sourceLabel: string;
+  prompt?: string;
 }
 
 // Worktree Session types

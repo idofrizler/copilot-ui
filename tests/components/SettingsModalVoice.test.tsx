@@ -33,6 +33,10 @@ describe('SettingsModal Voice Section', () => {
     onClose: vi.fn(),
     soundEnabled: true,
     onSoundEnabledChange: vi.fn(),
+    zoomFactor: 1,
+    onZoomIn: vi.fn(),
+    onZoomOut: vi.fn(),
+    onResetZoom: vi.fn(),
     voiceSupported: true,
     voiceMuted: false,
     onToggleVoiceMute: vi.fn(),
@@ -55,6 +59,11 @@ describe('SettingsModal Voice Section', () => {
   it('shows Voice section in sidebar', () => {
     render(<SettingsModal {...defaultProps} />);
     expect(screen.getByText('Voice')).toBeInTheDocument();
+  });
+
+  it('shows Accessibility section in sidebar', () => {
+    render(<SettingsModal {...defaultProps} />);
+    expect(screen.getByText('Accessibility')).toBeInTheDocument();
   });
 
   it('displays voice settings when Voice section is selected', () => {
@@ -175,5 +184,50 @@ describe('SettingsModal Voice Section', () => {
     expect(
       screen.getByText('Voice features are not supported in this environment.')
     ).toBeInTheDocument();
+  });
+
+  it('displays zoom controls when Accessibility section is selected', () => {
+    render(<SettingsModal {...defaultProps} zoomFactor={1.2} />);
+    fireEvent.click(screen.getByText('Accessibility'));
+
+    expect(screen.getByText('Zoom & Font Size')).toBeInTheDocument();
+    expect(screen.getByText('120%')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Zoom in' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Zoom out' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reset zoom (Ctrl/Cmd 0)' })).toBeInTheDocument();
+  });
+});
+
+describe('SettingsModal Diagnostics Section', () => {
+  it('shows diagnostics paths and triggers reveal handlers', () => {
+    const onRevealLogFile = vi.fn();
+    const onOpenCrashDumps = vi.fn();
+    render(
+      <SettingsModal
+        isOpen={true}
+        onClose={vi.fn()}
+        soundEnabled={true}
+        onSoundEnabledChange={vi.fn()}
+        diagnosticsPaths={{
+          logFilePath: 'C:\\logs\\main.log',
+          crashDumpsPath: 'C:\\crash-dumps',
+        }}
+        onRevealLogFile={onRevealLogFile}
+        onOpenCrashDumps={onOpenCrashDumps}
+      />
+    );
+
+    fireEvent.click(screen.getByText('Diagnostics'));
+
+    expect(screen.getByText('Crash Diagnostics')).toBeInTheDocument();
+    expect(screen.getByText('Logs')).toBeInTheDocument();
+    expect(screen.getByText('Crash dumps')).toBeInTheDocument();
+
+    const revealButtons = screen.getAllByText('Reveal');
+    fireEvent.click(revealButtons[0]);
+    fireEvent.click(revealButtons[1]);
+
+    expect(onRevealLogFile).toHaveBeenCalledWith('C:\\logs\\main.log');
+    expect(onOpenCrashDumps).toHaveBeenCalledWith('C:\\crash-dumps');
   });
 });

@@ -5,8 +5,11 @@ export interface Skill {
   description: string;
   license?: string;
   path: string;
+  files: string[];
   type: 'personal' | 'project';
-  source: 'copilot' | 'claude'; // Which config folder it came from
+  relativePath: string;
+  locationLabel: string;
+  source: 'copilot' | 'claude' | 'agents' | 'openai' | 'custom'; // Which config folder it came from
 }
 
 export interface SkillsResult {

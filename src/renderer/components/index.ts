@@ -4,6 +4,7 @@ export * from './Button';
 export * from './ChoiceSelector';
 export * from './CodeBlock';
 export * from './Dropdown';
+export * from './EnvironmentModal';
 export * from './FilePreviewModal';
 export * from './SidebarDrawer';
 export * from './IconButton';
@@ -13,16 +14,10 @@ export * from './Modal';
 export * from './ReleaseNotesModal';
 export * from './SearchableBranchSelect';
 export * from './SessionHistory';
-export * from './ToolActivity';
 export * from './UpdateAvailableModal';
 export * from './WelcomeWizard';
 export * from './WindowControls';
-export * from './WorktreeSessions';
 export * from './Terminal';
 export * from './SettingsModal';
 export * from './TitleBar';
-
-// Existing Components
 export * from './Spinner';
-export * from './GitBranchWidget';
-export * from './VoiceKeywordsPanel';
