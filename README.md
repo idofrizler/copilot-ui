@@ -77,10 +77,6 @@ npm run build
 
 Cooper uses the official [GitHub Copilot SDK](https://www.npmjs.com/package/@github/copilot-sdk) to communicate with GitHub Copilot via an Electron + React interface. Authentication is handled through your existing `gh` CLI login.
 
-## Community
-
-Join our [Discord server](https://discord.gg/HPmg6ygq6d) to report bugs, request features, and contribute to the project.
-
 ## License
 
 MIT

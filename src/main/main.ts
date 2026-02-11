@@ -152,9 +152,6 @@ async function writeMcpConfig(config: MCPConfigFile): Promise<void> {
 // Agent Skills - imported from skills module
 import { getAllSkills } from './skills';
 
-// Copilot Instructions - imported from instructions module
-import { getAllInstructions, getGitRoot } from './instructions';
-
 // Set up file logging only - no IPC to renderer (causes errors)
 log.transports.file.level = 'info';
 log.transports.console.level = 'info';
@@ -197,7 +194,6 @@ interface StoredSession {
   reviewNote?: string;
   untrackedFiles?: string[];
   fileViewMode?: 'flat' | 'tree';
-  yoloMode?: boolean;
 }
 
 const store = new Store({
@@ -209,7 +205,6 @@ const store = new Store({
     sessionCwds: {} as Record<string, string>, // Persistent map of sessionId -> cwd (survives session close)
     sessionMarks: {} as Record<string, { markedForReview?: boolean; reviewNote?: string }>, // Persistent mark/note state
     globalSafeCommands: [] as string[], // Globally safe commands that are auto-approved for all sessions
-    favoriteModels: [] as string[], // Model IDs marked as favorites (shown at top of model selector)
     hasSeenWelcomeWizard: false as boolean, // Whether user has completed the welcome wizard
     wizardVersion: 0 as number, // Version of wizard shown (bump to re-show wizard after updates)
     installationId: '' as string, // Unique ID for this installation (for telemetry user identification)
@@ -351,23 +346,9 @@ const copilotClients = new Map<string, CopilotClient>();
 const inFlightCopilotClients = new Map<string, Promise<CopilotClient>>();
 
 // Resolve CLI path for packaged apps
-function getCliPath(): string {
+function getCliPath(): string | undefined {
   if (!app.isPackaged) {
-    // In dev, the SDK's import.meta.resolve doesn't work in bundled code,
-    // and passing index.js would spawn it with Electron (process.execPath)
-    // which lacks newer Node.js globals. Use the native platform binary instead.
-    const platform = process.platform;
-    const arch = process.arch;
-    const cliName = platform === 'win32' ? 'copilot.exe' : 'copilot';
-    return join(
-      __dirname,
-      '..',
-      '..',
-      'node_modules',
-      '@github',
-      `copilot-${platform}-${arch}`,
-      cliName
-    );
+    return undefined; // Use default "copilot" from PATH in dev
   }
 
   // When packaged, the copilot binary is in the unpacked asar
@@ -535,98 +516,10 @@ interface SessionState {
   alwaysAllowed: Set<string>; // Per-session always-allowed executables
   allowedPaths: Set<string>; // Per-session allowed out-of-scope paths (parent directories)
   isProcessing: boolean; // Whether the session is currently waiting for a response
-  yoloMode: boolean; // Auto-approve all permission requests without prompting
 }
 const sessions = new Map<string, SessionState>();
 let activeSessionId: string | null = null;
 let sessionCounter = 0;
-
-// Registers event forwarding from a CopilotSession to the renderer via IPC.
-// Used after createSession and resumeSession to wire up the session.
-function registerSessionEventForwarding(sessionId: string, session: CopilotSession): void {
-  session.on((event) => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-
-    console.log(`[${sessionId}] Event:`, event.type);
-
-    if (event.type === 'assistant.message_delta') {
-      mainWindow.webContents.send('copilot:delta', { sessionId, content: event.data.deltaContent });
-    } else if (event.type === 'assistant.message') {
-      mainWindow.webContents.send('copilot:message', { sessionId, content: event.data.content });
-    } else if (event.type === 'session.idle') {
-      const currentSessionState = sessions.get(sessionId);
-      if (currentSessionState) currentSessionState.isProcessing = false;
-      mainWindow.webContents.send('copilot:idle', { sessionId });
-      requestUserAttention();
-    } else if (event.type === 'tool.execution_start') {
-      console.log(`[${sessionId}] Tool start FULL:`, JSON.stringify(event.data, null, 2));
-      mainWindow.webContents.send('copilot:tool-start', {
-        sessionId,
-        toolCallId: event.data.toolCallId,
-        toolName: event.data.toolName,
-        input: event.data.arguments || (event.data as Record<string, unknown>),
-      });
-    } else if (event.type === 'tool.execution_complete') {
-      console.log(`[${sessionId}] Tool end FULL:`, JSON.stringify(event.data, null, 2));
-      const completeData = event.data as Record<string, unknown>;
-      mainWindow.webContents.send('copilot:tool-end', {
-        sessionId,
-        toolCallId: event.data.toolCallId,
-        toolName: completeData.toolName,
-        input: completeData.arguments || completeData,
-        output: event.data.result?.content || completeData.output,
-      });
-    } else if (event.type === 'session.error') {
-      console.log(`[${sessionId}] Session error:`, event.data);
-      const errorMessage = event.data?.message || JSON.stringify(event.data);
-
-      // Auto-repair tool_result errors (duplicate or orphaned after compaction)
-      if (
-        errorMessage.includes('multiple `tool_result` blocks') ||
-        errorMessage.includes('each tool_use must have a single result') ||
-        errorMessage.includes('unexpected `tool_use_id`') ||
-        errorMessage.includes('Each `tool_result` block must have a corresponding `tool_use`')
-      ) {
-        log.info(`[${sessionId}] Detected tool_result corruption error, attempting auto-repair...`);
-        repairDuplicateToolResults(sessionId).then((repaired) => {
-          if (repaired) {
-            mainWindow?.webContents.send('copilot:error', {
-              sessionId,
-              message: 'Session repaired. Please resend your last message.',
-              isRepaired: true,
-            });
-          } else {
-            mainWindow?.webContents.send('copilot:error', { sessionId, message: errorMessage });
-          }
-        });
-        return;
-      }
-
-      mainWindow.webContents.send('copilot:error', { sessionId, message: errorMessage });
-    } else if (event.type === 'session.usage_info') {
-      mainWindow.webContents.send('copilot:usageInfo', {
-        sessionId,
-        tokenLimit: event.data.tokenLimit,
-        currentTokens: event.data.currentTokens,
-        messagesLength: event.data.messagesLength,
-      });
-    } else if (event.type === 'session.compaction_start') {
-      console.log(`[${sessionId}] Compaction started`);
-      mainWindow.webContents.send('copilot:compactionStart', { sessionId });
-    } else if (event.type === 'session.compaction_complete') {
-      console.log(`[${sessionId}] Compaction complete:`, event.data);
-      mainWindow.webContents.send('copilot:compactionComplete', {
-        sessionId,
-        success: event.data.success,
-        preCompactionTokens: event.data.preCompactionTokens,
-        postCompactionTokens: event.data.postCompactionTokens,
-        tokensRemoved: event.data.tokensRemoved,
-        summaryContent: event.data.summaryContent,
-        error: event.data.error,
-      });
-    }
-  });
-}
 
 // Keep-alive interval (5 minutes) to prevent session timeout
 const SESSION_KEEPALIVE_INTERVAL = 5 * 60 * 1000;
@@ -694,7 +587,91 @@ async function resumeDisconnectedSession(
       handlePermissionRequest(request, invocation, sessionId),
   });
 
-  registerSessionEventForwarding(sessionId, resumedSession);
+  // Set up event handler for resumed session
+  resumedSession.on((event) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+
+    log.info(`[${sessionId}] Event:`, event.type);
+
+    if (event.type === 'assistant.message_delta') {
+      mainWindow.webContents.send('copilot:delta', { sessionId, content: event.data.deltaContent });
+    } else if (event.type === 'assistant.message') {
+      mainWindow.webContents.send('copilot:message', { sessionId, content: event.data.content });
+    } else if (event.type === 'session.idle') {
+      const currentSessionState = sessions.get(sessionId);
+      if (currentSessionState) currentSessionState.isProcessing = false;
+      mainWindow.webContents.send('copilot:idle', { sessionId });
+      requestUserAttention();
+    } else if (event.type === 'tool.execution_start') {
+      log.info(`[${sessionId}] Tool start FULL:`, JSON.stringify(event.data, null, 2));
+      mainWindow.webContents.send('copilot:tool-start', {
+        sessionId,
+        toolCallId: event.data.toolCallId,
+        toolName: event.data.toolName,
+        input: event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
+      });
+    } else if (event.type === 'tool.execution_complete') {
+      log.info(`[${sessionId}] Tool end FULL:`, JSON.stringify(event.data, null, 2));
+      mainWindow.webContents.send('copilot:tool-end', {
+        sessionId,
+        toolCallId: event.data.toolCallId,
+        toolName: event.data.toolName,
+        input: event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
+        output: event.data.output,
+      });
+    } else if (event.type === 'tool.confirmation_requested') {
+      log.info(`[${sessionId}] Confirmation requested:`, event.data);
+      mainWindow.webContents.send('copilot:confirm', { sessionId, ...event.data });
+    } else if (event.type === 'session.error') {
+      log.info(`[${sessionId}] Session error:`, event.data);
+      const errorMessage = event.data?.message || JSON.stringify(event.data);
+
+      // Auto-repair tool_result errors (duplicate or orphaned after compaction)
+      if (
+        errorMessage.includes('multiple `tool_result` blocks') ||
+        errorMessage.includes('each tool_use must have a single result') ||
+        errorMessage.includes('unexpected `tool_use_id`') ||
+        errorMessage.includes('Each `tool_result` block must have a corresponding `tool_use`')
+      ) {
+        log.info(`[${sessionId}] Detected tool_result corruption error, attempting auto-repair...`);
+        repairDuplicateToolResults(sessionId).then((repaired) => {
+          if (repaired) {
+            mainWindow?.webContents.send('copilot:error', {
+              sessionId,
+              message: 'Session repaired. Please resend your last message.',
+              isRepaired: true,
+            });
+          } else {
+            mainWindow?.webContents.send('copilot:error', { sessionId, message: errorMessage });
+          }
+        });
+        return;
+      }
+
+      mainWindow.webContents.send('copilot:error', { sessionId, message: errorMessage });
+    } else if (event.type === 'session.usage_info') {
+      mainWindow.webContents.send('copilot:usageInfo', {
+        sessionId,
+        tokenLimit: event.data.tokenLimit,
+        currentTokens: event.data.currentTokens,
+        messagesLength: event.data.messagesLength,
+      });
+    } else if (event.type === 'session.compaction_start') {
+      log.info(`[${sessionId}] Compaction started`);
+      mainWindow.webContents.send('copilot:compactionStart', { sessionId });
+    } else if (event.type === 'session.compaction_complete') {
+      log.info(`[${sessionId}] Compaction complete:`, event.data);
+      mainWindow.webContents.send('copilot:compactionComplete', {
+        sessionId,
+        success: event.data.success,
+        preCompactionTokens: event.data.preCompactionTokens,
+        postCompactionTokens: event.data.postCompactionTokens,
+        tokensRemoved: event.data.tokensRemoved,
+        summaryContent: event.data.summaryContent,
+        error: event.data.error,
+      });
+    }
+  });
 
   // Update session state with new session object
   sessionState.session = resumedSession;
@@ -736,7 +713,6 @@ interface EarlyResumedSession {
   alwaysAllowed?: string[];
   untrackedFiles?: string[];
   fileViewMode?: 'flat' | 'tree';
-  yoloMode?: boolean;
   messages?: { role: 'user' | 'assistant'; content: string }[]; // Pre-loaded messages
 }
 let earlyResumedSessions: EarlyResumedSession[] = [];
@@ -780,7 +756,6 @@ async function startEarlySessionResumption(): Promise<void> {
         alwaysAllowed,
         untrackedFiles,
         fileViewMode,
-        yoloMode,
       } = storedSession;
       const sessionCwd = cwd || (app.isPackaged ? app.getPath('home') : process.cwd());
       const sessionModel = model || (store.get('model') as string) || 'gpt-5.2';
@@ -824,17 +799,18 @@ async function startEarlySessionResumption(): Promise<void> {
               sessionId,
               toolCallId: event.data.toolCallId,
               toolName: event.data.toolName,
-              input: event.data.arguments || (event.data as Record<string, unknown>),
+              input:
+                event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
             });
           } else if (event.type === 'tool.execution_complete') {
             console.log(`[${sessionId}] Tool end FULL:`, JSON.stringify(event.data, null, 2));
-            const completeData = event.data as Record<string, unknown>;
             mainWindow.webContents.send('copilot:tool-end', {
               sessionId,
               toolCallId: event.data.toolCallId,
-              toolName: completeData.toolName,
-              input: completeData.arguments || completeData,
-              output: event.data.result?.content || completeData.output,
+              toolName: event.data.toolName,
+              input:
+                event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
+              output: event.data.output,
             });
           }
         });
@@ -849,7 +825,6 @@ async function startEarlySessionResumption(): Promise<void> {
           alwaysAllowed: alwaysAllowedSet,
           allowedPaths: new Set(),
           isProcessing: false,
-          yoloMode: yoloMode || false,
         });
 
         console.log(`Early resumed session ${sessionId}`);
@@ -879,7 +854,6 @@ async function startEarlySessionResumption(): Promise<void> {
           alwaysAllowed: storedAlwaysAllowed,
           untrackedFiles: untrackedFiles || [],
           fileViewMode: fileViewMode || 'flat',
-          yoloMode: yoloMode || false,
           messages,
         };
         earlyResumedSessions.push(resumed);
@@ -915,34 +889,26 @@ interface ModelInfo {
   id: string;
   name: string;
   multiplier: number;
-  source?: 'api' | 'fallback'; // 'api' = from listModels(), 'fallback' = hardcoded (not in API yet)
 }
 
-// Baseline models for initial render before API loads
-// These provide immediate UI while waiting for the API response
-const BASELINE_MODELS: ModelInfo[] = [
-  { id: 'gpt-4.1', name: 'GPT-4.1', multiplier: 0, source: 'api' },
-  { id: 'gpt-5-mini', name: 'GPT-5 mini', multiplier: 0, source: 'api' },
-  { id: 'claude-haiku-4.5', name: 'Claude Haiku 4.5', multiplier: 0.33, source: 'api' },
-  { id: 'gpt-5.1-codex-mini', name: 'GPT-5.1-Codex-Mini', multiplier: 0.33, source: 'api' },
-  { id: 'claude-sonnet-4.5', name: 'Claude Sonnet 4.5', multiplier: 1, source: 'api' },
-  { id: 'claude-sonnet-4', name: 'Claude Sonnet 4', multiplier: 1, source: 'api' },
-  { id: 'gpt-5.2-codex', name: 'GPT-5.2-Codex', multiplier: 1, source: 'api' },
-  { id: 'gpt-5.1-codex-max', name: 'GPT-5.1-Codex-Max', multiplier: 1, source: 'api' },
-  { id: 'gpt-5.1-codex', name: 'GPT-5.1-Codex', multiplier: 1, source: 'api' },
-  { id: 'gpt-5.2', name: 'GPT-5.2', multiplier: 1, source: 'api' },
-  { id: 'gpt-5.1', name: 'GPT-5.1', multiplier: 1, source: 'api' },
-  { id: 'gpt-5', name: 'GPT-5', multiplier: 1, source: 'api' },
-  { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro (Preview)', multiplier: 1, source: 'api' },
-  { id: 'claude-opus-4.5', name: 'Claude Opus 4.5', multiplier: 3, source: 'api' },
-];
-
-// Fallback models that work but aren't returned by listModels() API yet
-// These should be removed once the API returns them
-// Note: multiplier is estimated, actual cost may differ
-const FALLBACK_MODELS: ModelInfo[] = [
-  { id: 'claude-opus-4.6', name: 'Claude Opus 4.6', multiplier: 3, source: 'fallback' },
-  { id: 'claude-opus-4.6-fast', name: 'Claude Opus 4.6 (fast)', multiplier: 3, source: 'fallback' },
+// Static list of available models with pricing multipliers (sorted by cost low to high)
+// This serves as the baseline list; actual availability is verified per-user
+const AVAILABLE_MODELS: ModelInfo[] = [
+  { id: 'gpt-4.1', name: 'GPT-4.1', multiplier: 0 },
+  { id: 'gpt-5-mini', name: 'GPT-5 mini', multiplier: 0 },
+  { id: 'claude-haiku-4.5', name: 'Claude Haiku 4.5', multiplier: 0.33 },
+  { id: 'gpt-5.1-codex-mini', name: 'GPT-5.1-Codex-Mini', multiplier: 0.33 },
+  { id: 'claude-sonnet-4.5', name: 'Claude Sonnet 4.5', multiplier: 1 },
+  { id: 'claude-sonnet-4', name: 'Claude Sonnet 4', multiplier: 1 },
+  { id: 'gpt-5.2-codex', name: 'GPT-5.2-Codex', multiplier: 1 },
+  { id: 'gpt-5.1-codex-max', name: 'GPT-5.1-Codex-Max', multiplier: 1 },
+  { id: 'gpt-5.1-codex', name: 'GPT-5.1-Codex', multiplier: 1 },
+  { id: 'gpt-5.2', name: 'GPT-5.2', multiplier: 1 },
+  { id: 'gpt-5.1', name: 'GPT-5.1', multiplier: 1 },
+  { id: 'gpt-5', name: 'GPT-5', multiplier: 1 },
+  { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro (Preview)', multiplier: 1 },
+  { id: 'claude-opus-4.5', name: 'Claude Opus 4.5', multiplier: 3 },
+  { id: 'claude-opus-4.6', name: 'Claude Opus 4.6', multiplier: 3 },
 ];
 
 // Cache for verified models (models confirmed available for current user)
@@ -958,59 +924,21 @@ function getVerifiedModels(): ModelInfo[] {
   if (verifiedModelsCache && Date.now() - verifiedModelsCache.timestamp < MODEL_CACHE_TTL) {
     return verifiedModelsCache.models;
   }
-  // If no cache, return baseline + fallback models (API models load async)
-  return [...BASELINE_MODELS, ...FALLBACK_MODELS];
+  // If no cache, return baseline models (verification happens async)
+  return AVAILABLE_MODELS;
 }
 
-// Fetch models from API and merge with fallback models
-// API models are source of truth; fallback models added if not already in API response
+// Verify which models are available for the current user by fetching from the server
 async function verifyAvailableModels(client: CopilotClient): Promise<ModelInfo[]> {
-  console.log('Fetching models from API...');
-
-  try {
-    const apiModels = await client.listModels();
-
-    console.log(`API returned ${apiModels.length} models`);
-
-    // Convert API response to ModelInfo, sorted by multiplier (low to high)
-    const models: ModelInfo[] = apiModels
-      .map((m) => {
-        // Extract billing multiplier with runtime check
-        const billing = (m as { billing?: { multiplier?: number } }).billing;
-        const multiplier = typeof billing?.multiplier === 'number' ? billing.multiplier : 1;
-        return {
-          id: m.id,
-          name: m.name || m.id,
-          multiplier,
-          source: 'api' as const,
-        };
-      })
-      .sort((a, b) => a.multiplier - b.multiplier);
-
-    // Add fallback models that aren't in API response
-    const apiIds = new Set(models.map((m) => m.id));
-    for (const fallback of FALLBACK_MODELS) {
-      if (!apiIds.has(fallback.id)) {
-        console.log(`Adding fallback model: ${fallback.id} (not in API response)`);
-        models.push(fallback);
-      }
-    }
-
-    // Re-sort after adding fallbacks
-    models.sort((a, b) => a.multiplier - b.multiplier);
-
-    verifiedModelsCache = { models, timestamp: Date.now() };
-    console.log(
-      `Model list complete: ${models.length} models (${apiModels.length} from API, ${models.length - apiModels.length} fallback)`
-    );
-    return models;
-  } catch (error) {
-    console.error('Failed to fetch models from API:', error);
-    // On error, use baseline + fallback models
-    const fallbackList = [...BASELINE_MODELS, ...FALLBACK_MODELS];
-    verifiedModelsCache = { models: fallbackList, timestamp: Date.now() };
-    return fallbackList;
-  }
+  console.log('Starting model verification...');
+  const available = await client.listModels();
+  const availableIds = new Set(available.map((m) => m.id));
+  const verified = AVAILABLE_MODELS.filter((model) => availableIds.has(model.id));
+  verifiedModelsCache = { models: verified, timestamp: Date.now() };
+  console.log(
+    `Model verification complete: ${verified.length}/${AVAILABLE_MODELS.length} models available`
+  );
+  return verified;
 }
 
 // Preferred models for quick, simple AI tasks (in order of preference)
@@ -1148,12 +1076,6 @@ async function handlePermissionRequest(
   const globalSafeCommands = new Set((store.get('globalSafeCommands') as string[]) || []);
 
   console.log(`[${ourSessionId}] Permission request:`, request.kind);
-
-  // Yolo mode: auto-approve all requests without prompting
-  if (sessionState?.yoloMode) {
-    console.log(`[${ourSessionId}] Yolo mode: auto-approved ${request.kind}`);
-    return { kind: 'approved' };
-  }
 
   // For shell commands, check each executable individually
   if (request.kind === 'shell' && req.fullCommandText) {
@@ -1488,7 +1410,92 @@ Browser tools available: browser_navigate, browser_click, browser_fill, browser_
 
   const sessionId = newSession.sessionId; // Use SDK's session ID
 
-  registerSessionEventForwarding(sessionId, newSession);
+  // Set up event handler for this session
+  newSession.on((event) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+
+    // Always forward events - frontend routes by sessionId
+    console.log(`[${sessionId}] Event:`, event.type);
+
+    if (event.type === 'assistant.message_delta') {
+      mainWindow.webContents.send('copilot:delta', { sessionId, content: event.data.deltaContent });
+    } else if (event.type === 'assistant.message') {
+      mainWindow.webContents.send('copilot:message', { sessionId, content: event.data.content });
+    } else if (event.type === 'session.idle') {
+      const currentSessionState = sessions.get(sessionId);
+      if (currentSessionState) currentSessionState.isProcessing = false;
+      mainWindow.webContents.send('copilot:idle', { sessionId });
+      requestUserAttention();
+    } else if (event.type === 'tool.execution_start') {
+      console.log(`[${sessionId}] Tool start FULL:`, JSON.stringify(event.data, null, 2));
+      mainWindow.webContents.send('copilot:tool-start', {
+        sessionId,
+        toolCallId: event.data.toolCallId,
+        toolName: event.data.toolName,
+        input: event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
+      });
+    } else if (event.type === 'tool.execution_complete') {
+      console.log(`[${sessionId}] Tool end FULL:`, JSON.stringify(event.data, null, 2));
+      mainWindow.webContents.send('copilot:tool-end', {
+        sessionId,
+        toolCallId: event.data.toolCallId,
+        toolName: event.data.toolName,
+        input: event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
+        output: event.data.output,
+      });
+    } else if (event.type === 'tool.confirmation_requested') {
+      console.log(`[${sessionId}] Confirmation requested:`, event.data);
+      mainWindow.webContents.send('copilot:confirm', { sessionId, ...event.data });
+    } else if (event.type === 'session.error') {
+      console.log(`[${sessionId}] Session error:`, event.data);
+      const errorMessage = event.data?.message || JSON.stringify(event.data);
+
+      // Auto-repair tool_result errors (duplicate or orphaned after compaction)
+      if (
+        errorMessage.includes('multiple `tool_result` blocks') ||
+        errorMessage.includes('each tool_use must have a single result') ||
+        errorMessage.includes('unexpected `tool_use_id`') ||
+        errorMessage.includes('Each `tool_result` block must have a corresponding `tool_use`')
+      ) {
+        log.info(`[${sessionId}] Detected tool_result corruption error, attempting auto-repair...`);
+        repairDuplicateToolResults(sessionId).then((repaired) => {
+          if (repaired) {
+            mainWindow?.webContents.send('copilot:error', {
+              sessionId,
+              message: 'Session repaired. Please resend your last message.',
+              isRepaired: true,
+            });
+          } else {
+            mainWindow?.webContents.send('copilot:error', { sessionId, message: errorMessage });
+          }
+        });
+        return;
+      }
+
+      mainWindow.webContents.send('copilot:error', { sessionId, message: errorMessage });
+    } else if (event.type === 'session.usage_info') {
+      mainWindow.webContents.send('copilot:usageInfo', {
+        sessionId,
+        tokenLimit: event.data.tokenLimit,
+        currentTokens: event.data.currentTokens,
+        messagesLength: event.data.messagesLength,
+      });
+    } else if (event.type === 'session.compaction_start') {
+      console.log(`[${sessionId}] Compaction started`);
+      mainWindow.webContents.send('copilot:compactionStart', { sessionId });
+    } else if (event.type === 'session.compaction_complete') {
+      console.log(`[${sessionId}] Compaction complete:`, event.data);
+      mainWindow.webContents.send('copilot:compactionComplete', {
+        sessionId,
+        success: event.data.success,
+        preCompactionTokens: event.data.preCompactionTokens,
+        postCompactionTokens: event.data.postCompactionTokens,
+        tokensRemoved: event.data.tokensRemoved,
+        summaryContent: event.data.summaryContent,
+        error: event.data.error,
+      });
+    }
+  });
 
   sessions.set(sessionId, {
     session: newSession,
@@ -1498,7 +1505,6 @@ Browser tools available: browser_navigate, browser_click, browser_fill, browser_
     alwaysAllowed: new Set(),
     allowedPaths: new Set(),
     isProcessing: false,
-    yoloMode: false,
   });
   activeSessionId = sessionId;
 
@@ -1737,17 +1743,18 @@ async function initCopilot(): Promise<void> {
               sessionId,
               toolCallId: event.data.toolCallId,
               toolName: event.data.toolName,
-              input: event.data.arguments || (event.data as Record<string, unknown>),
+              input:
+                event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
             });
           } else if (event.type === 'tool.execution_complete') {
             console.log(`[${sessionId}] Tool end FULL:`, JSON.stringify(event.data, null, 2));
-            const completeData = event.data as Record<string, unknown>;
             mainWindow.webContents.send('copilot:tool-end', {
               sessionId,
               toolCallId: event.data.toolCallId,
-              toolName: completeData.toolName,
-              input: completeData.arguments || completeData,
-              output: event.data.result?.content || completeData.output,
+              toolName: event.data.toolName,
+              input:
+                event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
+              output: event.data.output,
             });
           }
         });
@@ -1762,7 +1769,6 @@ async function initCopilot(): Promise<void> {
           alwaysAllowed: alwaysAllowedSet,
           allowedPaths: new Set(),
           isProcessing: false,
-          yoloMode: storedSession?.yoloMode || false,
         });
 
         const resumed = {
@@ -1774,7 +1780,6 @@ async function initCopilot(): Promise<void> {
           alwaysAllowed: storedAlwaysAllowed,
           untrackedFiles: storedSession?.untrackedFiles || [],
           fileViewMode: storedSession?.fileViewMode || 'flat',
-          yoloMode: storedSession?.yoloMode || false,
         };
         resumedSessions.push(resumed);
         console.log(
@@ -2350,45 +2355,6 @@ ipcMain.handle(
   }
 );
 
-// Handle yolo mode toggle
-ipcMain.handle(
-  'copilot:setYoloMode',
-  async (_event, data: { sessionId: string; enabled: boolean }) => {
-    const sessionState = sessions.get(data.sessionId);
-    if (sessionState) {
-      sessionState.yoloMode = data.enabled;
-      console.log(`[${data.sessionId}] Yolo mode ${data.enabled ? 'enabled' : 'disabled'}`);
-
-      // If enabling yolo mode, auto-approve any pending confirmations
-      if (data.enabled) {
-        const pendingIds = Array.from(pendingPermissions.keys()).filter((id) => {
-          const pending = pendingPermissions.get(id);
-          return pending?.sessionId === data.sessionId;
-        });
-        for (const id of pendingIds) {
-          const pending = pendingPermissions.get(id);
-          if (pending) {
-            pendingPermissions.delete(id);
-            pending.resolve({ kind: 'approved' });
-            console.log(`[${data.sessionId}] Yolo mode: flushed pending permission ${id}`);
-          }
-        }
-        // Notify renderer to clear pending confirmations
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('copilot:yoloModeChanged', {
-            sessionId: data.sessionId,
-            enabled: true,
-            flushedCount: pendingIds.length,
-          });
-        }
-      }
-
-      return { success: true };
-    }
-    return { success: false };
-  }
-);
-
 ipcMain.handle('copilot:setModel', async (_event, data: { sessionId: string; model: string }) => {
   const validModels = getVerifiedModels().map((m) => m.id);
   if (!validModels.includes(data.model)) {
@@ -2399,41 +2365,16 @@ ipcMain.handle('copilot:setModel', async (_event, data: { sessionId: string; mod
 
   const sessionState = sessions.get(data.sessionId);
   if (sessionState) {
-    const { cwd, client } = sessionState;
-
-    // Destroy local session state (conversation history is preserved on server)
+    // Destroy old session before creating new one
     console.log(`Destroying session ${data.sessionId} before model change to ${data.model}`);
     await sessionState.session.destroy();
     sessions.delete(data.sessionId);
 
-    const mcpConfig = await readMcpConfig();
-    const browserTools = createBrowserTools(data.sessionId);
-
-    // Resume the same session with the new model — preserves conversation context
-    const resumedSession = await client.resumeSession(data.sessionId, {
-      model: data.model,
-      mcpServers: mcpConfig.mcpServers,
-      tools: browserTools,
-      onPermissionRequest: (request, invocation) =>
-        handlePermissionRequest(request, invocation, resumedSession.sessionId),
-    });
-
-    const resumedSessionId = resumedSession.sessionId;
-    registerSessionEventForwarding(resumedSessionId, resumedSession);
-
-    sessions.set(resumedSessionId, {
-      session: resumedSession,
-      client,
-      model: data.model,
-      cwd,
-      alwaysAllowed: new Set(sessionState.alwaysAllowed),
-      allowedPaths: new Set(sessionState.allowedPaths),
-      isProcessing: false,
-    });
-    activeSessionId = resumedSessionId;
-
-    console.log(`Session ${resumedSessionId} resumed with model ${data.model}`);
-    return { sessionId: resumedSessionId, model: data.model, cwd };
+    // Create replacement session with new model (keep same cwd)
+    const newSessionId = await createNewSession(data.model, sessionState.cwd);
+    const newSessionState = sessions.get(newSessionId)!;
+    console.log(`Sessions after model change: ${sessions.size} active`);
+    return { sessionId: newSessionId, model: data.model, cwd: newSessionState.cwd };
   }
 
   return { model: data.model };
@@ -2495,50 +2436,6 @@ ipcMain.handle(
     } catch (error) {
       log.error('Failed to save image to temp:', error);
       return { success: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  }
-);
-
-// Persist a single session's mark/note immediately
-ipcMain.handle(
-  'copilot:saveSessionMark',
-  async (
-    _event,
-    args: { sessionId: string; mark: { markedForReview?: boolean; reviewNote?: string } }
-  ) => {
-    try {
-      const { sessionId, mark } = args;
-      const sessionMarks =
-        (store.get('sessionMarks') as Record<
-          string,
-          { markedForReview?: boolean; reviewNote?: string }
-        >) || {};
-
-      // If nothing to save (both undefined or empty), remove existing mark
-      const hasMark =
-        typeof mark.markedForReview !== 'undefined' ||
-        (typeof mark.reviewNote === 'string' && mark.reviewNote !== '');
-      if (!hasMark) {
-        delete sessionMarks[sessionId];
-      } else {
-        sessionMarks[sessionId] = {
-          ...(sessionMarks[sessionId] || {}),
-          markedForReview:
-            typeof mark.markedForReview !== 'undefined'
-              ? mark.markedForReview
-              : sessionMarks[sessionId]?.markedForReview,
-          reviewNote:
-            typeof mark.reviewNote !== 'undefined'
-              ? mark.reviewNote
-              : sessionMarks[sessionId]?.reviewNote,
-        };
-      }
-
-      store.set('sessionMarks', sessionMarks);
-      return { success: true };
-    } catch (error) {
-      console.error('Failed to save session mark:', error);
-      return { success: false };
     }
   }
 );
@@ -2818,27 +2715,6 @@ ipcMain.handle('copilot:removeGlobalSafeCommand', async (_event, command: string
   return { success: true };
 });
 
-// Favorite Models Management
-ipcMain.handle('copilot:getFavoriteModels', async () => {
-  return (store.get('favoriteModels') as string[]) || [];
-});
-
-ipcMain.handle('copilot:addFavoriteModel', async (_event, modelId: string) => {
-  const favoriteModels = (store.get('favoriteModels') as string[]) || [];
-  if (!favoriteModels.includes(modelId)) {
-    favoriteModels.push(modelId);
-    store.set('favoriteModels', favoriteModels);
-  }
-  return { success: true };
-});
-
-ipcMain.handle('copilot:removeFavoriteModel', async (_event, modelId: string) => {
-  const favoriteModels = (store.get('favoriteModels') as string[]) || [];
-  const updated = favoriteModels.filter((m) => m !== modelId);
-  store.set('favoriteModels', updated);
-  return { success: true };
-});
-
 // URL Allowlist/Denylist Management
 ipcMain.handle('copilot:getAllowedUrls', async () => {
   return (store.get('allowedUrls') as string[]) || [];
@@ -3055,31 +2931,6 @@ ipcMain.handle('git:getDiff', async (_event, data: { cwd: string; files: string[
       const { stdout: status } = await execAsync(`git status --porcelain -- ${fileArgs}`, {
         cwd: data.cwd,
       });
-
-      // For untracked files, generate a proper diff using --no-index
-      const statusLines = status.split('\n').filter(Boolean);
-      const untrackedFiles = statusLines
-        .filter((line) => line.startsWith('??'))
-        .map((line) => line.substring(3).trim());
-
-      if (untrackedFiles.length > 0) {
-        let combinedDiff = '';
-        for (const file of untrackedFiles) {
-          try {
-            await execAsync(`git diff --no-index -- /dev/null "${file}"`, { cwd: data.cwd });
-          } catch (diffError: unknown) {
-            // git diff --no-index exits with code 1 when differences are found
-            const err = diffError as { stdout?: string };
-            if (err.stdout) {
-              combinedDiff += err.stdout + '\n';
-            }
-          }
-        }
-        if (combinedDiff.trim()) {
-          return { diff: combinedDiff, success: true };
-        }
-      }
-
       return { diff: status || 'No changes detected', success: true };
     }
 
@@ -3965,18 +3816,20 @@ ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string
         sessionId,
         toolCallId: event.data.toolCallId,
         toolName: event.data.toolName,
-        input: event.data.arguments || (event.data as Record<string, unknown>),
+        input: event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
       });
     } else if (event.type === 'tool.execution_complete') {
       console.log(`[${sessionId}] Tool end FULL:`, JSON.stringify(event.data, null, 2));
-      const completeData = event.data as Record<string, unknown>;
       mainWindow.webContents.send('copilot:tool-end', {
         sessionId,
         toolCallId: event.data.toolCallId,
-        toolName: completeData.toolName,
-        input: completeData.arguments || completeData,
-        output: event.data.result?.content || completeData.output,
+        toolName: event.data.toolName,
+        input: event.data.arguments || event.data.input || (event.data as Record<string, unknown>),
+        output: event.data.output,
       });
+    } else if (event.type === 'tool.confirmation_requested') {
+      console.log(`[${sessionId}] Confirmation requested:`, event.data);
+      mainWindow.webContents.send('copilot:confirm', { sessionId, ...event.data });
     } else if (event.type === 'session.error') {
       console.log(`[${sessionId}] Session error:`, event.data);
       const errorMessage = event.data?.message || JSON.stringify(event.data);
@@ -4036,7 +3889,6 @@ ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string
     alwaysAllowed: new Set(),
     allowedPaths: new Set(),
     isProcessing: false,
-    yoloMode: false,
   });
   activeSessionId = sessionId;
 
@@ -4102,25 +3954,6 @@ ipcMain.handle('skills:getAll', async (_event, cwd?: string) => {
   }
   const result = await getAllSkills(projectCwd);
   console.log(`Found ${result.skills.length} skills (${result.errors.length} errors)`);
-  return result;
-});
-
-// Copilot Instructions handlers
-ipcMain.handle('instructions:getAll', async (_event, cwd?: string) => {
-  let workingDir = cwd;
-  if (!workingDir && sessions.size > 0) {
-    const firstSession = sessions.values().next().value;
-    if (firstSession) {
-      workingDir = firstSession.cwd;
-    }
-  }
-
-  // Detect git root for proper instruction discovery
-  const gitRoot = workingDir ? await getGitRoot(workingDir) : null;
-  const projectRoot = gitRoot || workingDir;
-
-  const result = await getAllInstructions(projectRoot, workingDir);
-  console.log(`Found ${result.instructions.length} instructions (${result.errors.length} errors)`);
   return result;
 });
 
@@ -4277,7 +4110,8 @@ if (!gotTheLock) {
     earlyResumptionPromise = startEarlySessionResumption();
 
     console.log(
-      `Initial models: ${BASELINE_MODELS.length} baseline + ${FALLBACK_MODELS.length} fallback`
+      'Baseline models:',
+      AVAILABLE_MODELS.map((m) => `${m.name} (${m.multiplier}×)`).join(', ')
     );
 
     // Set up custom application menu

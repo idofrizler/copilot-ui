@@ -67,17 +67,9 @@ const electronAPI = {
         editedFiles?: string[];
         alwaysAllowed?: string[];
         name?: string;
-        yoloMode?: boolean;
       }[]
     ): Promise<{ success: boolean }> => {
       return ipcRenderer.invoke('copilot:saveOpenSessions', sessions);
-    },
-    // Persist a single session's mark/note immediately
-    saveSessionMark: (
-      sessionId: string,
-      mark: { markedForReview?: boolean; reviewNote?: string }
-    ): Promise<{ success: boolean }> => {
-      return ipcRenderer.invoke('copilot:saveSessionMark', { sessionId, mark });
     },
     renameSession: (sessionId: string, name: string): Promise<{ success: boolean }> => {
       return ipcRenderer.invoke('copilot:renameSession', { sessionId, name });
@@ -317,19 +309,6 @@ const electronAPI = {
     }): Promise<{ success: boolean }> => {
       return ipcRenderer.invoke('copilot:permissionResponse', data);
     },
-    setYoloMode: (sessionId: string, enabled: boolean): Promise<{ success: boolean }> => {
-      return ipcRenderer.invoke('copilot:setYoloMode', { sessionId, enabled });
-    },
-    onYoloModeChanged: (
-      callback: (data: { sessionId: string; enabled: boolean; flushedCount: number }) => void
-    ): (() => void) => {
-      const handler = (
-        _event: Electron.IpcRendererEvent,
-        data: { sessionId: string; enabled: boolean; flushedCount: number }
-      ): void => callback(data);
-      ipcRenderer.on('copilot:yoloModeChanged', handler);
-      return () => ipcRenderer.removeListener('copilot:yoloModeChanged', handler);
-    },
     getAlwaysAllowed: (sessionId: string): Promise<string[]> => {
       return ipcRenderer.invoke('copilot:getAlwaysAllowed', sessionId);
     },
@@ -347,16 +326,6 @@ const electronAPI = {
     },
     removeGlobalSafeCommand: (command: string): Promise<{ success: boolean }> => {
       return ipcRenderer.invoke('copilot:removeGlobalSafeCommand', command);
-    },
-    // Favorite models management
-    getFavoriteModels: (): Promise<string[]> => {
-      return ipcRenderer.invoke('copilot:getFavoriteModels');
-    },
-    addFavoriteModel: (modelId: string): Promise<{ success: boolean }> => {
-      return ipcRenderer.invoke('copilot:addFavoriteModel', modelId);
-    },
-    removeFavoriteModel: (modelId: string): Promise<{ success: boolean }> => {
-      return ipcRenderer.invoke('copilot:removeFavoriteModel', modelId);
     },
     // URL allowlist/denylist management
     getAllowedUrls: (): Promise<string[]> => {
@@ -829,12 +798,6 @@ const electronAPI = {
       return ipcRenderer.invoke('skills:getAll', cwd);
     },
   },
-  // Copilot Instructions Management
-  instructions: {
-    getAll: (cwd?: string): Promise<{ instructions: Instruction[]; errors: string[] }> => {
-      return ipcRenderer.invoke('instructions:getAll', cwd);
-    },
-  },
   // Browser Automation Management
   browser: {
     hasActive: (): Promise<{ active: boolean }> => {
@@ -1112,14 +1075,6 @@ interface Skill {
   path: string;
   type: 'personal' | 'project';
   source: 'copilot' | 'claude';
-}
-
-// Copilot Instruction types
-interface Instruction {
-  name: string;
-  path: string;
-  type: 'personal' | 'project' | 'organization';
-  scope: 'repository' | 'path-specific';
 }
 
 // Worktree Session types
