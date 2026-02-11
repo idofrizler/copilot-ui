@@ -1,6 +1,6 @@
 {
   "name": "cooper",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A beautiful native desktop GUI for GitHub Copilot",
   "main": "./out/main/index.js",
   "author": "Ido Frizler",
