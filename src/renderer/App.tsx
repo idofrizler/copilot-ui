@@ -744,6 +744,19 @@ const App: React.FC = () => {
     }
   }, [shouldShowWizardWhenReady, dataLoaded]);
 
+  // Expose dev console helper to trigger the wizard: window.cooper.showWizard()
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development' || import.meta.env.DEV) {
+      (window as any).cooper = {
+        ...(window as any).cooper,
+        showWizard: () => {
+          setShowWelcomeWizard(true);
+          console.log('🧙 Welcome wizard triggered via dev console');
+        },
+      };
+    }
+  }, []);
+
   // Focus input when active tab changes
   useEffect(() => {
     if (activeTabId) {
