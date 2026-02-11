@@ -23,7 +23,9 @@ export const UpdateAvailableModal: React.FC<UpdateAvailableModalProps> = ({
   };
 
   const handleOpenReleases = () => {
-    window.electronAPI.updates.openDownloadUrl('https://github.com/CooperAgent/cooper');
+    window.electronAPI.updates.openDownloadUrl(
+      'https://github.com/CooperAgent/cooper/releases/latest'
+    );
   };
 
   return (
@@ -69,23 +71,8 @@ export const UpdateAvailableModal: React.FC<UpdateAvailableModalProps> = ({
           </div>
 
           <p className="text-copilot-text-muted text-xs text-center">
-            Pull the latest version and rebuild to upgrade.
+            Visit the releases page to download the latest version.
           </p>
-
-          <div className="space-y-3 text-xs">
-            <div>
-              <div className="text-copilot-text-muted mb-1">macOS</div>
-              <pre className="bg-copilot-background rounded p-2 overflow-auto whitespace-pre-wrap">
-                {`cd cooper\ngit pull\nnpm install\nnpm run dist\nopen release/Cooper-*-arm64.dmg`}
-              </pre>
-            </div>
-            <div>
-              <div className="text-copilot-text-muted mb-1">Windows (PowerShell)</div>
-              <pre className="bg-copilot-background rounded p-2 overflow-auto whitespace-pre-wrap">
-                {`cd cooper\ngit pull\npwsh -NoProfile -File .\\scripts\\setup-windows.ps1\nnpm run dist:win`}
-              </pre>
-            </div>
-          </div>
         </div>
       </Modal.Body>
       <Modal.Footer className="p-4 border-t border-copilot-border">
@@ -95,7 +82,7 @@ export const UpdateAvailableModal: React.FC<UpdateAvailableModalProps> = ({
               Later
             </Button>
             <Button variant="primary" onClick={handleOpenReleases}>
-              Open Repository
+              Open Releases
             </Button>
           </div>
           <div className="flex justify-center">

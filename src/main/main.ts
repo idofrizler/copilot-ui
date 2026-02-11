@@ -5247,14 +5247,16 @@ interface GitHubRelease {
   body: string;
   html_url: string;
   published_at: string;
+  prerelease: boolean;
   assets: Array<{ name: string; browser_download_url: string }>;
 }
 
 // Check for updates from GitHub releases
 ipcMain.handle('updates:checkForUpdate', async () => {
   try {
+    // Fetch release list so we can skip non-semver tags (e.g. the "assets" release)
     const response = await fetch(
-      `https://api.github.com/repos/${GITHUB_REPO_OWNER}/${GITHUB_REPO_NAME}/releases/latest`,
+      `https://api.github.com/repos/${GITHUB_REPO_OWNER}/${GITHUB_REPO_NAME}/releases?per_page=10`,
       {
         headers: {
           Accept: 'application/vnd.github.v3+json',
@@ -5270,7 +5272,15 @@ ipcMain.handle('updates:checkForUpdate', async () => {
       throw new Error(`GitHub API error: ${response.status}`);
     }
 
-    const release = (await response.json()) as GitHubRelease;
+    const releases = (await response.json()) as GitHubRelease[];
+    // Find the first non-prerelease release with a semver tag
+    const semverRegex = /^v?\d+\.\d+\.\d+$/;
+    const release = releases.find((r) => !r.prerelease && semverRegex.test(r.tag_name));
+
+    if (!release) {
+      return { hasUpdate: false, error: 'No semver releases found' };
+    }
+
     const latestVersion = release.tag_name.replace(/^v/, '');
 
     // Get current version from package.json
@@ -5297,15 +5307,19 @@ ipcMain.handle('updates:checkForUpdate', async () => {
     // Compare versions (simple comparison, assumes semver)
     const hasUpdate = compareVersions(latestVersion, currentVersion) > 0;
 
+    // Pick a platform-appropriate download asset
+    const isWindows = process.platform === 'win32';
+    const installerAsset = release.assets.find((a) =>
+      isWindows ? a.name.endsWith('.exe') : a.name.endsWith('.dmg')
+    );
+
     return {
       hasUpdate: hasUpdate && latestVersion !== (store.get('dismissedUpdateVersion', '') as string),
       currentVersion,
       latestVersion,
       releaseNotes: release.body || '',
       releaseUrl: release.html_url,
-      downloadUrl:
-        release.assets.find((a) => a.name.endsWith('.dmg'))?.browser_download_url ||
-        release.html_url,
+      downloadUrl: installerAsset?.browser_download_url || release.html_url,
     };
   } catch (error) {
     console.error('Failed to check for updates:', error);

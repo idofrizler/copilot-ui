@@ -64,17 +64,19 @@ describe('UpdateAvailableModal', () => {
     expect(defaultProps.onClose).toHaveBeenCalled();
   });
 
-  it('opens repository page when Open Repository button is clicked', async () => {
+  it('opens releases page when Open Releases button is clicked', async () => {
     render(<UpdateAvailableModal {...defaultProps} />);
 
     await waitFor(() => {
-      expect(screen.getByText('Open Repository')).toBeInTheDocument();
+      expect(screen.getByText('Open Releases')).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByText('Open Repository'));
+    fireEvent.click(screen.getByText('Open Releases'));
 
     await waitFor(() => {
-      expect(mockOpenDownloadUrl).toHaveBeenCalled();
+      expect(mockOpenDownloadUrl).toHaveBeenCalledWith(
+        'https://github.com/CooperAgent/cooper/releases/latest'
+      );
     });
   });
 });
