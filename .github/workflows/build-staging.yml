@@ -2,9 +2,9 @@ name: Build Staging
 
 on:
   push:
-    branches: [staging]
+    branches: [staging, main]
   pull_request:
-    branches: [staging]
+    branches: [staging, main]
 
 permissions:
   contents: read
@@ -14,7 +14,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      src: ${{ steps.filter.outputs.src }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            src:
+              - 'src/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'tsconfig.json'
+              - 'tsconfig.node.json'
+              - 'electron.vite.config.ts'
+              - 'vitest.config.ts'
+              - 'tests/**'
+
   test:
+    needs: changes
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -23,20 +44,26 @@ jobs:
       fail-fast: false
 
     steps:
+      - name: Skip (no code changes)
+        if: needs.changes.outputs.src != 'true'
+        run: echo "No code changes — skipping tests"
+
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.src == 'true'
 
       - uses: actions/setup-node@v4
+        if: needs.changes.outputs.src == 'true'
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
 
       - name: Install dependencies (Windows)
-        if: runner.os == 'Windows'
+        if: needs.changes.outputs.src == 'true' && runner.os == 'Windows'
         run: npm ci --ignore-scripts && npx patch-package
 
       # Cache must be AFTER npm ci (which deletes node_modules)
       - name: Cache node-pty build (Windows)
-        if: runner.os == 'Windows'
+        if: needs.changes.outputs.src == 'true' && runner.os == 'Windows'
         id: cache-node-pty
         uses: actions/cache@v4
         with:
@@ -46,30 +73,34 @@ jobs:
             node-pty-${{ runner.os }}-node${{ matrix.node-version }}-electron-
 
       - name: Rebuild node-pty (Windows, cache miss)
-        if: runner.os == 'Windows' && steps.cache-node-pty.outputs.cache-hit != 'true'
+        if: needs.changes.outputs.src == 'true' && runner.os == 'Windows' && steps.cache-node-pty.outputs.cache-hit != 'true'
         run: npx @electron/rebuild -w node-pty
 
       - name: Install dependencies (Unix)
-        if: runner.os != 'Windows'
+        if: needs.changes.outputs.src == 'true' && runner.os != 'Windows'
         run: npm ci --ignore-scripts && npm run rebuild-pty || true
 
       - name: Run unit tests
+        if: needs.changes.outputs.src == 'true'
         run: npm test
 
       - name: Build application
+        if: needs.changes.outputs.src == 'true'
         run: npm run build
 
       - name: Start Xvfb (Linux)
-        if: runner.os == 'Linux'
+        if: needs.changes.outputs.src == 'true' && runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb
           Xvfb :99 -screen 0 1024x768x24 &
 
       - name: Install Electron binary
+        if: needs.changes.outputs.src == 'true'
         run: node node_modules/electron/install.js
 
       - name: Check for module import error
+        if: needs.changes.outputs.src == 'true'
         run: node scripts/test-electron-startup.js
         env:
           DISPLAY: ':99'
