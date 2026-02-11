@@ -3357,7 +3357,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       command: isLocal ? (server as MCPLocalServerConfig).command : '',
       args: isLocal ? (server as MCPLocalServerConfig).args.join(' ') : '',
       url: !isLocal ? (server as MCPRemoteServerConfig).url : '',
-      tools: server.tools[0] === '*' ? '*' : server.tools.join(', '),
+      tools: server.tools?.[0] === '*' ? '*' : (server.tools || []).join(', '),
     });
     setShowMcpModal(true);
   };
@@ -4567,7 +4567,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                           const isLocal =
                             !server.type || server.type === 'local' || server.type === 'stdio';
                           const toolCount =
-                            server.tools[0] === '*' ? 'all' : `${server.tools.length}`;
+                            server.tools?.[0] === '*' ? 'all' : `${server.tools?.length ?? 0}`;
                           return (
                             <div key={name} className="flex items-center gap-2 text-xs">
                               {isLocal ? (
