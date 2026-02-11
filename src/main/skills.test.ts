@@ -56,6 +56,9 @@ describe('skills module', () => {
     mocks.existsSync.mockReset();
     mocks.readdirSync.mockReset();
     mocks.readFile.mockReset();
+    // Clear XDG env vars to ensure tests use mocked app.getPath('home')
+    delete process.env.XDG_CONFIG_HOME;
+    delete process.env.XDG_STATE_HOME;
   });
 
   describe('scanSkillsDirectory', () => {

@@ -29,10 +29,9 @@ export function parseAgentFrontmatter(content: string): {
   }
 
   const frontmatter = frontmatterMatch[1];
-  const result: { name?: string; description?: string; model?: string; hasFrontmatter: boolean } =
-    {
-      hasFrontmatter: true,
-    };
+  const result: { name?: string; description?: string; model?: string; hasFrontmatter: boolean } = {
+    hasFrontmatter: true,
+  };
 
   const lines = frontmatter.split('\n');
   for (const line of lines) {
@@ -169,8 +168,17 @@ export async function getAllAgents(projectRoot?: string, cwd?: string): Promise<
 
   const homePath = app.getPath('home');
 
+  // Get .copilot config path - respects XDG_CONFIG_HOME
+  const getCopilotConfigPath = (): string => {
+    const xdgConfigHome = process.env.XDG_CONFIG_HOME;
+    if (xdgConfigHome) {
+      return join(xdgConfigHome, '.copilot');
+    }
+    return join(homePath, '.copilot');
+  };
+
   const personalDirs = [
-    { path: join(homePath, '.copilot', 'agents'), source: 'copilot' as const },
+    { path: join(getCopilotConfigPath(), 'agents'), source: 'copilot' as const },
     { path: join(homePath, '.claude', 'agents'), source: 'claude' as const },
     { path: join(homePath, '.config', 'opencode', 'agents'), source: 'opencode' as const },
   ];

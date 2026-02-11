@@ -6,10 +6,10 @@
   "author": "Cooper Labs",
   "license": "MIT",
   "scripts": {
-    "dev": "npm run prebuild-info && electron-vite dev",
+    "dev": "npm run prebuild-info && node scripts/dev-env.js",
     "build": "npm run prebuild-info && electron-vite build",
     "preview": "npm run prebuild-info && electron-vite preview",
-    "start": "npm run prebuild-info && electron-vite dev",
+    "start": "npm run prebuild-info && node scripts/dev-env.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:components": "vitest run --config vitest.config.ts tests/components",

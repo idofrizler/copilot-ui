@@ -84,8 +84,17 @@ export async function getAllInstructions(
 
   const homePath = app.getPath('home');
 
-  // Personal/local instructions: ~/.copilot/copilot-instructions.md
-  const localPath = join(homePath, '.copilot', 'copilot-instructions.md');
+  // Get .copilot config path - respects XDG_CONFIG_HOME
+  const getCopilotConfigPath = (): string => {
+    const xdgConfigHome = process.env.XDG_CONFIG_HOME;
+    if (xdgConfigHome) {
+      return join(xdgConfigHome, '.copilot');
+    }
+    return join(homePath, '.copilot');
+  };
+
+  // Personal/local instructions: ~/.copilot/copilot-instructions.md (or XDG_CONFIG_HOME)
+  const localPath = join(getCopilotConfigPath(), 'copilot-instructions.md');
   try {
     if (existsSync(localPath)) {
       const s = await stat(localPath);

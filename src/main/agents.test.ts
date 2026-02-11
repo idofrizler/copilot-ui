@@ -52,6 +52,9 @@ import { getAllAgents } from './agents';
 describe('agents module', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Clear XDG env vars to ensure tests use mocked app.getPath('home')
+    delete process.env.XDG_CONFIG_HOME;
+    delete process.env.XDG_STATE_HOME;
   });
 
   it('should return empty when no agent files exist', async () => {

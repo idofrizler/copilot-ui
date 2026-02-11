@@ -108,17 +108,47 @@ interface MCPConfigFile {
   mcpServers: Record<string, MCPServerConfig>;
 }
 
+// XDG Base Directory helpers - respect standard env vars for config/state isolation
+// See: https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html
+
+// Get .copilot config base path - respects XDG_CONFIG_HOME
+const getCopilotConfigPath = (): string => {
+  const xdgConfigHome = process.env.XDG_CONFIG_HOME;
+  if (xdgConfigHome) {
+    return join(xdgConfigHome, '.copilot');
+  }
+  return join(app.getPath('home'), '.copilot');
+};
+
+// Get .copilot state base path - respects XDG_STATE_HOME
+const getCopilotStatePath = (): string => {
+  const xdgStateHome = process.env.XDG_STATE_HOME;
+  if (xdgStateHome) {
+    return join(xdgStateHome, '.copilot');
+  }
+  return join(app.getPath('home'), '.copilot');
+};
+
+// Get worktree sessions directory - respects COPILOT_SESSIONS_HOME
+const getWorktreeSessionsPath = (): string => {
+  const sessionsHome = process.env.COPILOT_SESSIONS_HOME;
+  if (sessionsHome) {
+    return sessionsHome;
+  }
+  return join(app.getPath('home'), '.copilot-sessions');
+};
+
 // Path to MCP config file
-const getMcpConfigPath = (): string => join(app.getPath('home'), '.copilot', 'mcp-config.json');
+const getMcpConfigPath = (): string => join(getCopilotConfigPath(), 'mcp-config.json');
 
 // Copilot folders that are safe to read from without permission (Issue #87)
 // These contain session state data (plans, configs) and are low-risk for read-only access
 const getSafeCopilotReadPaths = (): string[] => {
   const home = app.getPath('home');
   return [
-    join(home, '.copilot-sessions'), // Worktree sessions directory
-    join(home, '.copilot', 'session-state'), // Session state (plan.md files)
-    join(home, '.copilot', 'skills'), // Personal skills directory
+    getWorktreeSessionsPath(), // Worktree sessions directory
+    join(getCopilotStatePath(), 'session-state'), // Session state (plan.md files)
+    join(getCopilotConfigPath(), 'skills'), // Personal skills directory
     join(home, '.claude', 'skills'), // Personal Claude skills
     join(home, '.claude', 'commands'), // Legacy Claude commands
     join(home, '.agents', 'skills'), // Personal .agents skills
@@ -145,7 +175,7 @@ async function readMcpConfig(): Promise<MCPConfigFile> {
 // Write MCP config to file
 async function writeMcpConfig(config: MCPConfigFile): Promise<void> {
   const configPath = getMcpConfigPath();
-  const configDir = join(app.getPath('home'), '.copilot');
+  const configDir = getCopilotConfigPath();
 
   // Ensure directory exists
   if (!existsSync(configDir)) {
@@ -239,7 +269,10 @@ const broadcastZoomFactor = (zoomFactor: number): void => {
   }
 };
 
+// Use separate config file in dev mode to avoid overwriting production settings
+// COOPER_DEV_MODE is set by scripts/dev-env.js when running `npm run dev`
 const store = new Store({
+  name: process.env.COOPER_DEV_MODE === 'true' ? 'config-dev' : 'config',
   defaults: {
     model: 'gpt-5.2',
     openSessions: [] as StoredSession[], // Sessions that were open in our app with their models and cwd
@@ -469,8 +502,7 @@ async function getClientForCwd(cwd: string): Promise<CopilotClient> {
 // This can happen when a session is resumed while a tool is executing
 // The bug inserts a session.resume event between tool.execution_start and tool.execution_complete
 async function repairDuplicateToolResults(sessionId: string): Promise<boolean> {
-  const homedir = process.env.HOME || process.env.USERPROFILE || '';
-  const eventsPath = join(homedir, '.copilot', 'session-state', sessionId, 'events.jsonl');
+  const eventsPath = join(getCopilotStatePath(), 'session-state', sessionId, 'events.jsonl');
 
   try {
     if (!existsSync(eventsPath)) {
@@ -2916,7 +2948,7 @@ ipcMain.handle(
   'copilot:saveImageToTemp',
   async (_event, data: { dataUrl: string; filename: string }) => {
     try {
-      const imageDir = join(app.getPath('home'), '.copilot', 'images');
+      const imageDir = join(getCopilotStatePath(), 'images');
       if (!existsSync(imageDir)) {
         mkdirSync(imageDir, { recursive: true });
       }
@@ -3000,7 +3032,7 @@ ipcMain.handle('copilot:fetchImageFromUrl', async (_event, url: string) => {
     const extension = contentType.split('/')[1]?.split(';')[0] || 'png';
     const filename = `image-${Date.now()}.${extension}`;
 
-    const imageDir = join(app.getPath('home'), '.copilot', 'images');
+    const imageDir = join(getCopilotStatePath(), 'images');
     if (!existsSync(imageDir)) {
       mkdirSync(imageDir, { recursive: true });
     }
@@ -3031,7 +3063,7 @@ ipcMain.handle(
   'copilot:saveFileToTemp',
   async (_event, data: { dataUrl: string; filename: string; mimeType: string }) => {
     try {
-      const filesDir = join(app.getPath('home'), '.copilot', 'files');
+      const filesDir = join(getCopilotStatePath(), 'files');
       if (!existsSync(filesDir)) {
         mkdirSync(filesDir, { recursive: true });
       }
@@ -3154,7 +3186,7 @@ ipcMain.handle('copilot:deleteSessionFromHistory', async (_event, sessionId: str
     await client.deleteSession(sessionId);
 
     // Also clean up the session-state folder if it exists
-    const sessionStateDir = join(app.getPath('home'), '.copilot', 'session-state', sessionId);
+    const sessionStateDir = join(getCopilotStatePath(), 'session-state', sessionId);
     if (existsSync(sessionStateDir)) {
       const { rm } = await import('fs/promises');
       await rm(sessionStateDir, { recursive: true, force: true });
@@ -4896,7 +4928,7 @@ if (!gotTheLock) {
     Menu.setApplicationMenu(menu);
 
     // Clean up old cached images async (non-blocking to improve startup time)
-    const imageDir = join(app.getPath('home'), '.copilot', 'images');
+    const imageDir = join(getCopilotStatePath(), 'images');
     setImmediate(() => {
       if (existsSync(imageDir)) {
         const now = Date.now();
