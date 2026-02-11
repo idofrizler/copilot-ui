@@ -40,8 +40,7 @@ export const GitBranchWidget: React.FC<GitBranchWidgetProps> = ({ cwd, refreshKe
           branch: result.branch || '',
         });
         // Also check if cwd itself is a worktree path
-        const isWorktreePath =
-          cwd.includes('.cooper-sessions') || cwd.includes('.copilot-sessions');
+        const isWorktreePath = cwd.includes('.copilot-sessions');
         setIsWorktree(!!worktreeSession || isWorktreePath);
       } catch (err) {
         console.error('Failed to get git branch:', err);

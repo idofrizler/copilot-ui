@@ -165,7 +165,7 @@ describe('worktree module', () => {
               id: 'test-repo--feature',
               repoPath: '/Users/test/Git/test-repo',
               branch: 'feature',
-              worktreePath: '/tmp/test-home/.cooper-sessions/test-repo--feature',
+              worktreePath: '/tmp/test-home/.copilot-sessions/test-repo--feature',
               createdAt: new Date().toISOString(),
               lastAccessedAt: new Date().toISOString(),
               status: 'active',

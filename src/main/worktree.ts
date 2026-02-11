@@ -40,7 +40,7 @@ const getWorktreeSessionsPath = (): string => {
   if (sessionsHome) {
     return sessionsHome;
   }
-  return join(app.getPath('home'), '.cooper-sessions');
+  return join(app.getPath('home'), '.copilot-sessions');
 };
 
 // GitHub issue types

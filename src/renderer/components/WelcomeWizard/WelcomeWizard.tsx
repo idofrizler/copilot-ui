@@ -35,7 +35,7 @@ const steps: WizardStep[] = [
   {
     title: '🌳 Git Worktree Sessions',
     description:
-      'Create isolated git worktrees for different branches. Paste a GitHub issue URL to automatically create a worktree in ~/.cooper-sessions/. Work on multiple issues simultaneously without branch switching.',
+      'Create isolated git worktrees for different branches. Paste a GitHub issue URL to automatically create a worktree in ~/.copilot-sessions/. Work on multiple issues simultaneously without branch switching.',
     locationHint:
       '📍 In the left sidebar, click "New from Issue" or use ⌘N to create a worktree session.',
     icon: (

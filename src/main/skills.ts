@@ -218,8 +218,7 @@ export async function getAllSkills(projectCwd?: string): Promise<SkillsResult> {
       'out',
       'release',
       'coverage',
-      '.cooper-sessions',
-      '.copilot-sessions', // Legacy support
+      '.copilot-sessions',
       '.copilot',
     ]);
 

@@ -303,23 +303,20 @@ export const CommitModal: React.FC<CommitModalProps> = ({
                   </div>
 
                   {/* Remove worktree option - only visible when merge is selected and in a worktree */}
-                  {commitAction === 'merge' &&
-                    activeTab?.cwd &&
-                    (activeTab.cwd.includes('.cooper-sessions') ||
-                      activeTab.cwd.includes('.copilot-sessions')) && (
-                      <div className="mb-4 flex items-center gap-2">
-                        <label className="flex items-center gap-2 text-xs text-copilot-text-muted cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={removeWorktreeAfterMerge}
-                            onChange={(e) => onRemoveWorktreeChange(e.target.checked)}
-                            className="rounded border-copilot-border bg-copilot-bg accent-copilot-accent"
-                            disabled={isCommitting}
-                          />
-                          Remove worktree after merge
-                        </label>
-                      </div>
-                    )}
+                  {commitAction === 'merge' && activeTab?.cwd.includes('.copilot-sessions') && (
+                    <div className="mb-4 flex items-center gap-2">
+                      <label className="flex items-center gap-2 text-xs text-copilot-text-muted cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={removeWorktreeAfterMerge}
+                          onChange={(e) => onRemoveWorktreeChange(e.target.checked)}
+                          className="rounded border-copilot-border bg-copilot-bg accent-copilot-accent"
+                          disabled={isCommitting}
+                        />
+                        Remove worktree after merge
+                      </label>
+                    </div>
+                  )}
 
                   {/* Error message */}
                   {commitError && (
