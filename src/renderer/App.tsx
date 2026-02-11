@@ -280,10 +280,7 @@ const App: React.FC = () => {
   );
 
   // Flat list of all non-system agents for subagents widget
-  const flatAgents = useMemo(
-    () => agents.filter((agent) => agent.type !== 'system'),
-    [agents]
-  );
+  const flatAgents = useMemo(() => agents.filter((agent) => agent.type !== 'system'), [agents]);
 
   const mcpEntries = useMemo(() => Object.entries(mcpServers), [mcpServers]);
 
@@ -1070,7 +1067,7 @@ const App: React.FC = () => {
       event?.stopPropagation();
       setFilePreviewPath(null);
       setEnvironmentTab(tab);
-      
+
       // Set the appropriate path based on the tab
       if (tab === 'instructions') {
         setEnvironmentInstructionPath(itemPath ?? null);
@@ -1461,9 +1458,7 @@ const App: React.FC = () => {
       const { sessionId, agentName, agentDisplayName } = data;
       const agentLabel = agentDisplayName || agentName;
       setTabs((prev) =>
-        prev.map((tab) =>
-          tab.id === sessionId ? { ...tab, activeAgentName: agentLabel } : tab
-        )
+        prev.map((tab) => (tab.id === sessionId ? { ...tab, activeAgentName: agentLabel } : tab))
       );
     });
 
@@ -1930,15 +1925,15 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       if (name === 'task' && input) {
         const agentType = input.agent_type as string | undefined;
         const description = input.description as string | undefined;
-        
+
         if (agentType) {
           console.log(`[Task Tool → Subagent] ${agentType}: ${description || 'No description'}`);
-          
+
           // Add as a subagent, not a regular tool
           setTabs((prev) =>
             prev.map((tab) => {
               if (tab.id !== sessionId) return tab;
-              
+
               return {
                 ...tab,
                 activeSubagents: [
@@ -1946,7 +1941,9 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
                   {
                     toolCallId: id,
                     agentName: agentType,
-                    agentDisplayName: agentType.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+                    agentDisplayName: agentType
+                      .replace(/-/g, ' ')
+                      .replace(/\b\w/g, (l) => l.toUpperCase()),
                     agentDescription: description,
                     status: 'running',
                     startTime: Date.now(),
@@ -4679,7 +4676,9 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                         {flatInstructions.map((instruction) => (
                           <button
                             key={instruction.path}
-                            onClick={(event) => handleOpenEnvironment('instructions', event, instruction.path)}
+                            onClick={(event) =>
+                              handleOpenEnvironment('instructions', event, instruction.path)
+                            }
                             className="w-full flex items-center gap-2 px-4 py-1.5 text-xs text-left text-copilot-text hover:bg-copilot-surface transition-colors"
                           >
                             <FileIcon size={12} className="shrink-0 text-copilot-accent" />
@@ -4710,19 +4709,28 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 {showSkills && (
                   <div>
                     {flatSkills.length === 0 ? (
-                      <div className="px-4 py-2 text-xs text-copilot-text-muted">No skills found</div>
+                      <div className="px-4 py-2 text-xs text-copilot-text-muted">
+                        No skills found
+                      </div>
                     ) : (
                       <div className="divide-y divide-copilot-border">
                         {flatSkills.map((skill) => {
                           // Find the SKILL.md file in the skill's files array
-                          const skillMdPath = skill.files.find(f => 
-                            f.toLowerCase().endsWith('skill.md') || f.toLowerCase().endsWith('skill.markdown')
-                          ) || skill.files[0] || skill.path;
-                          
+                          const skillMdPath =
+                            skill.files.find(
+                              (f) =>
+                                f.toLowerCase().endsWith('skill.md') ||
+                                f.toLowerCase().endsWith('skill.markdown')
+                            ) ||
+                            skill.files[0] ||
+                            skill.path;
+
                           return (
                             <button
                               key={skill.path}
-                              onClick={(event) => handleOpenEnvironment('skills', event, skillMdPath)}
+                              onClick={(event) =>
+                                handleOpenEnvironment('skills', event, skillMdPath)
+                              }
                               className="w-full flex items-center gap-2 px-4 py-1.5 text-xs text-left text-copilot-text hover:bg-copilot-surface transition-colors"
                             >
                               <BookIcon size={12} className="shrink-0 text-copilot-accent" />
@@ -4754,7 +4762,9 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 {showSubagents && (
                   <div>
                     {flatAgents.length === 0 ? (
-                      <div className="px-4 py-2 text-xs text-copilot-text-muted">No subagents found</div>
+                      <div className="px-4 py-2 text-xs text-copilot-text-muted">
+                        No subagents found
+                      </div>
                     ) : (
                       <div className="divide-y divide-copilot-border">
                         {flatAgents.map((agent) => (
@@ -5346,7 +5356,9 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                               // For completed messages, show stored tools
                               const isLive = message.isStreaming && message.content;
                               const toolsToShow = isLive ? activeTab?.activeTools : message.tools;
-                              const subagentsToShow = isLive ? activeTab?.activeSubagents : message.subagents;
+                              const subagentsToShow = isLive
+                                ? activeTab?.activeSubagents
+                                : message.subagents;
                               if (toolsToShow && toolsToShow.length > 0) {
                                 return (
                                   <ToolActivitySection tools={toolsToShow} isLive={!!isLive} />
@@ -5354,7 +5366,10 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                               }
                               if (subagentsToShow && subagentsToShow.length > 0) {
                                 return (
-                                  <SubagentActivitySection subagents={subagentsToShow} isLive={!!isLive} />
+                                  <SubagentActivitySection
+                                    subagents={subagentsToShow}
+                                    isLive={!!isLive}
+                                  />
                                 );
                               }
                               return null;
@@ -5520,7 +5535,10 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                         <ToolActivitySection tools={activeTab.activeTools} isLive={true} />
                       )}
                       {activeTab?.activeSubagents && activeTab.activeSubagents.length > 0 && (
-                        <SubagentActivitySection subagents={activeTab.activeSubagents} isLive={true} />
+                        <SubagentActivitySection
+                          subagents={activeTab.activeSubagents}
+                          isLive={true}
+                        />
                       )}
                       <div className="flex items-center gap-2 text-sm">
                         <Spinner size="sm" />
@@ -7187,7 +7205,9 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                               {flatInstructions.map((instruction) => (
                                 <button
                                   key={instruction.path}
-                                  onClick={(event) => handleOpenEnvironment('instructions', event, instruction.path)}
+                                  onClick={(event) =>
+                                    handleOpenEnvironment('instructions', event, instruction.path)
+                                  }
                                   className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left text-copilot-text hover:bg-copilot-surface transition-colors"
                                 >
                                   <FileIcon size={12} className="shrink-0 text-copilot-accent" />
@@ -7228,14 +7248,21 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                             <div className="divide-y divide-copilot-border">
                               {flatSkills.map((skill) => {
                                 // Find the SKILL.md file in the skill's files array
-                                const skillMdPath = skill.files.find(f => 
-                                  f.toLowerCase().endsWith('skill.md') || f.toLowerCase().endsWith('skill.markdown')
-                                ) || skill.files[0] || skill.path;
-                                
+                                const skillMdPath =
+                                  skill.files.find(
+                                    (f) =>
+                                      f.toLowerCase().endsWith('skill.md') ||
+                                      f.toLowerCase().endsWith('skill.markdown')
+                                  ) ||
+                                  skill.files[0] ||
+                                  skill.path;
+
                                 return (
                                   <button
                                     key={skill.path}
-                                    onClick={(event) => handleOpenEnvironment('skills', event, skillMdPath)}
+                                    onClick={(event) =>
+                                      handleOpenEnvironment('skills', event, skillMdPath)
+                                    }
                                     className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left text-copilot-text hover:bg-copilot-surface transition-colors"
                                   >
                                     <BookIcon size={12} className="shrink-0 text-copilot-accent" />

@@ -282,11 +282,7 @@ const electronAPI = {
       return () => ipcRenderer.removeListener('copilot:subagent-started', handler);
     },
     onSubagentCompleted: (
-      callback: (data: {
-        sessionId: string;
-        toolCallId: string;
-        agentName: string;
-      }) => void
+      callback: (data: { sessionId: string; toolCallId: string; agentName: string }) => void
     ): (() => void) => {
       const handler = (
         _event: Electron.IpcRendererEvent,

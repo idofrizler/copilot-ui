@@ -84,9 +84,7 @@ export function SubagentActivitySection({ subagents, isLive }: SubagentActivityS
                         {subagent.agentDisplayName}
                       </span>
                       {!isRunning && (
-                        <span className="text-[10px] text-copilot-text-muted">
-                          {duration}
-                        </span>
+                        <span className="text-[10px] text-copilot-text-muted">{duration}</span>
                       )}
                     </div>
                     {subagent.agentDescription && isExpanded && (

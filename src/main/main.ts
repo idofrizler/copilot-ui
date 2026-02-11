@@ -662,7 +662,9 @@ function registerSessionEventForwarding(sessionId: string, session: CopilotSessi
         agentDisplayName: event.data.agentDisplayName,
       });
     } else if (event.type === 'subagent.started') {
-      console.log(`[${sessionId}] 🤖 Subagent started: ${event.data.agentDisplayName} (${event.data.toolCallId})`);
+      console.log(
+        `[${sessionId}] 🤖 Subagent started: ${event.data.agentDisplayName} (${event.data.toolCallId})`
+      );
       mainWindow.webContents.send('copilot:subagent-started', {
         sessionId,
         toolCallId: event.data.toolCallId,
@@ -671,14 +673,18 @@ function registerSessionEventForwarding(sessionId: string, session: CopilotSessi
         agentDescription: event.data.agentDescription,
       });
     } else if (event.type === 'subagent.completed') {
-      console.log(`[${sessionId}] ✓ Subagent completed: ${event.data.agentName} (${event.data.toolCallId})`);
+      console.log(
+        `[${sessionId}] ✓ Subagent completed: ${event.data.agentName} (${event.data.toolCallId})`
+      );
       mainWindow.webContents.send('copilot:subagent-completed', {
         sessionId,
         toolCallId: event.data.toolCallId,
         agentName: event.data.agentName,
       });
     } else if (event.type === 'subagent.failed') {
-      console.log(`✗ [${sessionId}] Subagent failed: ${event.data.agentName} (${event.data.toolCallId}): ${event.data.error}`);
+      console.log(
+        `✗ [${sessionId}] Subagent failed: ${event.data.agentName} (${event.data.toolCallId}): ${event.data.error}`
+      );
       mainWindow.webContents.send('copilot:subagent-failed', {
         sessionId,
         toolCallId: event.data.toolCallId,
@@ -938,7 +944,9 @@ async function startEarlySessionResumption(): Promise<void> {
               agentDisplayName: event.data.agentDisplayName,
             });
           } else if (event.type === 'subagent.started') {
-            console.log(`[${sessionId}] 🤖 Subagent started: ${event.data.agentDisplayName} (${event.data.toolCallId})`);
+            console.log(
+              `[${sessionId}] 🤖 Subagent started: ${event.data.agentDisplayName} (${event.data.toolCallId})`
+            );
             mainWindow.webContents.send('copilot:subagent-started', {
               sessionId,
               toolCallId: event.data.toolCallId,
@@ -947,14 +955,18 @@ async function startEarlySessionResumption(): Promise<void> {
               agentDescription: event.data.agentDescription,
             });
           } else if (event.type === 'subagent.completed') {
-            console.log(`[${sessionId}] ✓ Subagent completed: ${event.data.agentName} (${event.data.toolCallId})`);
+            console.log(
+              `[${sessionId}] ✓ Subagent completed: ${event.data.agentName} (${event.data.toolCallId})`
+            );
             mainWindow.webContents.send('copilot:subagent-completed', {
               sessionId,
               toolCallId: event.data.toolCallId,
               agentName: event.data.agentName,
             });
           } else if (event.type === 'subagent.failed') {
-            console.log(`✗ [${sessionId}] Subagent failed: ${event.data.agentName} (${event.data.toolCallId}): ${event.data.error}`);
+            console.log(
+              `✗ [${sessionId}] Subagent failed: ${event.data.agentName} (${event.data.toolCallId}): ${event.data.error}`
+            );
             mainWindow.webContents.send('copilot:subagent-failed', {
               sessionId,
               toolCallId: event.data.toolCallId,
@@ -1944,7 +1956,9 @@ async function initCopilot(): Promise<void> {
               agentDisplayName: event.data.agentDisplayName,
             });
           } else if (event.type === 'subagent.started') {
-            console.log(`[${sessionId}] 🤖 Subagent started: ${event.data.agentDisplayName} (${event.data.toolCallId})`);
+            console.log(
+              `[${sessionId}] 🤖 Subagent started: ${event.data.agentDisplayName} (${event.data.toolCallId})`
+            );
             mainWindow.webContents.send('copilot:subagent-started', {
               sessionId,
               toolCallId: event.data.toolCallId,
@@ -1953,14 +1967,18 @@ async function initCopilot(): Promise<void> {
               agentDescription: event.data.agentDescription,
             });
           } else if (event.type === 'subagent.completed') {
-            console.log(`[${sessionId}] ✓ Subagent completed: ${event.data.agentName} (${event.data.toolCallId})`);
+            console.log(
+              `[${sessionId}] ✓ Subagent completed: ${event.data.agentName} (${event.data.toolCallId})`
+            );
             mainWindow.webContents.send('copilot:subagent-completed', {
               sessionId,
               toolCallId: event.data.toolCallId,
               agentName: event.data.agentName,
             });
           } else if (event.type === 'subagent.failed') {
-            console.log(`✗ [${sessionId}] Subagent failed: ${event.data.agentName} (${event.data.toolCallId}): ${event.data.error}`);
+            console.log(
+              `✗ [${sessionId}] Subagent failed: ${event.data.agentName} (${event.data.toolCallId}): ${event.data.error}`
+            );
             mainWindow.webContents.send('copilot:subagent-failed', {
               sessionId,
               toolCallId: event.data.toolCallId,
@@ -2806,9 +2824,7 @@ ipcMain.handle(
     // Fallback: destroy+resume approach (preserves history but less efficient)
     // If session has no messages, just create a new session
     if (!data.hasMessages) {
-      console.log(
-        `Creating new session with agent ${data.agentName || 'none'} (empty session)`
-      );
+      console.log(`Creating new session with agent ${data.agentName || 'none'} (empty session)`);
 
       // Destroy the old session
       await sessionState.session.destroy();
@@ -2826,9 +2842,7 @@ ipcMain.handle(
     }
 
     // Session has messages - resume to preserve conversation history
-    console.log(
-      `Switching to agent ${data.agentName || 'none'} for session ${data.sessionId}`
-    );
+    console.log(`Switching to agent ${data.agentName || 'none'} for session ${data.sessionId}`);
     await sessionState.session.destroy();
     sessions.delete(data.sessionId);
 
@@ -4464,7 +4478,9 @@ ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string
         agentDisplayName: event.data.agentDisplayName,
       });
     } else if (event.type === 'subagent.started') {
-      console.log(`[${sessionId}] 🤖 Subagent started: ${event.data.agentDisplayName} (${event.data.toolCallId})`);
+      console.log(
+        `[${sessionId}] 🤖 Subagent started: ${event.data.agentDisplayName} (${event.data.toolCallId})`
+      );
       mainWindow.webContents.send('copilot:subagent-started', {
         sessionId,
         toolCallId: event.data.toolCallId,
@@ -4473,14 +4489,18 @@ ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string
         agentDescription: event.data.agentDescription,
       });
     } else if (event.type === 'subagent.completed') {
-      console.log(`[${sessionId}] ✓ Subagent completed: ${event.data.agentName} (${event.data.toolCallId})`);
+      console.log(
+        `[${sessionId}] ✓ Subagent completed: ${event.data.agentName} (${event.data.toolCallId})`
+      );
       mainWindow.webContents.send('copilot:subagent-completed', {
         sessionId,
         toolCallId: event.data.toolCallId,
         agentName: event.data.agentName,
       });
     } else if (event.type === 'subagent.failed') {
-      console.log(`✗ [${sessionId}] Subagent failed: ${event.data.agentName} (${event.data.toolCallId}): ${event.data.error}`);
+      console.log(
+        `✗ [${sessionId}] Subagent failed: ${event.data.agentName} (${event.data.toolCallId}): ${event.data.error}`
+      );
       mainWindow.webContents.send('copilot:subagent-failed', {
         sessionId,
         toolCallId: event.data.toolCallId,
