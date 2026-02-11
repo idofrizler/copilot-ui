@@ -68,7 +68,7 @@
       }
     },
     "dmg": {
-      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "artifactName": "${productName}-${version}-mac-${arch}.${ext}",
       "backgroundColor": "#ffffff",
       "contents": [
         {
@@ -103,10 +103,10 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "artifactName": "${productName}-${version}-Setup.${ext}"
+      "artifactName": "${productName}-${version}-win-${arch}-Setup.${ext}"
     },
     "portable": {
-      "artifactName": "${productName}-${version}-Portable.${ext}"
+      "artifactName": "${productName}-${version}-win-${arch}-Portable.${ext}"
     }
   },
   "dependencies": {
