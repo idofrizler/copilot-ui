@@ -22,6 +22,8 @@ Download the latest release from the **[Releases page](https://github.com/Cooper
 | **macOS** (Apple Silicon) | `Cooper-<version>-mac-arm64.dmg`     | Signed and notarized |
 | **Windows** (x64)         | `Cooper-<version>-win-x64-Setup.exe` | Installer            |
 
+> **Note:** Cooper is an open-source project, so release executables are not officially code-signed. Your OS may show a warning on first launch. If you prefer, you can [build from source](#build-from-source) below.
+
 <details>
 <summary><b>Build from source</b></summary>
 
