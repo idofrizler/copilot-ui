@@ -1500,8 +1500,12 @@ const App: React.FC = () => {
 
         // Check for Ralph loop continuation
         if (tab?.ralphConfig?.active) {
-          const lastMessage = tab.messages[tab.messages.length - 1];
-          const hasCompletionPromise = lastMessage?.content?.includes(RALPH_COMPLETION_SIGNAL);
+          // Check ALL assistant messages for the completion signal, not just the last one.
+          // A single agent turn can produce multiple assistant.message events (between tool calls),
+          // and the signal may be in an earlier message, not the final one.
+          const hasCompletionPromise = tab.messages.some(
+            (msg) => msg.role === 'assistant' && msg.content?.includes(RALPH_COMPLETION_SIGNAL)
+          );
           const maxReached = tab.ralphConfig.currentIteration >= tab.ralphConfig.maxIterations;
 
           if (!hasCompletionPromise && !maxReached) {
@@ -1517,7 +1521,10 @@ const App: React.FC = () => {
             // If clearContextBetweenIterations is true, we provide minimal context (like Gemini Ralph)
             // and instruct the agent to re-read files for state (reduces context pollution)
             const clearContext = tab.ralphConfig.clearContextBetweenIterations ?? true;
-            const lastResponseContent = lastMessage?.content || '';
+            const lastAssistantMsg = [...tab.messages]
+              .reverse()
+              .find((m) => m.role === 'assistant');
+            const lastResponseContent = lastAssistantMsg?.content || '';
 
             let continuationPrompt: string;
 
@@ -1640,11 +1647,18 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
 
         // Check for Lisa Simpson loop continuation
         if (tab?.lisaConfig?.active) {
-          const lastMessage = tab.messages[tab.messages.length - 1];
-          const lastContent = lastMessage?.content || '';
-          const hasPhaseComplete = lastContent.includes(LISA_PHASE_COMPLETE_SIGNAL);
-          const hasReviewApprove = lastContent.includes(LISA_REVIEW_APPROVE_SIGNAL);
-          const hasReviewReject = lastContent.includes(LISA_REVIEW_REJECT_PREFIX);
+          // Check ALL recent assistant messages for phase signals, not just the last one.
+          // Same rationale as Ralph: multi-message turns may have signals in earlier messages.
+          const recentAssistantMessages = tab.messages.filter((msg) => msg.role === 'assistant');
+          const hasPhaseComplete = recentAssistantMessages.some((msg) =>
+            msg.content?.includes(LISA_PHASE_COMPLETE_SIGNAL)
+          );
+          const hasReviewApprove = recentAssistantMessages.some((msg) =>
+            msg.content?.includes(LISA_REVIEW_APPROVE_SIGNAL)
+          );
+          const hasReviewReject = recentAssistantMessages.some((msg) =>
+            msg.content?.includes(LISA_REVIEW_REJECT_PREFIX)
+          );
           const currentPhase = tab.lisaConfig.currentPhase;
           const currentVisitCount = tab.lisaConfig.phaseIterations[currentPhase] || 1;
 
