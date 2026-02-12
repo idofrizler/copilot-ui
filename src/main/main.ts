@@ -191,6 +191,7 @@ import { getAllSkills } from './skills';
 
 // Agent discovery - imported from agents module
 import { getAllAgents, parseAgentFrontmatter } from './agents';
+import { stripFrontmatter, buildAgentInjectionPrompt } from './agent-injection';
 
 // Copilot Instructions - imported from instructions module
 import { getAllInstructions, getGitRoot } from './instructions';
@@ -249,6 +250,7 @@ interface StoredSession {
   fileViewMode?: 'flat' | 'tree';
   yoloMode?: boolean;
   activeAgentName?: string;
+  activeAgentPath?: string;
 }
 
 const DEFAULT_ZOOM_FACTOR = 1;
@@ -608,10 +610,17 @@ interface SessionState {
   allowedPaths: Set<string>; // Per-session allowed out-of-scope paths (parent directories)
   isProcessing: boolean; // Whether the session is currently waiting for a response
   yoloMode: boolean; // Auto-approve all permission requests without prompting
+  selectedAgent?: {
+    name: string;
+    path: string;
+    content: string; // Cached .agent.md file content (raw, frontmatter included)
+  };
 }
 const sessions = new Map<string, SessionState>();
 let activeSessionId: string | null = null;
 let sessionCounter = 0;
+
+// --- Agent injection utilities ---
 
 // Registers event forwarding from a CopilotSession to the renderer via IPC.
 // Used after createSession and resumeSession to wire up the session.
@@ -2252,12 +2261,24 @@ ipcMain.handle(
 
     log.info(`[${data.sessionId}] Sending message with model=${sessionState.model}`);
 
+    // Inject selected agent prompt if one is active
+    let promptToSend = data.prompt;
+    if (sessionState.selectedAgent) {
+      promptToSend =
+        buildAgentInjectionPrompt(sessionState.selectedAgent.name, sessionState.selectedAgent.content) +
+        '\n\n' +
+        data.prompt;
+      log.debug(
+        `[${data.sessionId}] Injecting agent prompt for "${sessionState.selectedAgent.name}" (${sessionState.selectedAgent.content.length} chars)`
+      );
+    }
+
     const messageOptions: {
       prompt: string;
       attachments?: typeof data.attachments;
       mode?: 'enqueue' | 'immediate';
     } = {
-      prompt: data.prompt,
+      prompt: promptToSend,
       attachments: data.attachments,
     };
 
@@ -2803,6 +2824,51 @@ ipcMain.handle(
   }
 );
 
+ipcMain.handle(
+  'copilot:setSelectedAgent',
+  async (_event, data: { sessionId: string; agentPath: string | null }) => {
+    const sessionState = sessions.get(data.sessionId);
+    if (!sessionState) {
+      throw new Error(`Session not found: ${data.sessionId}`);
+    }
+
+    if (data.agentPath === null || data.agentPath === 'system:cooper-default') {
+      sessionState.selectedAgent = undefined;
+      log.info(`[${data.sessionId}] Agent selection cleared`);
+      return { success: true, agentName: null };
+    }
+
+    // Validate agentPath is a known agent
+    const knownAgents = await getAllAgents(undefined, sessionState.cwd);
+    const isKnownAgent = knownAgents.agents.some((a) => a.path === data.agentPath);
+    if (!isKnownAgent) {
+      throw new Error(`Unknown agent path: ${data.agentPath}`);
+    }
+
+    const content = await readFile(data.agentPath, 'utf-8');
+    const metadata = parseAgentFrontmatter(content);
+    const strippedContent = stripFrontmatter(content);
+
+    if (!strippedContent.trim()) {
+      log.warn(`Agent file is empty after stripping frontmatter: ${data.agentPath}`);
+      sessionState.selectedAgent = undefined;
+      return { success: true, agentName: metadata.name || null };
+    }
+
+    sessionState.selectedAgent = {
+      name: metadata.name || path.basename(data.agentPath, '.md'),
+      path: data.agentPath,
+      content,
+    };
+
+    log.info(
+      `[${data.sessionId}] Selected agent: ${sessionState.selectedAgent.name} (${data.agentPath})`
+    );
+    return { success: true, agentName: sessionState.selectedAgent.name };
+  }
+);
+
+// @deprecated — Use copilot:setSelectedAgent instead. Kept for one release cycle.
 ipcMain.handle(
   'copilot:setActiveAgent',
   async (_event, data: { sessionId: string; agentName?: string; hasMessages: boolean }) => {

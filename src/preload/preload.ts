@@ -220,6 +220,13 @@ const electronAPI = {
     ): Promise<{ sessionId: string; model: string; cwd?: string; newSession?: boolean }> => {
       return ipcRenderer.invoke('copilot:setModel', { sessionId, model, hasMessages });
     },
+    setSelectedAgent: (
+      sessionId: string,
+      agentPath: string | null
+    ): Promise<{ success: boolean; agentName: string | null }> => {
+      return ipcRenderer.invoke('copilot:setSelectedAgent', { sessionId, agentPath });
+    },
+    // @deprecated — Use setSelectedAgent instead
     setActiveAgent: (
       sessionId: string,
       agentName: string | undefined,
