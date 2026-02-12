@@ -858,6 +858,7 @@ const App: React.FC = () => {
         fileViewMode: t.fileViewMode,
         yoloMode: t.yoloMode,
         activeAgentName: t.activeAgentName,
+        activeAgentPath: t.activeAgentPath,
       }));
       window.electronAPI.copilot.saveOpenSessions(openSessions);
     }
@@ -1248,6 +1249,7 @@ const App: React.FC = () => {
               reviewNote: s.reviewNote,
               yoloMode: s.yoloMode,
               activeAgentName: s.activeAgentName,
+              activeAgentPath: s.activeAgentPath,
             };
           });
 
@@ -1263,6 +1265,21 @@ const App: React.FC = () => {
 
       // Don't load messages here - sessions are still pending resumption
       // The copilot:sessionResumed handler below will load messages when each session is actually ready
+
+      // Restore agent selections from persisted sessions
+      const restoredAgents: Record<string, string | null> = {};
+      for (const s of data.sessions) {
+        if (s.activeAgentPath) {
+          restoredAgents[s.sessionId] = s.activeAgentPath;
+          // Re-cache the agent content in main process
+          window.electronAPI.copilot.setSelectedAgent(s.sessionId, s.activeAgentPath).catch(() => {
+            // Agent file may no longer exist — silently ignore
+          });
+        }
+      }
+      if (Object.keys(restoredAgents).length > 0) {
+        setSelectedAgentByTab((prev) => ({ ...prev, ...restoredAgents }));
+      }
 
       // Mark data as loaded for wizard
       setDataLoaded(true);
@@ -1290,6 +1307,7 @@ const App: React.FC = () => {
                     })),
                     needsTitle: false,
                     activeAgentName: s.activeAgentName ?? tab.activeAgentName,
+                    activeAgentPath: s.activeAgentPath ?? tab.activeAgentPath,
                   }
                 : tab
             );
@@ -1326,6 +1344,7 @@ const App: React.FC = () => {
             lisaConfig,
             yoloMode: s.yoloMode,
             activeAgentName: s.activeAgentName,
+            activeAgentPath: s.activeAgentPath,
           },
         ];
       });
@@ -6392,8 +6411,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       )}
                     </div>
 
-                    {/* Agents Selector - Commented out until SDK supports true agent selection */}
-                    {/* TODO: Uncomment when @github/copilot-sdk exposes selectCustomAgent() or selectedCustomAgent config
+                    {/* Agents Selector */}
                     <div className="relative">
                       <button
                         onClick={() =>
@@ -6402,13 +6420,17 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                         className={`flex items-center gap-1.5 px-3 py-2 text-xs transition-colors ${
                           openTopBarSelector === 'agents'
                             ? 'text-copilot-accent bg-copilot-surface-hover'
-                            : 'text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover'
+                            : activeAgent && activeAgent.path !== COOPER_DEFAULT_AGENT.path
+                              ? 'text-copilot-accent hover:bg-copilot-surface-hover'
+                              : 'text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover'
                         }`}
                         title="Select agent"
                       >
                         <ZapIcon size={12} />
                         <span className="font-medium truncate max-w-[120px]">
-                          {activeAgent?.name || 'Agents'}
+                          {activeAgent && activeAgent.path !== COOPER_DEFAULT_AGENT.path
+                            ? activeAgent.name
+                            : 'Agents'}
                         </span>
                         <ChevronDownIcon
                           size={10}
@@ -6433,51 +6455,42 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                                   const selectAgent = async () => {
                                     if (!activeTab) return;
                                     setOpenTopBarSelector(null);
-                                    const selectedAgentName =
-                                      agent.path === COOPER_DEFAULT_AGENT.path ? undefined : agent.name;
-                                    const previousSessionId = activeTab.id;
-                                    let updatedSessionId = activeTab.id;
-                                    let hasMessages = activeTab.messages.length > 0;
+
+                                    const agentPath =
+                                      agent.path === COOPER_DEFAULT_AGENT.path ? null : agent.path;
+                                    const previousAgentPath =
+                                      selectedAgentByTab[activeTab.id] ?? COOPER_DEFAULT_AGENT.path;
+
+                                    // Auto-switch model if agent specifies one
                                     if (agent.model && activeTab.model !== agent.model) {
-                                      const modelResult = await handleModelChange(agent.model);
-                                      if (modelResult?.sessionId) {
-                                        updatedSessionId = modelResult.sessionId;
-                                        hasMessages = !modelResult.newSession;
-                                      }
+                                      await handleModelChange(agent.model);
                                     }
-                                    setSelectedAgentByTab((prev) => {
-                                      const next = { ...prev, [updatedSessionId]: agent.path };
-                                      if (updatedSessionId !== previousSessionId) {
-                                        delete next[previousSessionId];
-                                      }
-                                      return next;
-                                    });
+
+                                    // Optimistically update local state
+                                    setSelectedAgentByTab((prev) => ({
+                                      ...prev,
+                                      [activeTab.id]: agent.path,
+                                    }));
+
+                                    // Tell main process to cache agent content
                                     try {
-                                      const result = await window.electronAPI.copilot.setActiveAgent(
-                                        updatedSessionId,
-                                        selectedAgentName,
-                                        hasMessages
+                                      await window.electronAPI.copilot.setSelectedAgent(
+                                        activeTab.id,
+                                        agentPath
                                       );
-                                      if (result.sessionId !== updatedSessionId) {
-                                        const priorSessionId = updatedSessionId;
-                                        updatedSessionId = result.sessionId;
-                                        setTabs((prev) =>
-                                          prev.map((t) =>
-                                            t.id === priorSessionId ? { ...t, id: result.sessionId } : t
-                                          )
-                                        );
-                                        setSelectedAgentByTab((prev) => {
-                                          const next = { ...prev, [result.sessionId]: agent.path };
-                                          delete next[priorSessionId];
-                                          return next;
-                                        });
-                                        setActiveTabId(result.sessionId);
-                                      }
                                     } catch (error) {
                                       console.error('Failed to select agent:', error);
+                                      // Rollback on failure
+                                      setSelectedAgentByTab((prev) => ({
+                                        ...prev,
+                                        [activeTab.id]: previousAgentPath,
+                                      }));
+                                      return;
                                     }
-                                    updateTab(updatedSessionId, {
-                                      activeAgentName: selectedAgentName ? agent.name : undefined,
+
+                                    updateTab(activeTab.id, {
+                                      activeAgentName: agentPath ? agent.name : undefined,
+                                      activeAgentPath: agentPath ?? undefined,
                                     });
                                   };
                                   return (
@@ -6547,7 +6560,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                         </div>
                       )}
                     </div>
-                    */}
 
                     {/* Loops Selector */}
                     <div className="relative">
