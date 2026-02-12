@@ -404,6 +404,28 @@ const electronAPI = {
       ipcRenderer.on('copilot:yoloModeChanged', handler);
       return () => ipcRenderer.removeListener('copilot:yoloModeChanged', handler);
     },
+    // Session management events from tools
+    onSessionCreatedByTool: (
+      callback: (data: {
+        sessionId: string;
+        model: string;
+        cwd: string;
+        initialPrompt?: string;
+      }) => void
+    ): (() => void) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        data: { sessionId: string; model: string; cwd: string; initialPrompt?: string }
+      ): void => callback(data);
+      ipcRenderer.on('copilot:session-created-by-tool', handler);
+      return () => ipcRenderer.removeListener('copilot:session-created-by-tool', handler);
+    },
+    onCloseSessionByTool: (callback: (data: { sessionId: string }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { sessionId: string }): void =>
+        callback(data);
+      ipcRenderer.on('copilot:close-session-by-tool', handler);
+      return () => ipcRenderer.removeListener('copilot:close-session-by-tool', handler);
+    },
     getAlwaysAllowed: (sessionId: string): Promise<string[]> => {
       return ipcRenderer.invoke('copilot:getAlwaysAllowed', sessionId);
     },

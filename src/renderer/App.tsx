@@ -2298,6 +2298,78 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       }
     });
 
+    // Handle session creation from tools (e.g., cooper_create_session)
+    const unsubscribeSessionCreatedByTool = window.electronAPI.copilot.onSessionCreatedByTool(
+      async (data) => {
+        const newTab: TabState = {
+          id: data.sessionId,
+          name: generateTabName(),
+          messages: [],
+          model: data.model,
+          cwd: data.cwd,
+          isProcessing: false,
+          activeTools: [],
+          hasUnreadCompletion: false,
+          pendingConfirmations: [],
+          needsTitle: true,
+          alwaysAllowed: [],
+          editedFiles: [],
+          untrackedFiles: [],
+          fileViewMode: 'flat',
+          currentIntent: null,
+          currentIntentTimestamp: null,
+          gitBranchRefresh: 0,
+          activeAgentName: undefined,
+        };
+        setTabs((prev) => [...prev, newTab]);
+        // Don't switch to the new tab - stay on current session
+
+        // If there's an initial prompt, send it
+        if (data.initialPrompt) {
+          try {
+            await window.electronAPI.copilot.send(data.sessionId, data.initialPrompt);
+            setTabs((prev) =>
+              prev.map((tab) =>
+                tab.id === data.sessionId
+                  ? {
+                      ...tab,
+                      isProcessing: true,
+                      messages: [
+                        ...tab.messages,
+                        { role: 'user' as const, content: data.initialPrompt! },
+                      ],
+                    }
+                  : tab
+              )
+            );
+          } catch (error) {
+            console.error('Failed to send initial prompt to new session:', error);
+          }
+        }
+      }
+    );
+
+    // Handle session close from tools (e.g., cooper_close_session)
+    const unsubscribeCloseSessionByTool = window.electronAPI.copilot.onCloseSessionByTool(
+      async (data) => {
+        // Close the session in the backend
+        try {
+          await window.electronAPI.copilot.closeSession(data.sessionId);
+        } catch (error) {
+          console.error('Failed to close session:', error);
+        }
+        // Remove the tab from the UI
+        setTabs((prev) => {
+          const remaining = prev.filter((tab) => tab.id !== data.sessionId);
+          // If we closed the active tab, switch to another
+          if (activeTabId === data.sessionId && remaining.length > 0) {
+            setActiveTabId(remaining[remaining.length - 1].id);
+          }
+          return remaining;
+        });
+      }
+    );
+
     return () => {
       unsubscribeReady();
       unsubscribeDelta();
@@ -2317,6 +2389,8 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       unsubscribeCompactionStart();
       unsubscribeCompactionComplete();
       unsubscribeYoloModeChanged();
+      unsubscribeSessionCreatedByTool();
+      unsubscribeCloseSessionByTool();
     };
   }, []);
 

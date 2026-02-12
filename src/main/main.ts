@@ -78,6 +78,7 @@ import * as worktree from './worktree';
 import * as ptyManager from './pty';
 import * as browserManager from './browser';
 import { createBrowserTools } from './browserTools';
+import { createSessionTools } from './sessionTools';
 import { voiceService } from './voiceService';
 import { whisperModelManager } from './whisperModelManager';
 
@@ -1626,16 +1627,63 @@ async function createNewSession(model?: string, cwd?: string): Promise<string> {
 
   // Create browser tools for this session
   const browserTools = createBrowserTools(generatedSessionId);
+
+  // Create session management tools
+  const sessionTools = createSessionTools({
+    sessionId: generatedSessionId,
+    getVerifiedModels,
+    getSessions: () => {
+      // Return a simplified view of sessions for the tools
+      const simplified = new Map<string, { model: string; cwd: string }>();
+      sessions.forEach((state, id) => {
+        simplified.set(id, { model: state.model, cwd: state.cwd });
+      });
+      return simplified;
+    },
+    getActiveSessionId: () => activeSessionId,
+    createSessionTab: async (options) => {
+      // Create a new session in the main process
+      const newSessionId = await createNewSession(options.model, options.cwd);
+      const newSessionState = sessions.get(newSessionId)!;
+
+      // Emit event for renderer to create the tab
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('copilot:session-created-by-tool', {
+          sessionId: newSessionId,
+          model: newSessionState.model,
+          cwd: newSessionState.cwd,
+          initialPrompt: options.initialPrompt,
+        });
+      }
+
+      return {
+        sessionId: newSessionId,
+        model: newSessionState.model,
+        cwd: newSessionState.cwd,
+      };
+    },
+    closeSessionTab: async (targetSessionId) => {
+      // Emit event for renderer to close the tab
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('copilot:close-session-by-tool', {
+          sessionId: targetSessionId,
+        });
+      }
+      return { success: true };
+    },
+  });
+
+  const allTools = [...browserTools, ...sessionTools];
   console.log(
-    `[${generatedSessionId}] Registering ${browserTools.length} tools:`,
-    browserTools.map((t) => t.name)
+    `[${generatedSessionId}] Registering ${allTools.length} tools:`,
+    allTools.map((t) => t.name)
   );
 
   const newSession = await client.createSession({
     sessionId: generatedSessionId,
     model: sessionModel,
     mcpServers: mcpConfig.mcpServers,
-    tools: browserTools,
+    tools: allTools,
     customAgents,
     onPermissionRequest: (request, invocation) =>
       handlePermissionRequest(request, invocation, newSession.sessionId),
@@ -1676,6 +1724,19 @@ Browser tools available: browser_navigate, browser_click, browser_fill, browser_
 - Do NOT say "I cannot take screenshots of desktop apps" - you CAN via Playwright
 - Use browser_navigate to connect to the running Electron app, then browser_screenshot to capture it
 - This is the CORRECT way to capture visual evidence of Electron app features you've built or tested
+
+## Session Management Tools
+
+You have tools to manage Cooper sessions:
+- cooper_create_session: Create a new session tab (with optional cwd, model, initial message). Defaults to current session's folder and model.
+- cooper_create_worktree_session: Create a git worktree and open a session in it. Use for parallel branch development. Requires a git repository path and branch name.
+- cooper_list_sessions: List all active Copilot sessions (tabs)
+- cooper_close_session: Close a session tab
+- cooper_get_current_session: Get info about the current session
+- cooper_get_models: List available AI models
+- cooper_get_favorite_models: Get user's favorite models
+
+Use cooper_create_session for simple parallel sessions. Use cooper_create_worktree_session when the user wants to work on a different git branch in isolation.
 `,
     },
   });
