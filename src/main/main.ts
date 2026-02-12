@@ -165,6 +165,15 @@ async function readMcpConfig(): Promise<MCPConfigFile> {
     }
     const content = await readFile(configPath, 'utf-8');
     const parsed = JSON.parse(content) as MCPConfigFile;
+
+    // Default tools to ["*"] for servers that don't specify it (matches copilot-cli behavior)
+    for (const serverName in parsed.mcpServers) {
+      const server = parsed.mcpServers[serverName];
+      if (!server.tools) {
+        server.tools = ['*'];
+      }
+    }
+
     return parsed;
   } catch (error) {
     console.error('Failed to read MCP config:', error);
