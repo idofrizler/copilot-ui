@@ -11,8 +11,10 @@ type GroupedTool = { tool: ActiveTool; count: number };
 
 const getDescription = (tool: ActiveTool): string => {
   const input = tool.input || {};
-  const path = input.path as string | undefined;
-  const shortPath = path ? path.split('/').slice(-2).join('/') : '';
+  const rawPath = input.path;
+  // Handle path as string or array (MCP tools can pass arrays)
+  const path = Array.isArray(rawPath) ? rawPath.join(', ') : (rawPath as string | undefined);
+  const shortPath = path && typeof path === 'string' ? path.split('/').slice(-2).join('/') : '';
 
   if (tool.toolName === 'grep') {
     const pattern = (input.pattern as string) || '';
