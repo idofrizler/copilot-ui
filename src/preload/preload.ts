@@ -51,6 +51,9 @@ const electronAPI = {
     closeSession: (sessionId: string): Promise<{ success: boolean; remainingSessions: number }> => {
       return ipcRenderer.invoke('copilot:closeSession', sessionId);
     },
+    resumeSession: (sessionId: string): Promise<{ success: boolean; error?: string }> => {
+      return ipcRenderer.invoke('copilot:resumeSession', sessionId);
+    },
     deleteSessionFromHistory: (
       sessionId: string
     ): Promise<{ success: boolean; error?: string }> => {

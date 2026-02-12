@@ -3179,6 +3179,61 @@ ipcMain.handle('copilot:closeSession', async (_event, sessionId: string) => {
   return { success: true, remainingSessions: sessions.size };
 });
 
+// Resume a session (refreshes instructions from disk by recreating the client)
+ipcMain.handle('copilot:resumeSession', async (_event, sessionId: string) => {
+  try {
+    const sessionState = sessions.get(sessionId);
+    if (!sessionState) {
+      return { success: false, error: 'Session not found' };
+    }
+
+    const { cwd: sessionCwd, model } = sessionState;
+
+    // Kill the old client to clear instruction cache
+    const oldClient = copilotClients.get(sessionCwd);
+    if (oldClient) {
+      try {
+        const stopPromise = oldClient.stop();
+        const timeout = new Promise<Error[]>((resolve) =>
+          setTimeout(() => resolve([new Error('Timeout')]), 3000)
+        );
+        const errors = await Promise.race([stopPromise, timeout]);
+        if (errors.length > 0) {
+          await oldClient.forceStop();
+        }
+      } catch {
+        try {
+          await oldClient.forceStop();
+        } catch {
+          // Ignore - best effort cleanup
+        }
+      }
+      copilotClients.delete(sessionCwd);
+    }
+
+    // Create a fresh client (re-reads instructions from disk)
+    const client = await getClientForCwd(sessionCwd);
+    const mcpConfig = await readMcpConfig();
+
+    const resumedSession = await client.resumeSession(sessionId, {
+      model,
+      mcpServers: mcpConfig.mcpServers,
+      tools: createBrowserTools(sessionId),
+      onPermissionRequest: (request, invocation) =>
+        handlePermissionRequest(request, invocation, sessionId),
+    });
+
+    sessions.set(sessionId, { ...sessionState, session: resumedSession });
+    registerSessionEventForwarding(sessionId, resumedSession);
+
+    console.log(`Resumed session ${sessionId} - instructions refreshed`);
+    return { success: true };
+  } catch (error) {
+    console.error(`Failed to resume session ${sessionId}:`, error);
+    return { success: false, error: String(error) };
+  }
+});
+
 // Delete a session from history (permanently removes session files)
 ipcMain.handle('copilot:deleteSessionFromHistory', async (_event, sessionId: string) => {
   try {

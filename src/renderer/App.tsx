@@ -1086,6 +1086,19 @@ const App: React.FC = () => {
     loadInstructions();
   }, [activeTab?.cwd]);
 
+  // Resume current session to refresh instructions from disk
+  const handleResumeSession = useCallback(async () => {
+    if (!activeTab?.id) return;
+    try {
+      const result = await window.electronAPI.copilot.resumeSession(activeTab.id);
+      if (!result.success) {
+        console.error('Failed to resume session:', result.error);
+      }
+    } catch (error) {
+      console.error('Error resuming session:', error);
+    }
+  }, [activeTab?.id]);
+
   const handleOpenEnvironment = useCallback(
     (tab: 'instructions' | 'skills' | 'agents', event?: React.MouseEvent, itemPath?: string) => {
       event?.stopPropagation();
@@ -4610,19 +4623,28 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
               {/* Copilot Instructions */}
               <div className="border-b border-copilot-border">
-                <button
-                  onClick={() => setShowInstructions(!showInstructions)}
-                  className="w-full flex items-center gap-3 px-4 py-3 text-sm text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
-                >
-                  <ChevronRightIcon
-                    size={14}
-                    className={`transition-transform ${showInstructions ? 'rotate-90' : ''}`}
-                  />
-                  <span>Instructions</span>
-                  {instructions.length > 0 && (
-                    <span className="ml-auto text-copilot-accent">{instructions.length}</span>
-                  )}
-                </button>
+                <div className="flex items-center">
+                  <button
+                    onClick={() => setShowInstructions(!showInstructions)}
+                    className="flex-1 flex items-center gap-3 px-4 py-3 text-sm text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                  >
+                    <ChevronRightIcon
+                      size={14}
+                      className={`transition-transform ${showInstructions ? 'rotate-90' : ''}`}
+                    />
+                    <span>Instructions</span>
+                    {instructions.length > 0 && (
+                      <span className="ml-auto text-copilot-accent">{instructions.length}</span>
+                    )}
+                  </button>
+                  <button
+                    onClick={handleResumeSession}
+                    className="px-3 py-3 text-copilot-text-muted hover:text-copilot-accent hover:bg-copilot-surface transition-colors"
+                    title="Refresh instructions (restart SDK)"
+                  >
+                    <RepeatIcon size={14} />
+                  </button>
+                </div>
                 {showInstructions && (
                   <div>
                     {flatInstructions.length === 0 ? (
@@ -7139,19 +7161,28 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
                     {/* Copilot Instructions */}
                     <div>
-                      <button
-                        onClick={() => setShowInstructions(!showInstructions)}
-                        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
-                      >
-                        <ChevronRightIcon
-                          size={8}
-                          className={`transition-transform ${showInstructions ? 'rotate-90' : ''}`}
-                        />
-                        <span>Instructions</span>
-                        {instructions.length > 0 && (
-                          <span className="text-copilot-accent">({instructions.length})</span>
-                        )}
-                      </button>
+                      <div className="flex items-center">
+                        <button
+                          onClick={() => setShowInstructions(!showInstructions)}
+                          className="flex-1 flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                        >
+                          <ChevronRightIcon
+                            size={8}
+                            className={`transition-transform ${showInstructions ? 'rotate-90' : ''}`}
+                          />
+                          <span>Instructions</span>
+                          {instructions.length > 0 && (
+                            <span className="text-copilot-accent">({instructions.length})</span>
+                          )}
+                        </button>
+                        <button
+                          onClick={handleResumeSession}
+                          className="px-2 py-2 text-copilot-text-muted hover:text-copilot-accent hover:bg-copilot-surface transition-colors"
+                          title="Refresh instructions (restart SDK)"
+                        >
+                          <RepeatIcon size={10} />
+                        </button>
+                      </div>
                       {showInstructions && (
                         <div className="max-h-48 overflow-y-auto">
                           {flatInstructions.length === 0 ? (
