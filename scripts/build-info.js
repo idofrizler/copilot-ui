@@ -6,9 +6,25 @@ const { execSync } = require('child_process');
 const now = new Date();
 const timestamp = now.toISOString().replace(/[-:T]/g, '').slice(0, 12); // YYYYMMDDHHMM
 
-// Get git info
-const gitSha = execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim();
-const gitBranch = execSync('git rev-parse --abbrev-ref HEAD', { encoding: 'utf8' }).trim();
+// Get git info (with fallbacks for CI environments)
+let gitSha = 'unknown';
+let gitBranch = 'unknown';
+
+try {
+  gitSha = execSync('git rev-parse --short HEAD', {
+    encoding: 'utf8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+  }).trim();
+  gitBranch = execSync('git rev-parse --abbrev-ref HEAD', {
+    encoding: 'utf8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+  }).trim();
+} catch (err) {
+  // Fallback: try to get from environment variables (CI)
+  gitSha = process.env.GITHUB_SHA?.slice(0, 7) || 'unknown';
+  gitBranch = process.env.GITHUB_REF_NAME || process.env.GITHUB_HEAD_REF || 'unknown';
+  console.warn('⚠ Git commands failed, using environment variables');
+}
 
 // Read package.json (for base version only, don't modify it)
 const pkgPath = path.join(__dirname, '..', 'package.json');
