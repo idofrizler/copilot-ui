@@ -3,7 +3,10 @@
   "version": "1.0.1",
   "description": "A beautiful native desktop GUI for GitHub Copilot",
   "main": "./out/main/index.js",
-  "author": "Cooper Labs",
+  "author": {
+    "name": "Cooper Labs",
+    "email": "hello@cooperlabs.dev"
+  },
   "license": "MIT",
   "scripts": {
     "dev": "npm run prebuild-info && node scripts/dev-env.js",
