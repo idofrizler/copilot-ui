@@ -3740,6 +3740,74 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     }
   };
 
+  // Handle refreshing/clearing a tab - closes session, creates new one with same cwd
+  const handleRefreshTab = async (tabId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+
+    const tab = tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+
+    // Clean up terminal state for this tab
+    setTerminalInitializedSessions((prev) => {
+      const next = new Set(prev);
+      next.delete(tabId);
+      return next;
+    });
+    setTerminalOpenSessions((prev) => {
+      const next = new Set(prev);
+      next.delete(tabId);
+      return next;
+    });
+
+    try {
+      setStatus('connecting');
+      await window.electronAPI.copilot.closeSession(tabId);
+
+      // Create new session in same directory
+      const result = await window.electronAPI.copilot.createSession({
+        cwd: tab.cwd,
+      });
+
+      // Replace the tab with fresh state but preserve name and position
+      setTabs((prev) =>
+        prev.map((t) =>
+          t.id === tabId
+            ? {
+                id: result.sessionId,
+                name: t.name,
+                messages: [],
+                model: result.model,
+                cwd: result.cwd,
+                isProcessing: false,
+                activeTools: [],
+                hasUnreadCompletion: false,
+                pendingConfirmations: [],
+                needsTitle: false, // Keep the existing name
+                alwaysAllowed: [],
+                editedFiles: [],
+                untrackedFiles: [],
+                fileViewMode: 'flat',
+                currentIntent: null,
+                currentIntentTimestamp: null,
+                gitBranchRefresh: 0,
+                activeAgentName: undefined,
+              }
+            : t
+        )
+      );
+
+      // Update active tab ID if this was the active tab
+      if (activeTabId === tabId) {
+        setActiveTabId(result.sessionId);
+      }
+
+      setStatus('connected');
+    } catch (error) {
+      console.error('Failed to refresh tab:', error);
+      setStatus('connected');
+    }
+  };
+
   const handleSwitchTab = async (tabId: string) => {
     if (tabId === activeTabId) return;
     setActiveTabId(tabId);
@@ -5039,6 +5107,13 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                               {tab.name}
                             </span>
                           )}
+                          <button
+                            onClick={(e) => handleRefreshTab(tab.id, e)}
+                            className="shrink-0 p-0.5 rounded hover:bg-copilot-border opacity-0 group-hover:opacity-100 transition-opacity"
+                            title="Clear session"
+                          >
+                            <RepeatIcon size={10} />
+                          </button>
                           <button
                             onClick={(e) => handleCloseTab(tab.id, e)}
                             className="shrink-0 p-0.5 rounded hover:bg-copilot-border opacity-0 group-hover:opacity-100 transition-opacity"
