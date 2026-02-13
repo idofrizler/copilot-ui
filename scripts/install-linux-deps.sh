@@ -27,7 +27,7 @@ elif command -v dnf &> /dev/null; then
     echo "Detected Fedora/RHEL - using dnf..."
     dnf install -y nss alsa-lib atk at-spi2-atk cups-libs libdrm gtk3 \
         mesa-libgbm libxkbcommon libXcomposite libXdamage libXfixes \
-        libXrandr at-spi2-core dbus-libs
+        libXrandr at-spi2-core dbus-libs fuse fuse-libs
 
 elif command -v pacman &> /dev/null; then
     echo "Detected Arch Linux - using pacman..."
