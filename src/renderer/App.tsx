@@ -374,6 +374,7 @@ const App: React.FC = () => {
   // Lisa Simpson loop state - multi-phase analytical workflow
   const [showLisaSettings, setShowLisaSettings] = useState(false);
   const [lisaEnabled, setLisaEnabled] = useState(false);
+  const [planModeEnabled, setPlanModeEnabled] = useState(false);
 
   // Top bar selector state (Models, Agents, Loops)
   const [openTopBarSelector, setOpenTopBarSelector] = useState<
@@ -2652,6 +2653,31 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       promptToSend = userMessage.content;
     }
 
+    // Wrap with plan mode instructions if enabled
+    if (planModeEnabled && !lisaEnabled && !ralphEnabled) {
+      promptToSend = `## PLAN MODE — READ-ONLY ANALYSIS
+
+You are operating in **Plan Mode**. In this mode you must ONLY:
+- Analyze the request and create detailed plan files (Markdown .md files)
+- You may read files to understand the codebase
+- You MUST NOT edit, create, or delete any source code files (.ts, .tsx, .js, .jsx, .py, .css, .html, etc.)
+- You MUST NOT run any commands that modify the filesystem (no git commits, npm install, etc.)
+- The ONLY files you may create or modify are Markdown plan files (*.md)
+
+Your plan should include:
+1. Problem analysis and understanding
+2. Proposed architecture/approach
+3. Step-by-step implementation plan with file paths
+4. Testing strategy
+5. Risks and considerations
+
+Create the plan as a file named \`plan.md\` in the project root.
+
+---
+
+${promptToSend}`;
+    }
+
     // Build SDK attachments from image and file attachments
     const sdkAttachments = [
       ...imageAttachments.map((img) => ({
@@ -2708,6 +2734,11 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     if (lisaEnabled) {
       setLisaEnabled(false);
       setShowLisaSettings(false);
+    }
+
+    // Reset Plan mode after sending
+    if (planModeEnabled) {
+      setPlanModeEnabled(false);
     }
 
     try {
@@ -4772,6 +4803,21 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     All actions auto-approved — no confirmations will be shown
                   </span>
                 )}
+                <button
+                  onClick={() => setPlanModeEnabled(!planModeEnabled)}
+                  className={`shrink-0 px-4 py-3 text-sm transition-colors ${
+                    planModeEnabled
+                      ? 'font-bold text-copilot-accent'
+                      : 'text-copilot-text-muted hover:text-copilot-text'
+                  }`}
+                  title={
+                    planModeEnabled
+                      ? 'Plan mode ON — agent creates plans only, no code changes. Click to disable.'
+                      : 'Enable Plan mode — agent analyzes and creates .md plans without modifying code'
+                  }
+                >
+                  📋 Plan
+                </button>
                 <button
                   onClick={async () => {
                     if (!activeTab) return;
