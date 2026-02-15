@@ -6950,6 +6950,22 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       </button>
                       {isGitRepo && (
                         <IconButton
+                          icon={<EyeIcon size={12} />}
+                          onClick={() => {
+                            if (!activeTab) return;
+                            const reviewPrompt =
+                              'Please review the current changes in this session. Run `git diff` to see the staged and unstaged changes, then provide a thorough code review covering:\n\n1. **Correctness** — any bugs or logic errors\n2. **Security** — vulnerabilities or unsafe patterns\n3. **Performance** — inefficiencies or scaling concerns\n4. **Style** — naming, readability, consistency\n5. **Tests** — missing test coverage\n\nProvide specific, actionable feedback with file paths and line numbers.';
+                            setInputValue(reviewPrompt);
+                            inputRef.current?.focus();
+                          }}
+                          variant="ghost"
+                          size="sm"
+                          title="Review changes"
+                          className="mr-0.5"
+                        />
+                      )}
+                      {isGitRepo && (
+                        <IconButton
                           icon={<CommitIcon size={12} />}
                           onClick={() =>
                             activeTab && commitModal.handleOpenCommitModal(activeTab, updateTab)
