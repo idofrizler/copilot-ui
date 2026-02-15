@@ -467,6 +467,9 @@ const App: React.FC = () => {
   const [shouldShowWizardWhenReady, setShouldShowWizardWhenReady] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
 
+  // Driving mode — simplified UI with large text for hands-free use
+  const [drivingMode, setDrivingMode] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const activeTabIdRef = useRef<string | null>(null);
@@ -1013,6 +1016,14 @@ const App: React.FC = () => {
       setRightPanelCollapsed((prev) => !prev);
     }
   }, [isMobileOrTablet]);
+
+  // Auto-collapse panels when driving mode is enabled
+  useEffect(() => {
+    if (drivingMode) {
+      setLeftPanelCollapsed(true);
+      setRightPanelCollapsed(true);
+    }
+  }, [drivingMode]);
 
   // Reset textarea height when input is cleared, grow when content is set programmatically
   useEffect(() => {
@@ -4299,7 +4310,9 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       onOpenTerminal={handleOpenTerminal}
       onInitializeTerminal={handleInitializeTerminal}
     >
-      <div className="h-screen w-screen flex flex-col overflow-hidden bg-copilot-bg rounded-xl">
+      <div
+        className={`h-screen w-screen flex flex-col overflow-hidden bg-copilot-bg rounded-xl ${drivingMode ? 'text-lg' : ''}`}
+      >
         <TitleBar />
 
         {/* Mobile Header Bar */}
@@ -4794,6 +4807,21 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   }
                 >
                   YOLO
+                </button>
+                <button
+                  onClick={() => setDrivingMode(!drivingMode)}
+                  className={`shrink-0 px-3 py-3 text-sm transition-colors ${
+                    drivingMode
+                      ? 'font-bold text-copilot-accent'
+                      : 'text-copilot-text-muted hover:text-copilot-text'
+                  }`}
+                  title={
+                    drivingMode
+                      ? 'Driving mode ON — large text, simplified UI. Click to disable.'
+                      : 'Enable driving mode — large text and simplified layout for hands-free use'
+                  }
+                >
+                  🚗
                 </button>
               </div>
               {!activeTab?.yoloMode && showAllowedCommands && (
