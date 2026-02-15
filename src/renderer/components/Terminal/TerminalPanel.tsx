@@ -16,6 +16,8 @@ interface TerminalPanelProps {
   isOpen: boolean;
   onClose: () => void;
   onSendToAgent: (output: string, lineCount: number, lastCommandStart?: number) => void;
+  fontFamily?: string;
+  fontSize?: number;
 }
 
 export const TerminalPanel: React.FC<TerminalPanelProps> = ({
@@ -24,6 +26,8 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
   isOpen,
   onClose,
   onSendToAgent,
+  fontFamily = 'Menlo, Monaco, Consolas, "Courier New", monospace',
+  fontSize = 13,
 }) => {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
@@ -49,8 +53,8 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
 
     const xterm = new XTerm({
       cursorBlink: true,
-      fontSize: 13,
-      fontFamily: 'Menlo, Monaco, Consolas, "Courier New", monospace',
+      fontSize,
+      fontFamily,
       theme: {
         background: 'var(--copilot-terminal-bg, #1e1e1e)',
         foreground: 'var(--copilot-terminal-text, #d4d4d4)',
@@ -345,6 +349,15 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
       fitAddonRef.current.fit();
     }
   }, [terminalHeight, isResizing]);
+
+  // Update terminal font when settings change
+  useEffect(() => {
+    const xterm = xtermRef.current;
+    if (!xterm) return;
+    xterm.options.fontFamily = fontFamily;
+    xterm.options.fontSize = fontSize;
+    fitAddonRef.current?.fit();
+  }, [fontFamily, fontSize]);
 
   return (
     <div

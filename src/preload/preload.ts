@@ -892,6 +892,21 @@ const electronAPI = {
       return () => ipcRenderer.removeListener('theme:systemChanged', handler);
     },
   },
+  // Terminal settings
+  terminal: {
+    getFontFamily: (): Promise<string> => {
+      return ipcRenderer.invoke('terminal:getFontFamily');
+    },
+    setFontFamily: (family: string): Promise<{ success: boolean }> => {
+      return ipcRenderer.invoke('terminal:setFontFamily', family);
+    },
+    getFontSize: (): Promise<number> => {
+      return ipcRenderer.invoke('terminal:getFontSize');
+    },
+    setFontSize: (size: number): Promise<{ success: boolean }> => {
+      return ipcRenderer.invoke('terminal:setFontSize', size);
+    },
+  },
   // MCP Server Management
   mcp: {
     getConfig: (): Promise<{ mcpServers: Record<string, MCPServerConfig> }> => {

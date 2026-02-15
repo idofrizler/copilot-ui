@@ -462,6 +462,12 @@ const App: React.FC = () => {
     return saved !== null ? saved === 'true' : true; // Default to enabled
   });
 
+  // Terminal font settings
+  const [terminalFontFamily, setTerminalFontFamily] = useState(
+    'Menlo, Monaco, Consolas, "Courier New", monospace'
+  );
+  const [terminalFontSize, setTerminalFontSize] = useState(13);
+
   // Welcome wizard state
   const [showWelcomeWizard, setShowWelcomeWizard] = useState(false);
   const [shouldShowWizardWhenReady, setShouldShowWizardWhenReady] = useState(false);
@@ -1263,6 +1269,16 @@ const App: React.FC = () => {
 
       // Don't load messages here - sessions are still pending resumption
       // The copilot:sessionResumed handler below will load messages when each session is actually ready
+
+      // Load terminal font settings
+      window.electronAPI.terminal
+        .getFontFamily()
+        .then(setTerminalFontFamily)
+        .catch(() => {});
+      window.electronAPI.terminal
+        .getFontSize()
+        .then(setTerminalFontSize)
+        .catch(() => {});
 
       // Mark data as loaded for wizard
       setDataLoaded(true);
@@ -5153,6 +5169,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     })
                   }
                   onSendToAgent={handleSendTerminalOutput}
+                  fontFamily={terminalFontFamily}
+                  fontSize={terminalFontSize}
                 />
               ))}
 
@@ -7837,6 +7855,16 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
             } catch (error) {
               console.error('Failed to reveal crash dumps path:', error);
             }
+          }}
+          terminalFontFamily={terminalFontFamily}
+          terminalFontSize={terminalFontSize}
+          onTerminalFontFamilyChange={(family) => {
+            setTerminalFontFamily(family);
+            window.electronAPI.terminal.setFontFamily(family).catch(() => {});
+          }}
+          onTerminalFontSizeChange={(size) => {
+            setTerminalFontSize(size);
+            window.electronAPI.terminal.setFontSize(size).catch(() => {});
           }}
         />
 

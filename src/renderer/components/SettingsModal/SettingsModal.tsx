@@ -19,7 +19,14 @@ import { useTheme } from '../../context/ThemeContext';
 import { trackEvent, TelemetryEvents } from '../../utils/telemetry';
 import { VOICE_KEYWORDS } from '../../hooks/useVoiceSpeech';
 
-type SettingsSection = 'themes' | 'voice' | 'sounds' | 'commands' | 'accessibility' | 'diagnostics';
+type SettingsSection =
+  | 'themes'
+  | 'voice'
+  | 'sounds'
+  | 'commands'
+  | 'accessibility'
+  | 'terminal'
+  | 'diagnostics';
 
 export interface SettingsModalProps {
   isOpen: boolean;
@@ -60,6 +67,11 @@ export interface SettingsModalProps {
   diagnosticsPaths?: { logFilePath: string; crashDumpsPath: string } | null;
   onRevealLogFile?: (path: string) => Promise<void>;
   onOpenCrashDumps?: (path: string) => Promise<void>;
+  // Terminal settings
+  terminalFontFamily?: string;
+  terminalFontSize?: number;
+  onTerminalFontFamilyChange?: (family: string) => void;
+  onTerminalFontSizeChange?: (size: number) => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -100,6 +112,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   diagnosticsPaths = null,
   onRevealLogFile,
   onOpenCrashDumps,
+  terminalFontFamily = 'Menlo, Monaco, Consolas, "Courier New", monospace',
+  terminalFontSize = 13,
+  onTerminalFontFamilyChange,
+  onTerminalFontSizeChange,
 }) => {
   const [activeSection, setActiveSection] = useState<SettingsSection>('themes');
   const [newCommandValue, setNewCommandValue] = useState('');
@@ -116,6 +132,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     { id: 'themes', label: 'Themes', icon: <PaletteIcon size={16} /> },
     { id: 'accessibility', label: 'Accessibility', icon: <MonitorIcon size={16} /> },
     { id: 'commands', label: 'Commands', icon: <GlobeIcon size={16} /> },
+    { id: 'terminal', label: 'Terminal', icon: <MonitorIcon size={16} /> },
     { id: 'voice', label: 'Voice', icon: <MicIcon size={16} /> },
     { id: 'sounds', label: 'Sounds', icon: <VolumeIcon size={16} /> },
     { id: 'diagnostics', label: 'Diagnostics', icon: <WarningIcon size={16} /> },
@@ -614,6 +631,70 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       </div>
     );
   };
+
+  const renderTerminalSection = () => (
+    <div>
+      <h4 className="text-[11px] font-semibold uppercase tracking-wider text-copilot-text-muted mb-1">
+        Terminal Font
+      </h4>
+      <p className="text-xs text-copilot-text-muted mb-3">
+        Customize the embedded terminal appearance.
+      </p>
+      <div className="space-y-3">
+        <div>
+          <label className="text-xs text-copilot-text mb-1 block">Font Family</label>
+          <input
+            type="text"
+            value={terminalFontFamily}
+            onChange={(e) => onTerminalFontFamilyChange?.(e.target.value)}
+            className="w-full px-2 py-1.5 text-xs bg-copilot-surface border border-copilot-border rounded text-copilot-text"
+            placeholder='Menlo, Monaco, Consolas, "Courier New", monospace'
+          />
+        </div>
+        <div>
+          <label className="text-xs text-copilot-text mb-1 block">
+            Font Size: {terminalFontSize}px
+          </label>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => onTerminalFontSizeChange?.(Math.max(8, terminalFontSize - 1))}
+              className="px-2 py-1 text-xs bg-copilot-surface border border-copilot-border rounded hover:bg-copilot-border text-copilot-text"
+            >
+              <MinusIcon size={12} />
+            </button>
+            <input
+              type="range"
+              min={8}
+              max={24}
+              value={terminalFontSize}
+              onChange={(e) => onTerminalFontSizeChange?.(parseInt(e.target.value))}
+              className="flex-1"
+            />
+            <button
+              onClick={() => onTerminalFontSizeChange?.(Math.min(24, terminalFontSize + 1))}
+              className="px-2 py-1 text-xs bg-copilot-surface border border-copilot-border rounded hover:bg-copilot-border text-copilot-text"
+            >
+              <PlusIcon size={12} />
+            </button>
+          </div>
+        </div>
+        <div
+          className="mt-3 p-3 rounded border border-copilot-border"
+          style={{
+            fontFamily: terminalFontFamily,
+            fontSize: `${terminalFontSize}px`,
+            backgroundColor: '#1e1e1e',
+            color: '#d4d4d4',
+          }}
+        >
+          <div>$ echo &quot;Preview&quot;</div>
+          <div>Preview</div>
+          <div>$ _</div>
+        </div>
+      </div>
+    </div>
+  );
+
   const renderDiagnosticsSection = () => (
     <div>
       <h4 className="text-[11px] font-semibold uppercase tracking-wider text-copilot-text-muted mb-1">
@@ -673,6 +754,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         return renderAccessibilitySection();
       case 'commands':
         return renderCommandsSection();
+      case 'terminal':
+        return renderTerminalSection();
       case 'voice':
         return renderVoiceSection();
       case 'sounds':

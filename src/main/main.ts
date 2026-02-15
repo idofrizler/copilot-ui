@@ -4781,6 +4781,28 @@ ipcMain.handle('theme:listExternal', () => {
   return loadExternalThemes();
 });
 
+// Terminal font settings
+ipcMain.handle('terminal:getFontFamily', () => {
+  return (
+    (store.get('terminalFontFamily') as string) ||
+    'Menlo, Monaco, Consolas, "Courier New", monospace'
+  );
+});
+
+ipcMain.handle('terminal:setFontFamily', (_event, family: string) => {
+  store.set('terminalFontFamily', family);
+  return { success: true };
+});
+
+ipcMain.handle('terminal:getFontSize', () => {
+  return (store.get('terminalFontSize') as number) || 13;
+});
+
+ipcMain.handle('terminal:setFontSize', (_event, size: number) => {
+  store.set('terminalFontSize', Math.max(8, Math.min(24, size)));
+  return { success: true };
+});
+
 ipcMain.handle('theme:import', async () => {
   const result = await dialog.showOpenDialog(mainWindow!, {
     properties: ['openFile'],
