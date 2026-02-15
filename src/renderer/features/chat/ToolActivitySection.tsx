@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { ActiveTool } from '../../types/session';
 import { formatToolOutput } from '../../utils/session';
 
@@ -161,6 +163,11 @@ export function ToolActivitySection({ tools, isLive }: ToolActivitySectionProps)
                       >
                         {tool.toolName.charAt(0).toUpperCase() + tool.toolName.slice(1)}
                       </span>
+                      {tool.serverName && (
+                        <span className="text-[9px] px-1 py-0.5 rounded bg-copilot-accent/10 text-copilot-accent">
+                          {tool.serverName}
+                        </span>
+                      )}
                       {tool.status === 'done' && count > 1 && (
                         <span className="text-[10px] text-copilot-text-muted">×{count}</span>
                       )}
@@ -175,6 +182,27 @@ export function ToolActivitySection({ tools, isLive }: ToolActivitySectionProps)
                         {formatToolOutput(tool.toolName, input, tool.output)}
                       </div>
                     )}
+                    {/* Rich output for MCP server tools */}
+                    {tool.status === 'done' &&
+                      tool.serverName &&
+                      tool.output &&
+                      (() => {
+                        const raw =
+                          typeof tool.output === 'string'
+                            ? tool.output
+                            : typeof tool.output === 'object' &&
+                                (tool.output as Record<string, unknown>)?.output
+                              ? String((tool.output as Record<string, unknown>).output)
+                              : null;
+                        if (!raw || raw.length < 20) return null;
+                        return (
+                          <div className="mt-1 text-[11px] text-copilot-text bg-copilot-surface rounded p-2 max-h-40 overflow-y-auto">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                              {raw.slice(0, 2000)}
+                            </ReactMarkdown>
+                          </div>
+                        );
+                      })()}
                     {isEdit && tool.status === 'done' && !!input.old_str && (
                       <div className="mt-0.5 text-[10px] font-mono pl-2 border-l border-copilot-border">
                         <div className="text-copilot-error truncate">
