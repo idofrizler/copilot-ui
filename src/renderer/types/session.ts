@@ -223,4 +223,5 @@ export interface TabState {
   markedForReview?: boolean; // Whether session is marked for follow-up review
   reviewNote?: string; // Optional user note displayed at bottom of conversation
   yoloMode?: boolean; // Auto-approve all permission requests without prompting
+  githubIssueUrl?: string; // GitHub issue URL if session was started from an issue
 }

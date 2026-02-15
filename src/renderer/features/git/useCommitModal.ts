@@ -401,6 +401,17 @@ export function useCommitModal(): UseCommitModalReturn {
           activeTab.untrackedFiles || []
         );
         if (result.success) {
+          // If this session was started from a GitHub issue, offer to close it
+          if (activeTab.githubIssueUrl) {
+            try {
+              await window.electronAPI.git.closeGitHubIssue(
+                activeTab.githubIssueUrl,
+                activeTab.cwd
+              );
+            } catch {
+              // Ignore close errors — issue may already be closed or gh not authed
+            }
+          }
           if (removeWorktreeAfterMerge && activeTab.cwd.includes('.copilot-sessions')) {
             const sessionId = activeTab.cwd.split(/[/\\]/).pop() || '';
             if (sessionId) {

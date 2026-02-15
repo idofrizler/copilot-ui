@@ -695,6 +695,12 @@ const electronAPI = {
         untrackedFiles,
       });
     },
+    closeGitHubIssue: (
+      issueUrl: string,
+      cwd: string
+    ): Promise<{ success: boolean; error?: string }> => {
+      return ipcRenderer.invoke('git:closeGitHubIssue', { issueUrl, cwd });
+    },
     createPullRequest: (
       cwd: string,
       title: string | undefined,

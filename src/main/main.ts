@@ -4262,6 +4262,22 @@ ipcMain.handle(
   }
 );
 
+// Close a GitHub issue via gh CLI
+ipcMain.handle('git:closeGitHubIssue', async (_event, data: { issueUrl: string; cwd: string }) => {
+  try {
+    const match = data.issueUrl.match(/github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)/);
+    if (!match) return { success: false, error: 'Invalid GitHub issue URL' };
+    const [, owner, repo, number] = match;
+    await execAsync(
+      `gh issue close ${number} --repo "${owner}/${repo}" --comment "Closed via Cooper merge"`,
+      { cwd: data.cwd }
+    );
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: String(error) };
+  }
+});
+
 // Git operations - create pull request via gh CLI
 ipcMain.handle(
   'git:createPullRequest',

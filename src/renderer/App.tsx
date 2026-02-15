@@ -3641,6 +3641,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         currentIntentTimestamp: null,
         gitBranchRefresh: 0,
         yoloMode: autoStart?.yoloMode || false,
+        githubIssueUrl: autoStart?.issueInfo?.url,
         activeAgentName: undefined,
       };
       setTabs((prev) => [...prev, newTab]);
