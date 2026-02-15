@@ -38,7 +38,16 @@
     },
     "files": [
       "out/**/*",
-      "public/**/*"
+      "public/**/*",
+      "!**/*.map",
+      "!**/*.md",
+      "!**/CHANGELOG*",
+      "!**/LICENSE*",
+      "!**/*.d.ts",
+      "!**/test/**",
+      "!**/tests/**",
+      "!**/__tests__/**",
+      "!**/example*/**"
     ],
     "asarUnpack": [
       "node_modules/@github/copilot-*/**/*",
@@ -99,7 +108,8 @@
       "allowToChangeInstallationDirectory": true,
       "artifactName": "${productName}-${version}-win-${arch}-Setup.${ext}",
       "installerHeader": "build/icon.ico"
-    }
+    },
+    "compression": "maximum"
   },
   "dependencies": {
     "@github/copilot-sdk": "0.1.23",
