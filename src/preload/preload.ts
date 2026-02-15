@@ -459,6 +459,28 @@ const electronAPI = {
       ipcRenderer.on('copilot:error', handler);
       return () => ipcRenderer.removeListener('copilot:error', handler);
     },
+    onInitError: (
+      callback: (data: {
+        failureMode: 'cli_not_found' | 'auth_failed' | 'unknown';
+        title: string;
+        message: string;
+        instructions: string;
+      }) => void
+    ): (() => void) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        data: {
+          failureMode: 'cli_not_found' | 'auth_failed' | 'unknown';
+          title: string;
+          message: string;
+          instructions: string;
+        }
+      ): void => callback(data);
+      ipcRenderer.on('copilot:initError', handler);
+      return () => ipcRenderer.removeListener('copilot:initError', handler);
+    },
+    retryInit: (): Promise<void> => ipcRenderer.invoke('copilot:retryInit'),
+    openExternal: (url: string): Promise<void> => ipcRenderer.invoke('copilot:openExternal', url),
     onModelsVerified: (
       callback: (data: { models: { id: string; name: string; multiplier: number }[] }) => void
     ): (() => void) => {
