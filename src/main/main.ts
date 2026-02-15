@@ -141,6 +141,17 @@ const getWorktreeSessionsPath = (): string => {
 // Path to MCP config file
 const getMcpConfigPath = (): string => join(getCopilotConfigPath(), 'mcp-config.json');
 
+// Returns all potential MCP config file paths, including project-level overrides.
+// Global config is always included; project-level configs are only included when cwd is provided.
+function getAllMcpConfigPaths(cwd?: string): string[] {
+  const paths: string[] = [getMcpConfigPath()];
+  if (cwd) {
+    paths.push(join(cwd, '.copilot', 'mcp.json'));
+    paths.push(join(cwd, '.vscode', 'mcp.json'));
+  }
+  return paths;
+}
+
 // Copilot folders that are safe to read from without permission (Issue #87)
 // These contain session state data (plans, configs) and are low-risk for read-only access
 const getSafeCopilotReadPaths = (): string[] => {
@@ -156,20 +167,26 @@ const getSafeCopilotReadPaths = (): string[] => {
   ];
 };
 
-// Read MCP config from file
-async function readMcpConfig(): Promise<MCPConfigFile> {
-  const configPath = getMcpConfigPath();
-  try {
-    if (!existsSync(configPath)) {
-      return { mcpServers: {} };
+// Read MCP config from all discovered config files, merging servers.
+// Project-level configs (.copilot/mcp.json, .vscode/mcp.json) are merged
+// with the global config, with project-level servers taking precedence.
+async function readMcpConfig(cwd?: string): Promise<MCPConfigFile> {
+  const allPaths = getAllMcpConfigPaths(cwd);
+  const merged: MCPConfigFile = { mcpServers: {} };
+
+  for (const configPath of allPaths) {
+    try {
+      const content = await readFile(configPath, 'utf-8');
+      const parsed = JSON.parse(content) as MCPConfigFile;
+      if (parsed.mcpServers) {
+        Object.assign(merged.mcpServers, parsed.mcpServers);
+      }
+    } catch {
+      // File doesn't exist or is unreadable — skip silently
     }
-    const content = await readFile(configPath, 'utf-8');
-    const parsed = JSON.parse(content) as MCPConfigFile;
-    return parsed;
-  } catch (error) {
-    console.error('Failed to read MCP config:', error);
-    return { mcpServers: {} };
   }
+
+  return merged;
 }
 
 // Write MCP config to file
@@ -789,7 +806,7 @@ async function resumeDisconnectedSession(
   log.info(`[${sessionId}] Attempting to resume disconnected session...`);
 
   const client = await getClientForCwd(sessionState.cwd);
-  const mcpConfig = await readMcpConfig();
+  const mcpConfig = await readMcpConfig(sessionState.cwd);
 
   // Create browser tools for resumed session
   const browserTools = createBrowserTools(sessionId);
@@ -878,7 +895,7 @@ async function startEarlySessionResumption(): Promise<void> {
     const client = await earlyClientPromise;
 
     // Load MCP config
-    const mcpConfig = await readMcpConfig();
+    // Note: Per-session MCP config is loaded inside each session's resume below
 
     // Resume sessions in parallel
     const resumePromises = openSessions.map(async (storedSession) => {
@@ -918,6 +935,7 @@ async function startEarlySessionResumption(): Promise<void> {
             log.warn('Failed to load agent prompt:', agent.path, error);
           }
         }
+        const mcpConfig = await readMcpConfig(sessionCwd);
         const session = await sessionClient.resumeSession(sessionId, {
           mcpServers: mcpConfig.mcpServers,
           tools: createBrowserTools(sessionId),
@@ -1597,7 +1615,7 @@ async function createNewSession(model?: string, cwd?: string): Promise<string> {
   const client = await getClientForCwd(sessionCwd);
 
   // Load MCP servers config
-  const mcpConfig = await readMcpConfig();
+  const mcpConfig = await readMcpConfig(sessionCwd);
   const agentResult = await getAllAgents(undefined, sessionCwd);
   const customAgents: CustomAgentConfig[] = [];
   const skippedAgentNames: string[] = [];
@@ -1881,9 +1899,8 @@ async function initCopilot(): Promise<void> {
     console.log('Already resumed early:', [...alreadyResumedIds]);
     console.log('Sessions still needing resumption:', sessionsNeedingResumption);
 
-    // Load MCP servers config once for resumption (only if we need to resume more sessions)
-    const mcpConfig =
-      sessionsNeedingResumption.length > 0 ? await readMcpConfig() : { mcpServers: {} };
+    // Load MCP servers config per-session during resumption
+    const mcpConfigCache = new Map<string, MCPConfigFile>();
 
     // Resume only sessions that weren't resumed early
     const resumeSession = async (sessionId: string): Promise<void> => {
@@ -1913,6 +1930,12 @@ async function initCopilot(): Promise<void> {
           } catch (error) {
             log.warn('Failed to load agent prompt:', agent.path, error);
           }
+        }
+        // Load MCP config for this session's cwd (cached per cwd)
+        let mcpConfig = mcpConfigCache.get(sessionCwd);
+        if (!mcpConfig) {
+          mcpConfig = await readMcpConfig(sessionCwd);
+          mcpConfigCache.set(sessionCwd, mcpConfig);
         }
         const session = await client.resumeSession(sessionId, {
           mcpServers: mcpConfig.mcpServers,
@@ -2749,7 +2772,7 @@ ipcMain.handle(
       await sessionState.session.destroy();
       sessions.delete(data.sessionId);
 
-      const mcpConfig = await readMcpConfig();
+      const mcpConfig = await readMcpConfig(cwd);
       const browserTools = createBrowserTools(data.sessionId);
 
       // Resume the same session with the new model — preserves conversation context
@@ -2860,7 +2883,7 @@ ipcMain.handle(
     await sessionState.session.destroy();
     sessions.delete(data.sessionId);
 
-    const mcpConfig = await readMcpConfig();
+    const mcpConfig = await readMcpConfig(cwd);
     const browserTools = createBrowserTools(data.sessionId);
 
     // Build customAgents list for the session
@@ -4409,7 +4432,7 @@ ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string
   const client = await getClientForCwd(sessionCwd);
 
   // Load MCP servers config
-  const mcpConfig = await readMcpConfig();
+  const mcpConfig = await readMcpConfig(sessionCwd);
 
   const session = await client.resumeSession(sessionId, {
     mcpServers: mcpConfig.mcpServers,
@@ -4556,6 +4579,8 @@ ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string
 
 // MCP Server Management
 ipcMain.handle('mcp:getConfig', async () => {
+  // Return only the global config — project-level configs are read-only
+  // and merged at session creation time
   const config = await readMcpConfig();
   return config;
 });
@@ -4596,7 +4621,9 @@ ipcMain.handle('mcp:deleteServer', async (_event, name: string) => {
 });
 
 ipcMain.handle('mcp:getConfigPath', async () => {
-  return { path: getMcpConfigPath() };
+  const sessionState = activeSessionId ? sessions.get(activeSessionId) : undefined;
+  const cwd = sessionState?.cwd;
+  return { path: getMcpConfigPath(), allPaths: getAllMcpConfigPaths(cwd) };
 });
 
 // Agent Skills handlers
