@@ -467,6 +467,9 @@ const App: React.FC = () => {
   const [shouldShowWizardWhenReady, setShouldShowWizardWhenReady] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
 
+  // Evaluation mode — run same task across multiple models
+  const [showEvalModal, setShowEvalModal] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const activeTabIdRef = useRef<string | null>(null);
@@ -4795,6 +4798,13 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 >
                   YOLO
                 </button>
+                <button
+                  onClick={() => setShowEvalModal(true)}
+                  className="shrink-0 px-3 py-3 text-xs text-copilot-text-muted hover:text-copilot-text transition-colors"
+                  title="Evaluation mode — run the same task across multiple models to compare results"
+                >
+                  ⚖️ Eval
+                </button>
               </div>
               {!activeTab?.yoloMode && showAllowedCommands && (
                 <div className="px-4 pb-3">
@@ -7956,6 +7966,82 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               <p className="text-[10px] text-copilot-text-muted mt-2">
                 Tip: Press {navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+Enter to save
               </p>
+            </div>
+          </div>
+        )}
+        {/* Evaluation Mode Modal */}
+        {showEvalModal && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+            onClick={() => setShowEvalModal(false)}
+          >
+            <div
+              className="bg-copilot-surface border border-copilot-border rounded-lg shadow-xl w-full max-w-lg mx-4 p-6"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-copilot-text">⚖️ Evaluation Mode</h2>
+                <button
+                  onClick={() => setShowEvalModal(false)}
+                  className="text-copilot-text-muted hover:text-copilot-text p-1"
+                >
+                  <CloseIcon size={16} />
+                </button>
+              </div>
+              <p className="text-sm text-copilot-text-muted mb-4">
+                Run the same task across multiple models to compare results. Each model gets its own
+                worktree session running in parallel.
+              </p>
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs text-copilot-text-muted block mb-1">Task Prompt</label>
+                  <textarea
+                    className="w-full h-24 px-3 py-2 text-sm bg-copilot-bg border border-copilot-border rounded-lg text-copilot-text resize-none"
+                    placeholder="Describe the coding task to evaluate across models..."
+                    id="eval-prompt"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-copilot-text-muted block mb-1">
+                    Models (comma-separated)
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full px-3 py-2 text-sm bg-copilot-bg border border-copilot-border rounded-lg text-copilot-text"
+                    placeholder="gpt-4o, claude-sonnet-4, o3-mini"
+                    id="eval-models"
+                  />
+                </div>
+                <button
+                  onClick={async () => {
+                    const prompt = (document.getElementById('eval-prompt') as HTMLTextAreaElement)
+                      ?.value;
+                    const modelsInput = (document.getElementById('eval-models') as HTMLInputElement)
+                      ?.value;
+                    if (!prompt || !modelsInput || !activeTab) return;
+                    const models = modelsInput
+                      .split(',')
+                      .map((m) => m.trim())
+                      .filter(Boolean);
+                    for (const model of models) {
+                      try {
+                        const branch = `eval/${model.replace(/[^a-zA-Z0-9-]/g, '-')}`;
+                        await window.electronAPI.worktree.createSession(activeTab.cwd, branch);
+                      } catch {
+                        // Silently continue if worktree creation fails
+                      }
+                    }
+                    setShowEvalModal(false);
+                    setInputValue(
+                      `[Evaluation] Running task across ${models.length} models: ${models.join(', ')}\n\n${prompt}`
+                    );
+                    inputRef.current?.focus();
+                  }}
+                  className="w-full py-2 px-4 bg-copilot-accent text-white text-sm font-medium rounded-lg hover:opacity-90 transition-opacity"
+                >
+                  Start Evaluation
+                </button>
+              </div>
             </div>
           </div>
         )}
