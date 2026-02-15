@@ -468,6 +468,9 @@ const App: React.FC = () => {
   const [dataLoaded, setDataLoaded] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  // Track if user is scrolled to bottom (within 150px threshold)
+  const isUserNearBottomRef = useRef(true);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const activeTabIdRef = useRef<string | null>(null);
 
@@ -886,7 +889,23 @@ const App: React.FC = () => {
 
   const scrollToBottom = (instant?: boolean) => {
     messagesEndRef.current?.scrollIntoView({ behavior: instant ? 'instant' : 'smooth' });
+    isUserNearBottomRef.current = true;
   };
+
+  // Track scroll position to determine if user is near bottom
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      // Consider "near bottom" if within 150px of the bottom
+      isUserNearBottomRef.current = scrollHeight - scrollTop - clientHeight < 150;
+    };
+
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, []);
 
   // Track previous message count and session ID for scroll logic
   const prevMessageCountRef = useRef<number>(0);
@@ -904,9 +923,12 @@ const App: React.FC = () => {
 
     // Only scroll to bottom when:
     // 1. New messages are added to the SAME session (message count increased)
-    // 2. NOT when switching sessions (session ID changed)
+    // 2. User is currently near the bottom (hasn't scrolled up to read)
+    // 3. NOT when switching sessions (session ID changed)
     if (currentSessionId === prevSessionId && currentMessageCount > prevMessageCount) {
-      scrollToBottom();
+      if (isUserNearBottomRef.current) {
+        scrollToBottom();
+      }
     } else if (currentSessionId !== prevSessionId && currentMessageCount > 0) {
       // When switching sessions, instantly scroll to bottom (no animation)
       // This preserves the "show end of conversation" behavior without the annoying animated scroll
@@ -5157,7 +5179,10 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               ))}
 
             {/* Messages Area - Conversation Only */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-2 min-h-0">
+            <div
+              ref={messagesContainerRef}
+              className="flex-1 overflow-y-auto p-4 space-y-2 min-h-0"
+            >
               {activeTab?.messages.length === 0 && (
                 <div className="flex flex-col items-center justify-center min-h-full text-center -m-4 p-4">
                   <img src={logo} alt="Cooper" className="w-16 h-16 mb-4" />
