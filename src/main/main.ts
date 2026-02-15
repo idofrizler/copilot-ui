@@ -2158,10 +2158,28 @@ function createWindow(): void {
     store.set('zoomFactor', clamped);
     broadcastZoomFactor(clamped);
   });
+  // Prevent navigation away from the app (catches remaining refresh vectors)
+  if (app.isPackaged) {
+    mainWindow.webContents.on('will-navigate', (event, url) => {
+      log.warn('Blocked navigation attempt:', url);
+      event.preventDefault();
+    });
+  }
+
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown') return;
+    // Block F5 / Shift+F5 refresh in packaged builds (Windows refresh shortcut)
+    if (app.isPackaged && input.key === 'F5') {
+      event.preventDefault();
+      return;
+    }
     const modifier = input.control || input.meta;
     if (!modifier) return;
+    // Prevent Ctrl+R / Cmd+R refresh in packaged builds to avoid limbo state
+    if (app.isPackaged && (input.key === 'r' || input.key === 'R')) {
+      event.preventDefault();
+      return;
+    }
     if (input.key === '+' || input.key === '=' || input.code === 'Equal') {
       event.preventDefault();
       const current = mainWindow?.webContents.getZoomFactor() ?? DEFAULT_ZOOM_FACTOR;
@@ -4901,9 +4919,19 @@ if (!gotTheLock) {
       {
         label: 'View',
         submenu: [
-          { role: 'reload' as const },
-          { role: 'forceReload' as const },
-          { role: 'toggleDevTools' as const },
+          {
+            label: 'Reload',
+            accelerator: app.isPackaged ? undefined : 'CmdOrCtrl+R',
+            enabled: !app.isPackaged,
+            click: () => mainWindow?.webContents.reload(),
+          },
+          {
+            label: 'Force Reload',
+            accelerator: app.isPackaged ? undefined : 'CmdOrCtrl+Shift+R',
+            enabled: !app.isPackaged,
+            click: () => mainWindow?.webContents.reloadIgnoringCache(),
+          },
+          { role: 'toggleDevTools' as const, enabled: !app.isPackaged },
           { type: 'separator' as const },
           { role: 'resetZoom' as const },
           { role: 'zoomIn' as const },
