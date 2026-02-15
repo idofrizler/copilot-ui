@@ -5221,6 +5221,17 @@ ipcMain.handle('file:readContent', async (_event, filePath: string) => {
   }
 });
 
+// File operations - write content to a file
+ipcMain.handle('file:writeContent', async (_event, filePath: string, content: string) => {
+  try {
+    writeFileSync(filePath, content, 'utf-8');
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to write file:', error);
+    return { success: false, error: `Failed to write file: ${String(error)}` };
+  }
+});
+
 // File operations - reveal file in system file explorer
 ipcMain.handle(
   'file:revealInFolder',

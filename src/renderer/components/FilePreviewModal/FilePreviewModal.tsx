@@ -121,6 +121,10 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   const [fileContent, setFileContent] = useState<FileContent | null>(null);
   const [selectedFile, setSelectedFile] = useState<string>(initialFilePath);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const [isEditing, setIsEditing] = useState(false);
+  const [editContent, setEditContent] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
   // Determine if this is a full overlay (multiple files) or single file preview
   const isFullOverlay = forceFullOverlay || editedFiles.length > 0;
@@ -497,6 +501,70 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                 <span>{fileViewMode === 'tree' ? 'Flat' : 'Tree'}</span>
               </button>
             )}
+            {selectedFile && !isEditing && (
+              <button
+                onClick={() => {
+                  setIsEditing(true);
+                  setEditContent(fileContent?.content || '');
+                  setSaveMessage(null);
+                }}
+                className="flex items-center gap-1.5 px-2 py-1 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-bg rounded transition-colors"
+                title="Edit file"
+              >
+                <FileIcon size={14} />
+                <span>Edit</span>
+              </button>
+            )}
+            {isEditing && (
+              <>
+                <button
+                  onClick={async () => {
+                    setIsSaving(true);
+                    setSaveMessage(null);
+                    try {
+                      const result = await window.electronAPI.file.writeContent(
+                        selectedFile,
+                        editContent
+                      );
+                      if (result.success) {
+                        setFileContent((prev) => (prev ? { ...prev, content: editContent } : prev));
+                        setIsEditing(false);
+                        setSaveMessage('Saved');
+                        setTimeout(() => setSaveMessage(null), 2000);
+                      } else {
+                        setSaveMessage(result.error || 'Save failed');
+                      }
+                    } catch (err) {
+                      setSaveMessage(String(err));
+                    } finally {
+                      setIsSaving(false);
+                    }
+                  }}
+                  disabled={isSaving}
+                  className="flex items-center gap-1.5 px-2 py-1 text-xs text-copilot-accent hover:bg-copilot-bg rounded transition-colors font-medium"
+                  title="Save changes"
+                >
+                  <span>{isSaving ? 'Saving...' : 'Save'}</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setIsEditing(false);
+                    setSaveMessage(null);
+                  }}
+                  className="flex items-center gap-1.5 px-2 py-1 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-bg rounded transition-colors"
+                  title="Cancel editing"
+                >
+                  <span>Cancel</span>
+                </button>
+                {saveMessage && (
+                  <span
+                    className={`text-xs px-2 ${saveMessage === 'Saved' ? 'text-copilot-success' : 'text-copilot-error'}`}
+                  >
+                    {saveMessage}
+                  </span>
+                )}
+              </>
+            )}
             {selectedFile && (
               <button
                 onClick={handleRevealInFolder}
@@ -711,6 +779,14 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                       </ReactMarkdown>
                     </div>
                   </div>
+                ) : isEditing ? (
+                  <textarea
+                    value={editContent}
+                    onChange={(e) => setEditContent(e.target.value)}
+                    className="w-full h-full font-mono text-[11px] leading-relaxed text-copilot-text bg-copilot-bg border-none outline-none resize-none p-0"
+                    spellCheck={false}
+                    autoFocus
+                  />
                 ) : (
                   <pre className="font-mono text-[11px] leading-relaxed text-copilot-text whitespace-pre-wrap break-words">
                     {fileContent.content}
