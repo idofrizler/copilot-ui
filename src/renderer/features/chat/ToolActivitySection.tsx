@@ -12,9 +12,7 @@ type GroupedTool = { tool: ActiveTool; count: number };
 const getDescription = (tool: ActiveTool): string => {
   const input = tool.input || {};
   const rawPath = input.path;
-  // Handle path as string or array (MCP tools can pass arrays)
   const path = Array.isArray(rawPath) ? rawPath.join(', ') : (rawPath as string | undefined);
-  const shortPath = path && typeof path === 'string' ? path.split('/').slice(-2).join('/') : '';
 
   if (tool.toolName === 'grep') {
     const pattern = (input.pattern as string) || '';
@@ -26,17 +24,17 @@ const getDescription = (tool: ActiveTool): string => {
   }
 
   if (tool.toolName === 'view') {
-    return shortPath || path || '';
+    return path || '';
   }
 
   if (tool.toolName === 'edit' || tool.toolName === 'create') {
-    return shortPath || path || '';
+    return path || '';
   }
 
   if (tool.toolName === 'bash') {
     const desc = (input.description as string) || '';
-    const cmd = ((input.command as string) || '').slice(0, 40);
-    return desc || (cmd ? `$ ${cmd}...` : '');
+    const cmd = ((input.command as string) || '').slice(0, 80);
+    return desc || (cmd ? `$ ${cmd}` : '');
   }
 
   if (tool.toolName === 'read_bash' || tool.toolName === 'write_bash') {
@@ -44,7 +42,7 @@ const getDescription = (tool: ActiveTool): string => {
   }
 
   if (tool.toolName === 'web_fetch') {
-    return ((input.url as string) || '').slice(0, 30);
+    return (input.url as string) || '';
   }
 
   return '';
@@ -95,18 +93,42 @@ const getSummaryText = (tools: ActiveTool[]): string => {
   const running = tools.filter((t) => t.status === 'running').length;
   const done = tools.filter((t) => t.status === 'done').length;
 
-  // Get unique tool names for summary
-  const toolNames = [...new Set(tools.map((t) => t.toolName))];
-  const toolsPreview = toolNames.slice(0, 3).join(', ');
-  const moreCount = toolNames.length - 3;
-
-  let summary = `${tools.length} operation${tools.length !== 1 ? 's' : ''}`;
-  if (toolsPreview) {
-    summary += ` (${toolsPreview}${moreCount > 0 ? `, +${moreCount}` : ''})`;
+  // Collect unique files edited/read and commands run for visibility
+  const files = new Set<string>();
+  const commands: string[] = [];
+  const urls: string[] = [];
+  for (const t of tools) {
+    const input = t.input || {};
+    const rawPath = input.path;
+    const p = Array.isArray(rawPath) ? rawPath[0] : (rawPath as string | undefined);
+    if (p && (t.toolName === 'edit' || t.toolName === 'create' || t.toolName === 'view')) {
+      const shortPath = typeof p === 'string' ? p.split('/').slice(-2).join('/') : '';
+      if (shortPath) files.add(shortPath);
+    }
+    if (t.toolName === 'bash' && input.command) {
+      commands.push(String(input.command).slice(0, 30));
+    }
+    if (t.toolName === 'web_fetch' && input.url) {
+      urls.push(String(input.url).slice(0, 30));
+    }
   }
 
+  let summary = '';
   if (running > 0) {
     summary = `${running} running, ${done} done`;
+  } else {
+    summary = `${tools.length} operation${tools.length !== 1 ? 's' : ''}`;
+  }
+
+  // Add file preview to collapsed summary
+  const fileList = [...files].slice(0, 3);
+  if (fileList.length > 0) {
+    const moreFiles = files.size - 3;
+    summary += ` · ${fileList.join(', ')}${moreFiles > 0 ? `, +${moreFiles}` : ''}`;
+  } else if (commands.length > 0) {
+    summary += ` · $ ${commands[0]}${commands.length > 1 ? `, +${commands.length - 1}` : ''}`;
+  } else if (urls.length > 0) {
+    summary += ` · ${urls[0]}`;
   }
 
   return summary;
@@ -159,6 +181,21 @@ export function ToolActivitySection({ tools, isLive }: ToolActivitySectionProps)
                       <span
                         className={`font-medium ${tool.status === 'done' ? 'text-copilot-text' : 'text-copilot-text-muted'}`}
                       >
+                        {tool.toolName === 'edit'
+                          ? '✏️'
+                          : tool.toolName === 'create'
+                            ? '📄'
+                            : tool.toolName === 'view'
+                              ? '👁'
+                              : tool.toolName === 'bash'
+                                ? '💻'
+                                : tool.toolName === 'grep'
+                                  ? '🔍'
+                                  : tool.toolName === 'glob'
+                                    ? '📂'
+                                    : tool.toolName === 'web_fetch'
+                                      ? '🌐'
+                                      : '⚙️'}{' '}
                         {tool.toolName.charAt(0).toUpperCase() + tool.toolName.slice(1)}
                       </span>
                       {tool.status === 'done' && count > 1 && (
