@@ -4513,15 +4513,40 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 <GitBranchWidget cwd={activeTab?.cwd} refreshKey={activeTab?.gitBranchRefresh} />
               </div>
 
-              {/* Edited Files Count */}
+              {/* Edited Files */}
               {cleanedEditedFiles.length > 0 && (
                 <div className="px-4 py-3 border-b border-copilot-border">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <FileIcon size={14} className="text-copilot-success" />
                       <span className="text-sm text-copilot-text">Edited Files</span>
                     </div>
                     <span className="text-sm text-copilot-accent">{cleanedEditedFiles.length}</span>
+                  </div>
+                  <div className="space-y-1 max-h-48 overflow-y-auto">
+                    {cleanedEditedFiles.map((filePath) => {
+                      const isUntracked = (activeTab?.untrackedFiles || []).includes(filePath);
+                      const fileName = filePath.split(/[/\\]/).pop() || filePath;
+                      const dirPath = filePath.split(/[/\\]/).slice(0, -1).join('/');
+                      return (
+                        <div
+                          key={filePath}
+                          className={`flex items-center gap-1.5 text-xs px-1 py-0.5 rounded ${isUntracked ? 'opacity-50' : ''}`}
+                          title={filePath}
+                        >
+                          <FileIcon size={10} className="text-copilot-text-muted shrink-0" />
+                          <span className="text-copilot-text truncate">{fileName}</span>
+                          {dirPath && (
+                            <span className="text-copilot-text-muted truncate text-[10px]">
+                              {dirPath}
+                            </span>
+                          )}
+                          {isUntracked && (
+                            <span className="text-copilot-text-muted text-[10px]">untracked</span>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
