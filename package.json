@@ -99,6 +99,25 @@
       "allowToChangeInstallationDirectory": true,
       "artifactName": "${productName}-${version}-win-${arch}-Setup.${ext}",
       "installerHeader": "build/icon.ico"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "category": "Development",
+      "icon": "build/icon.png",
+      "artifactName": "${productName}-${version}-linux-${arch}.${ext}"
     }
   },
   "dependencies": {
