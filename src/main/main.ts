@@ -2144,6 +2144,7 @@ function createWindow(): void {
       nodeIntegration: false,
       sandbox: false,
       webSecurity: true,
+      spellcheck: false,
     },
   });
 
