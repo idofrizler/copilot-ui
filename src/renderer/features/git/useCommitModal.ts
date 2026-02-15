@@ -70,7 +70,10 @@ export interface UseCommitModalReturn {
   closeCommitModal: () => void;
 }
 
-export function useCommitModal(): UseCommitModalReturn {
+export function useCommitModal(options?: {
+  onAutoResolveConflicts?: (files: string[]) => void;
+}): UseCommitModalReturn {
+  const onAutoResolveConflicts = options?.onAutoResolveConflicts;
   const [showCommitModal, setShowCommitModal] = useState(false);
   const [commitMessage, setCommitMessage] = useState('');
   const [isCommitting, setIsCommitting] = useState(false);
@@ -350,6 +353,10 @@ export function useCommitModal(): UseCommitModalReturn {
         // Set conflicted files if any
         if (result.conflictedFiles && result.conflictedFiles.length > 0) {
           setConflictedFiles(result.conflictedFiles);
+          // Auto-resolve: send conflicted files to chat for AI resolution
+          if (onAutoResolveConflicts) {
+            onAutoResolveConflicts(result.conflictedFiles);
+          }
         } else {
           setConflictedFiles([]);
         }

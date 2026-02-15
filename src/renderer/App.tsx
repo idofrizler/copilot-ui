@@ -173,7 +173,13 @@ const App: React.FC = () => {
   const [environmentAgentPath, setEnvironmentAgentPath] = useState<string | null>(null);
 
   const [isGitRepo, setIsGitRepo] = useState<boolean>(true);
-  const commitModal = useCommitModal();
+  const commitModal = useCommitModal({
+    onAutoResolveConflicts: (files) => {
+      const prompt = `Merge conflicts detected in the following files. Please resolve them:\n\n${files.map((f) => `- \`${f}\``).join('\n')}\n\nFor each file:\n1. Read the file to see the conflict markers (<<<<<<< / ======= / >>>>>>>)\n2. Resolve the conflict by keeping the correct code\n3. Remove all conflict markers\n4. Save the file\n\nAfter resolving all conflicts, run \`git add .\` to stage the resolved files.`;
+      setInputValue(prompt);
+      inputRef.current?.focus();
+    },
+  });
   const [allowMode, setAllowMode] = useState<'once' | 'session' | 'global'>('once');
   const [showAllowDropdown, setShowAllowDropdown] = useState(false);
   const allowDropdownRef = useRef<HTMLDivElement>(null);
