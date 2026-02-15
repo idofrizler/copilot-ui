@@ -748,7 +748,8 @@ async function fetchGitHubIssueCommentsViaCli(
 function fetchGitHubIssueCommentsViaApi(
   owner: string,
   repo: string,
-  issueNumber: number
+  issueNumber: number,
+  token?: string | null
 ): Promise<GitHubIssueComment[]> {
   const apiUrl = `https://api.github.com/repos/${owner}/${repo}/issues/${issueNumber}/comments`;
 
@@ -760,6 +761,9 @@ function fetchGitHubIssueCommentsViaApi(
 
     request.setHeader('Accept', 'application/vnd.github.v3+json');
     request.setHeader('User-Agent', 'Copilot-UI');
+    if (token) {
+      request.setHeader('Authorization', `token ${token}`);
+    }
 
     let responseBody = '';
 
@@ -892,6 +896,15 @@ gh auth login
 \`\`\`
 `;
 
+  // Try to get a GitHub token from `gh auth token` for private repo support
+  let ghToken: string | null = null;
+  try {
+    const { stdout } = await execAsync('gh auth token', { timeout: 5000 });
+    ghToken = stdout.trim();
+  } catch {
+    // gh CLI not available or not authenticated — proceed without token
+  }
+
   return new Promise((resolve) => {
     const request = net.request({
       method: 'GET',
@@ -900,6 +913,9 @@ gh auth login
 
     request.setHeader('Accept', 'application/vnd.github.v3+json');
     request.setHeader('User-Agent', 'Copilot-UI');
+    if (ghToken) {
+      request.setHeader('Authorization', `token ${ghToken}`);
+    }
 
     let responseBody = '';
 
@@ -935,7 +951,7 @@ gh auth login
           const suggestedBranch = generateBranchFromTitle(issue.number, issue.title);
 
           // Fetch comments for the issue via API
-          const comments = await fetchGitHubIssueCommentsViaApi(owner, repo, issueNumber);
+          const comments = await fetchGitHubIssueCommentsViaApi(owner, repo, issueNumber, ghToken);
           issue.comments = comments;
 
           resolve({ success: true, issue, suggestedBranch });
