@@ -1514,6 +1514,27 @@ const App: React.FC = () => {
 
         // Check for Ralph loop continuation
         if (tab?.ralphConfig?.active) {
+          // If the last message is a denial, don't advance — the agent was interrupted
+          // by a command denial, not completing a turn. It should keep working.
+          const lastMsg = tab.messages[tab.messages.length - 1];
+          const wasDenied =
+            lastMsg?.role === 'system' && lastMsg.content?.startsWith('🚫 **Denied:**');
+
+          if (wasDenied) {
+            // Mark as not processing but keep Ralph active — agent will get re-prompted
+            return prev.map((t) =>
+              t.id !== sessionId
+                ? t
+                : {
+                    ...t,
+                    isProcessing: false,
+                    messages: t.messages.map((msg) =>
+                      msg.isStreaming ? { ...msg, isStreaming: false } : msg
+                    ),
+                  }
+            );
+          }
+
           // Check ALL assistant messages for the completion signal, not just the last one.
           // A single agent turn can produce multiple assistant.message events (between tool calls),
           // and the signal may be in an earlier message, not the final one.
@@ -1657,6 +1678,25 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
 
         // Check for Lisa Simpson loop continuation
         if (tab?.lisaConfig?.active) {
+          // If the last message is a denial, don't advance — same logic as Ralph
+          const lastMsgLisa = tab.messages[tab.messages.length - 1];
+          const wasDeniedLisa =
+            lastMsgLisa?.role === 'system' && lastMsgLisa.content?.startsWith('🚫 **Denied:**');
+
+          if (wasDeniedLisa) {
+            return prev.map((t) =>
+              t.id !== sessionId
+                ? t
+                : {
+                    ...t,
+                    isProcessing: false,
+                    messages: t.messages.map((msg) =>
+                      msg.isStreaming ? { ...msg, isStreaming: false } : msg
+                    ),
+                  }
+            );
+          }
+
           // Check ALL recent assistant messages for phase signals, not just the last one.
           // Same rationale as Ralph: multi-message turns may have signals in earlier messages.
           const recentAssistantMessages = tab.messages.filter((msg) => msg.role === 'assistant');
