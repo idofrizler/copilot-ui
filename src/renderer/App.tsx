@@ -1660,6 +1660,10 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
           // Check ALL recent assistant messages for phase signals, not just the last one.
           // Same rationale as Ralph: multi-message turns may have signals in earlier messages.
           const recentAssistantMessages = tab.messages.filter((msg) => msg.role === 'assistant');
+          const lastContent =
+            recentAssistantMessages.length > 0
+              ? recentAssistantMessages[recentAssistantMessages.length - 1].content || ''
+              : '';
           const hasPhaseComplete = recentAssistantMessages.some((msg) =>
             msg.content?.includes(LISA_PHASE_COMPLETE_SIGNAL)
           );
@@ -1707,6 +1711,7 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
           let shouldContinue = false;
           let nextPhase: LisaPhase | null = null;
           let rejectToPhase: LisaPhase | null = null;
+          let reviewerFeedbackContent = lastContent;
 
           if (isReviewPhase && hasReviewApprove) {
             // Review approved - move to next phase (or complete if final-review)
@@ -1718,14 +1723,30 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
               shouldContinue = false;
             }
           } else if (isReviewPhase && hasReviewReject) {
-            // Review rejected - extract phase to return to
-            const rejectMatch = lastContent.match(
-              new RegExp(
-                `${LISA_REVIEW_REJECT_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*(plan|execute|validate)`
-              )
+            // Review rejected - search ALL assistant messages for the reject signal,
+            // since multi-message turns may have signals in earlier messages
+            const rejectRegex = new RegExp(
+              `${LISA_REVIEW_REJECT_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*(plan|execute|validate)`
             );
-            if (rejectMatch) {
-              rejectToPhase = rejectMatch[1] as LisaPhase;
+            for (let i = recentAssistantMessages.length - 1; i >= 0; i--) {
+              const msg = recentAssistantMessages[i];
+              const rejectMatch = msg.content?.match(rejectRegex);
+              if (rejectMatch) {
+                rejectToPhase = rejectMatch[1] as LisaPhase;
+                reviewerFeedbackContent = msg.content || '';
+                shouldContinue = true;
+                break;
+              }
+            }
+            // Fallback: if reject signal was detected but phase extraction failed,
+            // map review phases back to their corresponding work phases
+            if (!shouldContinue) {
+              const reviewToWorkPhase: Record<string, LisaPhase> = {
+                'plan-review': 'plan',
+                'code-review': 'execute',
+                'final-review': 'validate',
+              };
+              rejectToPhase = reviewToWorkPhase[currentPhase] || currentPhase;
               shouldContinue = true;
             }
           } else if (hasPhaseComplete && !isReviewPhase) {
@@ -1750,7 +1771,9 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
               targetVisitCount,
               tab.lisaConfig.originalPrompt,
               lastContent,
-              rejectToPhase ? `Reviewer feedback: ${lastContent}` : undefined
+              rejectToPhase && reviewerFeedbackContent
+                ? `Reviewer feedback: ${reviewerFeedbackContent}`
+                : undefined
             );
 
             // Schedule the re-send after state update
