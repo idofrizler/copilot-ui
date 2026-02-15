@@ -4626,8 +4626,23 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 {showInstructions && (
                   <div>
                     {flatInstructions.length === 0 ? (
-                      <div className="px-4 py-2 text-xs text-copilot-text-muted">
-                        No instruction files found
+                      <div className="px-4 py-2">
+                        <div className="text-xs text-copilot-text-muted mb-2">
+                          No instruction files found
+                        </div>
+                        <button
+                          onClick={() => {
+                            const initPrompt =
+                              'Initialize this project with instruction files. Create:\n\n1. `AGENTS.md` — Agent behavior and capabilities\n2. `.github/copilot-instructions.md` — Project-level Copilot instructions\n3. `CONTRIBUTING.md` — Contribution guidelines\n\nAnalyze the project structure, tech stack, and codebase conventions first, then generate comprehensive, project-specific content for each file.';
+                            setInputValue(initPrompt);
+                            setRightDrawerOpen(false);
+                            inputRef.current?.focus();
+                          }}
+                          className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-copilot-accent hover:bg-copilot-surface rounded transition-colors border border-dashed border-copilot-border"
+                        >
+                          <PlusIcon size={10} />
+                          <span>Initialize project instructions</span>
+                        </button>
                       </div>
                     ) : (
                       <div className="divide-y divide-copilot-border">
@@ -7155,8 +7170,22 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       {showInstructions && (
                         <div className="max-h-48 overflow-y-auto">
                           {flatInstructions.length === 0 ? (
-                            <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
-                              No instruction files found
+                            <div className="px-3 py-2">
+                              <div className="text-[10px] text-copilot-text-muted mb-2">
+                                No instruction files found
+                              </div>
+                              <button
+                                onClick={() => {
+                                  const initPrompt =
+                                    'Initialize this project with instruction files. Create:\n\n1. `AGENTS.md` — Agent behavior and capabilities\n2. `.github/copilot-instructions.md` — Project-level Copilot instructions\n3. `CONTRIBUTING.md` — Contribution guidelines\n\nAnalyze the project structure, tech stack, and codebase conventions first, then generate comprehensive, project-specific content for each file.';
+                                  setInputValue(initPrompt);
+                                  inputRef.current?.focus();
+                                }}
+                                className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-copilot-accent hover:bg-copilot-surface rounded transition-colors border border-dashed border-copilot-border"
+                              >
+                                <PlusIcon size={10} />
+                                <span>Initialize project instructions</span>
+                              </button>
                             </div>
                           ) : (
                             <div className="divide-y divide-copilot-border">
