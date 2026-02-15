@@ -370,6 +370,8 @@ const App: React.FC = () => {
   const [ralphMaxIterations, setRalphMaxIterations] = useState(5);
   const [ralphRequireScreenshot, setRalphRequireScreenshot] = useState(false);
   const [ralphClearContext, setRalphClearContext] = useState(true); // New: Clear context between iterations (like Gemini Ralph)
+  const [ralphRequireBuildCheck, setRalphRequireBuildCheck] = useState(true);
+  const [ralphRequireTests, setRalphRequireTests] = useState(true);
 
   // Lisa Simpson loop state - multi-phase analytical workflow
   const [showLisaSettings, setShowLisaSettings] = useState(false);
@@ -1530,23 +1532,46 @@ const App: React.FC = () => {
               ? '\n- [ ] Screenshot taken of the delivered feature'
               : '';
 
+            const buildCheckItem = tab.ralphConfig.requireBuildCheck
+              ? '\n- [ ] Build passes with 0 errors (`npm run build` or equivalent)'
+              : '';
+
+            const testCheckItem = tab.ralphConfig.requireTests
+              ? '\n- [ ] Tests added/updated AND passing (`npm test` or equivalent)'
+              : '';
+
+            // Collect full agent output from the iteration for feedback
+            // Find messages since the last user prompt to capture the entire agent turn
+            const lastUserIdx =
+              [...tab.messages]
+                .map((m, i) => ({ role: m.role, i }))
+                .filter((m) => m.role === 'user')
+                .pop()?.i ?? 0;
+            const iterationOutput = tab.messages
+              .slice(lastUserIdx + 1)
+              .filter((m) => m.role === 'assistant' && m.content)
+              .map((m) => m.content)
+              .join('\n\n');
+
             // Build continuation prompt based on context clearing setting
             // If clearContextBetweenIterations is true, we provide minimal context (like Gemini Ralph)
             // and instruct the agent to re-read files for state (reduces context pollution)
             const clearContext = tab.ralphConfig.clearContextBetweenIterations ?? true;
-            const lastAssistantMsg = [...tab.messages]
-              .reverse()
-              .find((m) => m.role === 'assistant');
-            const lastResponseContent = lastAssistantMsg?.content || '';
 
             let continuationPrompt: string;
 
             if (clearContext) {
               // Gemini-style: Clear context, rely on file state
-              // This forces agent to read ralph-progress.md and git status for context
+              // Include previous iteration output for continuity
               continuationPrompt = `🔄 **Ralph Loop - Iteration ${nextIteration}/${tab.ralphConfig.maxIterations}**
 
 ⚠️ **CONTEXT CLEARED** - Previous chat history is not available. You must re-read file state.
+
+## 📋 PREVIOUS ITERATION OUTPUT (for continuity)
+
+${iterationOutput ? iterationOutput.substring(0, 4000) : '(no output captured)'}
+
+---
 
 ## 🔍 GET UP TO SPEED (Do these first!)
 
@@ -1554,8 +1579,9 @@ Before continuing work, you MUST:
 
 1. **Read \`${RALPH_PROGRESS_FILENAME}\`** - See what was done in previous iterations
 2. **Run \`git status\` and \`git log --oneline -10\`** - See recent changes
-3. **Check if build passes** - Run \`npm run build\` or equivalent
-4. **Review your plan** - See what tasks remain
+3. **Run \`npm run build\`** - Check if build passes (fix any errors before proceeding)
+4. **Run \`npm test\`** - Check if tests pass (fix any failures)
+5. **Review your plan** - Go through EVERY item, verify each is complete or still needed
 
 ## Original Task:
 
@@ -1566,6 +1592,7 @@ ${tab.ralphConfig.originalPrompt}
 ## Continue Working
 
 After getting up to speed, continue where the previous iteration left off.
+Go through your plan item by item — do NOT skip any items.
 
 **Update \`${RALPH_PROGRESS_FILENAME}\`** with this iteration's progress:
 \`\`\`markdown
@@ -1577,30 +1604,30 @@ After getting up to speed, continue where the previous iteration left off.
 ### Completed this iteration:
 - [list items]
 
-### Next steps:
-- [list remaining work]
+### Remaining items from plan:
+- [list ALL remaining work from plan]
 \`\`\`
 
 ## ✅ COMPLETION CHECKLIST
 
 Verify ALL before signaling complete:
-- [ ] All plan items checked off
-- [ ] Code builds without errors
-- [ ] Feature tested and working (actually ran the app)
-- [ ] No console errors introduced
-- [ ] Tests added/updated if applicable${screenshotChecklistItem}
+- [ ] Plan exists with ALL items checked off (go through each one)${buildCheckItem}${testCheckItem}
+- [ ] Feature tested and working (actually build and run the app, verify end-to-end)
+- [ ] No console errors introduced (check terminal + browser console)
+- [ ] No regressions (existing functionality still works)${screenshotChecklistItem}
 - [ ] \`${RALPH_PROGRESS_FILENAME}\` updated with final status
 
+⚠️ DO NOT signal completion unless you have ACTUALLY VERIFIED each item above.
 Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complete.`;
             } else {
-              // Traditional mode: Include previous response in context
+              // Traditional mode: Include full iteration output in context
               continuationPrompt = `🔄 **Ralph Loop - Iteration ${nextIteration}/${tab.ralphConfig.maxIterations}**
 
 ---
 
-## Your Previous Response (for context):
+## Your Full Output From Previous Iteration:
 
-${lastResponseContent}
+${iterationOutput || '(no output captured)'}
 
 ---
 
@@ -1612,17 +1639,21 @@ ${tab.ralphConfig.originalPrompt}
 
 ## Continue Working
 
-Continue where you left off. Check your plan, verify what's done, and complete remaining items.
+Continue where you left off. Go through your plan item by item — verify each is done:
+1. Read your plan and check EVERY item
+2. Run \`npm run build\` — fix any errors
+3. Run \`npm test\` — fix any failures
+4. Actually test the feature by running the app
 
 **Update \`${RALPH_PROGRESS_FILENAME}\`** with progress.
 
 COMPLETION CHECKLIST (verify ALL before signaling complete):
-- [ ] Plan exists and all items checked off
-- [ ] Code builds without errors
-- [ ] Feature tested and working (actually ran the app)
+- [ ] Plan exists and ALL items individually checked off${buildCheckItem}${testCheckItem}
+- [ ] Feature tested and working (actually build and run the app)
 - [ ] No console errors introduced
-- [ ] Tests added/updated if applicable${screenshotChecklistItem}
+- [ ] No regressions (existing functionality still works)${screenshotChecklistItem}
 
+⚠️ DO NOT signal completion unless you have ACTUALLY VERIFIED each item above.
 Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complete.`;
             }
 
@@ -2543,6 +2574,8 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
           active: true,
           requireScreenshot: ralphRequireScreenshot,
           clearContextBetweenIterations: ralphClearContext,
+          requireBuildCheck: ralphRequireBuildCheck,
+          requireTests: ralphRequireTests,
           startedAt,
           progressFilePath,
           stateFilePath,
@@ -2592,6 +2625,25 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       );
     } else if (ralphEnabled) {
       // Enhanced Ralph prompt with progress file tracking (inspired by Gemini CLI Ralph and Anthropic research)
+      const buildCheckStep = ralphRequireBuildCheck
+        ? `
+2. **Build Verification**: Run the build and fix ALL errors:
+   - Run \`npm run build\` (or the project's build command)
+   - Fix every error and warning — 0 errors, 0 warnings required
+   - Do NOT proceed until build is green
+`
+        : '';
+
+      const testStep = ralphRequireTests
+        ? `
+3. **Test Coverage**: Add tests AND verify all pass:
+   - Run \`npm test\` (or the project's test command) first to see baseline
+   - Add/update tests for new functionality
+   - Run tests again — ALL must pass (0 failures)
+   - If no test framework exists, note it in the progress file
+`
+        : '';
+
       promptToSend = `${userMessage.content}
 
 ## RALPH LOOP - AUTONOMOUS AGENT MODE
@@ -2609,6 +2661,11 @@ Since this is iteration 1, you MUST first:
    ## Task
    ${userMessage.content.substring(0, 200)}${userMessage.content.length > 200 ? '...' : ''}
    
+   ## Plan
+   - [ ] (item 1)
+   - [ ] (item 2)
+   - [ ] ...
+   
    ## Iteration 1 - ${new Date().toISOString()}
    ### Status: IN PROGRESS
    ### What I'm working on:
@@ -2617,36 +2674,31 @@ Since this is iteration 1, you MUST first:
    ### Completed:
    - (nothing yet)
    
-   ### Next steps:
-   - (list next actions)
+   ### Remaining plan items:
+   - (list ALL remaining)
    \`\`\`
 
-2. **Create a detailed plan** - Before coding, outline all tasks needed
+2. **Create a detailed plan (PRD)** - Before coding, outline ALL tasks needed. Be specific — each task should be a verifiable item.
 
-3. **Work incrementally** - Complete one task at a time, verify it works, then move on
+3. **Work incrementally** - Complete one task at a time, verify it works, then move on.
 
 ### ✅ COMPLETION REQUIREMENTS
 
 Before signaling completion, you MUST verify ALL of the following:
 
-1. **Follow the Plan**: Check off ALL items in your plan. Go through each one.
-
-2. **Test the Feature**: Actually build and run the application:
-   - Run the build (e.g., \`npm run build\`)
+1. **Follow the Plan**: Go through EVERY plan item one by one. Each must be checked off. Do NOT skip any.
+${buildCheckStep}${testStep}
+4. **End-to-End Testing**: Actually build and run the application:
    - Start the app if needed and test functionality
    - Verify expected behavior works end-to-end
-
-3. **Check for Errors**: 
-   - Fix any build errors or warnings
    - Check for console errors (runtime errors, React warnings, etc.)
-   - Ensure no regressions
-
-4. **Add Tests**: If the codebase has tests, add coverage for new functionality.
+   - Ensure no regressions in existing functionality
 
 5. **Update Progress File**: Mark all items complete in \`${RALPH_PROGRESS_FILENAME}\`.${screenshotRequirement}
 
-6. **Final Verification**: Go through each plan item one more time.
+6. **Final Verification**: Go through each plan item ONE MORE TIME. Verify each is truly done.
 
+⚠️ DO NOT signal completion unless you have ACTUALLY VERIFIED each item above.
 Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETION_SIGNAL}`;
     } else {
       promptToSend = userMessage.content;
@@ -2702,6 +2754,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       setRalphEnabled(false);
       setShowRalphSettings(false);
       setRalphRequireScreenshot(false);
+      setRalphRequireBuildCheck(true);
+      setRalphRequireTests(true);
     }
 
     // Reset Lisa UI state after sending
@@ -2728,6 +2782,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     ralphMaxIterations,
     ralphRequireScreenshot,
     ralphClearContext,
+    ralphRequireBuildCheck,
+    ralphRequireTests,
     lisaEnabled,
     terminalAttachment,
     imageAttachments,
@@ -6711,6 +6767,40 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                                 />
                                 <span className="text-[10px] text-copilot-text-muted">
                                   Require screenshot
+                                </span>
+                              </label>
+                              <label className="flex items-center gap-1.5 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={ralphRequireBuildCheck}
+                                  onChange={(e) => setRalphRequireBuildCheck(e.target.checked)}
+                                  className="rounded border-copilot-border w-3.5 h-3.5"
+                                />
+                                <span className="text-[10px] text-copilot-text-muted">
+                                  Require build verification
+                                </span>
+                                <span
+                                  className="text-[9px] text-copilot-text-muted/60"
+                                  title="Agent must run build and achieve 0 errors before completion"
+                                >
+                                  (recommended)
+                                </span>
+                              </label>
+                              <label className="flex items-center gap-1.5 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={ralphRequireTests}
+                                  onChange={(e) => setRalphRequireTests(e.target.checked)}
+                                  className="rounded border-copilot-border w-3.5 h-3.5"
+                                />
+                                <span className="text-[10px] text-copilot-text-muted">
+                                  Require tests
+                                </span>
+                                <span
+                                  className="text-[9px] text-copilot-text-muted/60"
+                                  title="Agent must add/run tests for new functionality"
+                                >
+                                  (recommended)
                                 </span>
                               </label>
                               <p className="text-[10px] text-copilot-text-muted">

@@ -130,6 +130,8 @@ export interface RalphConfig {
   active: boolean;
   requireScreenshot?: boolean; // When true, agent must take screenshot of delivered feature
   clearContextBetweenIterations?: boolean; // When true, clears chat history each iteration (like Gemini Ralph)
+  requireBuildCheck?: boolean; // When true, agent must run build and verify 0 errors before completion
+  requireTests?: boolean; // When true, agent must add/run tests for new functionality
   startedAt?: string; // ISO timestamp of when loop started
   progressFilePath?: string; // Path to ralph-progress.md
   stateFilePath?: string; // Path to ralph-state.json for persistence
