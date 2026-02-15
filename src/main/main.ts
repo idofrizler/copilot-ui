@@ -5506,3 +5506,24 @@ function compareVersions(a: string, b: string): number {
   }
   return 0;
 }
+
+// Bridge for remote client interaction
+import { startBridge, stopBridge, getBridgePort } from './bridge';
+
+ipcMain.handle('bridge:start', async () => {
+  try {
+    const port = await startBridge();
+    return { success: true, port };
+  } catch (error) {
+    return { success: false, error: String(error) };
+  }
+});
+
+ipcMain.handle('bridge:stop', async () => {
+  stopBridge();
+  return { success: true };
+});
+
+ipcMain.handle('bridge:getPort', async () => {
+  return { port: getBridgePort() };
+});

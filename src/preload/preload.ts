@@ -1122,6 +1122,17 @@ const electronAPI = {
       return ipcRenderer.invoke('file:openFile', filePath);
     },
   },
+  bridge: {
+    start: (): Promise<{ success: boolean; port?: number; error?: string }> => {
+      return ipcRenderer.invoke('bridge:start');
+    },
+    stop: (): Promise<{ success: boolean }> => {
+      return ipcRenderer.invoke('bridge:stop');
+    },
+    getPort: (): Promise<{ port: number }> => {
+      return ipcRenderer.invoke('bridge:getPort');
+    },
+  },
   diagnostics: {
     getPaths: (): Promise<{ logFilePath: string; crashDumpsPath: string }> => {
       return ipcRenderer.invoke('diagnostics:getPaths');
