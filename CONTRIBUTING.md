@@ -9,6 +9,7 @@ Thanks for your interest in contributing! Here's how to get started.
    ```bash
    npm install
    ```
+   > **Windows users:** `node-pty` requires Python 3 and Visual Studio Build Tools with the "Desktop development with C++" workload. If `npm install` warns about a failed rebuild, install the prerequisites and run `npm run rebuild-pty`. See [node-gyp docs](https://github.com/nodejs/node-gyp#on-windows) for details.
 3. Start the dev server:
    ```bash
    npm run dev
