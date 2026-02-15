@@ -801,6 +801,26 @@ const App: React.FC = () => {
     }
   }, [activeTab?.model]);
 
+  // Prefetch capabilities for all available models (for dropdown badges)
+  useEffect(() => {
+    const uncached = availableModels.filter((m) => !modelCapabilities[m.id]);
+    if (uncached.length === 0) return;
+    uncached.forEach((m) => {
+      window.electronAPI.copilot
+        .getModelCapabilities(m.id)
+        .then((capabilities) => {
+          setModelCapabilities((prev) => ({
+            ...prev,
+            [m.id]: {
+              supportsVision: capabilities.supportsVision,
+              visionLimits: capabilities.visionLimits,
+            },
+          }));
+        })
+        .catch(() => {});
+    });
+  }, [availableModels]);
+
   // Save draft state to departing tab and restore from arriving tab on tab switch
   useEffect(() => {
     // Save current input state to the previous tab's draftInput (if it still exists)
@@ -6362,6 +6382,13 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                                     )}
                                     {m.name || m.id}
                                   </span>
+                                  {modelCapabilities[m.id]?.supportsVision && (
+                                    <EyeIcon
+                                      size={12}
+                                      className="shrink-0 text-copilot-text-muted"
+                                      aria-label="Supports vision"
+                                    />
+                                  )}
                                   <span
                                     className={`shrink-0 text-xs ${
                                       m.source === 'fallback'
