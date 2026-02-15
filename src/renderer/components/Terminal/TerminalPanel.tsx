@@ -33,6 +33,7 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
   const [bufferLineCount, setBufferLineCount] = useState(0);
   const [terminalHeight, setTerminalHeight] = useState(DEFAULT_HEIGHT);
   const [isResizing, setIsResizing] = useState(false);
+  const [copyFeedback, setCopyFeedback] = useState(false);
   const sessionIdRef = useRef(sessionId);
 
   // Track the line number where the last command started (when user pressed Enter)
@@ -268,6 +269,38 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
     }
   }, [onSendToAgent]);
 
+  const handleCopyBuffer = useCallback(() => {
+    const xterm = xtermRef.current;
+    if (!xterm) return;
+
+    // Copy selected text if there's a selection, otherwise copy entire buffer
+    const text =
+      xterm.getSelection() ||
+      (() => {
+        const buffer = xterm.buffer.active;
+        const lines: string[] = [];
+        for (let i = 0; i < buffer.length; i++) {
+          const line = buffer.getLine(i);
+          if (line) lines.push(line.translateToString(true));
+        }
+        // Trim trailing empty lines
+        while (lines.length > 0 && lines[lines.length - 1].trim() === '') {
+          lines.pop();
+        }
+        return lines.join('\n');
+      })();
+
+    if (text.trim()) {
+      navigator.clipboard
+        .writeText(text)
+        .then(() => {
+          setCopyFeedback(true);
+          setTimeout(() => setCopyFeedback(false), 1500);
+        })
+        .catch(() => {});
+    }
+  }, []);
+
   const handleClearBuffer = useCallback(async () => {
     const result = await window.electronAPI.pty.clearBuffer(sessionIdRef.current);
     if (result.success) {
@@ -367,6 +400,14 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
           )}
         </div>
         <div className="flex items-center gap-1 shrink-0">
+          <button
+            onClick={handleCopyBuffer}
+            disabled={bufferLineCount === 0}
+            className="px-2 py-0.5 text-[10px] text-copilot-text-muted hover:text-copilot-text disabled:opacity-50 transition-colors"
+            title="Copy terminal output to clipboard"
+          >
+            {copyFeedback ? '✓ Copied' : '⎘ Copy'}
+          </button>
           <button
             onClick={handleClearBuffer}
             className="px-2 py-0.5 text-[10px] text-copilot-text-muted hover:text-copilot-text transition-colors"
