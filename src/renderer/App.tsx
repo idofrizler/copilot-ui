@@ -466,6 +466,12 @@ const App: React.FC = () => {
   const [showWelcomeWizard, setShowWelcomeWizard] = useState(false);
   const [shouldShowWizardWhenReady, setShouldShowWizardWhenReady] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
+  const [initError, setInitError] = useState<{
+    failureMode: 'cli_not_found' | 'auth_failed' | 'unknown';
+    title: string;
+    message: string;
+    instructions: string;
+  } | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -2193,6 +2199,11 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       );
     });
 
+    const unsubscribeInitError = window.electronAPI.copilot.onInitError((data) => {
+      console.error('Copilot init error:', data.failureMode, data.message);
+      setInitError(data);
+    });
+
     const unsubscribeError = window.electronAPI.copilot.onError((data) => {
       const { sessionId, message } = data;
       console.error('Copilot error:', message);
@@ -2311,6 +2322,7 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       unsubscribeSubagentFailed();
       unsubscribePermission();
       unsubscribeError();
+      unsubscribeInitError();
       unsubscribeSessionResumed();
       unsubscribeModelsVerified();
       unsubscribeUsageInfo();
@@ -4301,6 +4313,52 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     >
       <div className="h-screen w-screen flex flex-col overflow-hidden bg-copilot-bg rounded-xl">
         <TitleBar />
+
+        {/* Initialization Error Banner */}
+        {initError && (
+          <div className="flex flex-col items-center justify-center gap-4 p-8 bg-copilot-bg text-copilot-text flex-1">
+            <div className="text-4xl">
+              {initError.failureMode === 'cli_not_found'
+                ? '🔧'
+                : initError.failureMode === 'auth_failed'
+                  ? '🔑'
+                  : '⚠️'}
+            </div>
+            <h2 className="text-xl font-semibold">{initError.title}</h2>
+            <pre className="text-sm text-copilot-text-muted bg-copilot-surface rounded p-4 max-w-lg overflow-auto max-h-32 whitespace-pre-wrap">
+              {initError.instructions}
+            </pre>
+            <details className="text-xs text-copilot-text-muted max-w-lg">
+              <summary className="cursor-pointer hover:text-copilot-text">Error details</summary>
+              <pre className="mt-2 bg-copilot-surface rounded p-2 overflow-auto max-h-24 whitespace-pre-wrap">
+                {initError.message}
+              </pre>
+            </details>
+            <div className="flex gap-3 mt-2">
+              {initError.failureMode === 'auth_failed' && (
+                <button
+                  onClick={() =>
+                    window.electronAPI.copilot
+                      .openExternal('https://github.com/login/device')
+                      .catch(() => {})
+                  }
+                  className="px-4 py-2 bg-copilot-accent text-white rounded hover:opacity-90 transition-opacity text-sm"
+                >
+                  Open GitHub Login
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  setInitError(null);
+                  window.electronAPI.copilot.retryInit().catch(() => {});
+                }}
+                className="px-4 py-2 bg-copilot-surface text-copilot-text rounded hover:bg-copilot-border transition-colors text-sm"
+              >
+                🔄 Retry
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Mobile Header Bar */}
         {isMobile && (

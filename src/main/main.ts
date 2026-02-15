@@ -2101,8 +2101,42 @@ async function initCopilot(): Promise<void> {
     // Start keep-alive timer to prevent session timeouts
     startKeepAlive();
   } catch (err) {
+    const errStr = String(err);
+    let failureMode: 'cli_not_found' | 'auth_failed' | 'unknown' = 'unknown';
+    let title = 'Initialization Failed';
+    let instructions = 'Please check the logs and try again.';
+
+    if (
+      errStr.includes('ENOENT') ||
+      (errStr.includes('copilot') && errStr.includes('not found')) ||
+      (errStr.includes('spawn') && errStr.includes('ENOENT'))
+    ) {
+      failureMode = 'cli_not_found';
+      title = 'Copilot CLI Not Found';
+      instructions =
+        'The Copilot CLI binary could not be found. Try reinstalling the app or running:\n\nnpm install @github/copilot-sdk';
+    } else if (
+      errStr.includes('auth') ||
+      errStr.includes('401') ||
+      errStr.includes('login') ||
+      errStr.includes('token') ||
+      errStr.includes('credential')
+    ) {
+      failureMode = 'auth_failed';
+      title = 'GitHub Authentication Required';
+      instructions =
+        'Please sign in to GitHub Copilot. Run the following in your terminal:\n\ngh auth login\ngh extension install github/gh-copilot';
+    }
+
+    log.error(`initCopilot failed (${failureMode}):`, errStr);
+
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('copilot:error', String(err));
+      mainWindow.webContents.send('copilot:initError', {
+        failureMode,
+        title,
+        message: errStr,
+        instructions,
+      });
     }
   }
 }
@@ -2359,6 +2393,17 @@ ipcMain.on('copilot:abort', async (_event, sessionId: string) => {
   if (sessionState) {
     await sessionState.session.abort();
   }
+});
+
+// Retry initialization after failure
+ipcMain.handle('copilot:retryInit', async () => {
+  await initCopilot();
+});
+
+// Open URL in default browser (for auth flow guidance)
+ipcMain.handle('copilot:openExternal', async (_event, url: string) => {
+  const { shell } = require('electron') as typeof import('electron');
+  await shell.openExternal(url);
 });
 
 // Get message history for a session
