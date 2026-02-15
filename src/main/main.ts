@@ -2729,6 +2729,8 @@ ipcMain.handle(
         // Create a brand new session with the desired model
         const newSessionId = await createNewSession(data.model, cwd);
         const newSessionState = sessions.get(newSessionId)!;
+        // Preserve yoloMode from the previous session
+        newSessionState.yoloMode = sessionState.yoloMode || false;
 
         log.info(
           `[${newSessionId}] New session created for model switch: ${previousModel} → ${data.model}`
@@ -2790,6 +2792,7 @@ ipcMain.handle(
         alwaysAllowed: new Set(sessionState.alwaysAllowed),
         allowedPaths: new Set(sessionState.allowedPaths),
         isProcessing: false,
+        yoloMode: sessionState.yoloMode || false,
       });
       activeSessionId = resumedSessionId;
 
@@ -2846,6 +2849,9 @@ ipcMain.handle(
 
       // Create a brand new session with the same model
       const newSessionId = await createNewSession(model, cwd);
+      // Preserve yoloMode from the previous session
+      const newSessionState = sessions.get(newSessionId)!;
+      newSessionState.yoloMode = sessionState.yoloMode || false;
 
       return {
         sessionId: newSessionId,
@@ -2903,6 +2909,7 @@ ipcMain.handle(
       alwaysAllowed: new Set(sessionState.alwaysAllowed),
       allowedPaths: new Set(sessionState.allowedPaths),
       isProcessing: false,
+      yoloMode: sessionState.yoloMode || false,
     });
     activeSessionId = resumedSessionId;
 
@@ -4546,7 +4553,11 @@ ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string
     alwaysAllowed: new Set(),
     allowedPaths: new Set(),
     isProcessing: false,
-    yoloMode: false,
+    yoloMode: (() => {
+      const openSessions = (store.get('openSessions') as StoredSession[]) || [];
+      const stored = openSessions.find((s) => s.sessionId === sessionId);
+      return stored?.yoloMode || false;
+    })(),
   });
   activeSessionId = sessionId;
 
