@@ -1230,11 +1230,33 @@ const GLOBAL_AUTO_APPROVED_SHELL_EXECUTABLES = new Set([
   'tail',
   'wc',
   'grep',
+  'egrep',
+  'fgrep',
   'sort',
   'uniq',
   'cut',
   'tr',
   'diff',
+
+  // Text stream processing (read-only by default when piped)
+  'sed',
+  'awk',
+  'find',
+  'xargs',
+  'tee',
+  'less',
+  'more',
+  'strings',
+  'column',
+  'jq',
+  'yq',
+  'expand',
+  'fold',
+  'fmt',
+  'nl',
+  'paste',
+  'rev',
+  'tac',
 
   // File metadata / disk info
   'stat',
@@ -1250,6 +1272,15 @@ const GLOBAL_AUTO_APPROVED_SHELL_EXECUTABLES = new Set([
   // Hashing (read-only)
   'shasum',
   'md5',
+
+  // Process/env inspection (read-only)
+  'env',
+  'printenv',
+  'ps',
+  'type',
+  'command',
+  'test',
+  '[',
 ]);
 
 // Normalize stored identifiers so UI/behavior stays stable across versions
