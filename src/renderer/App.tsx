@@ -1671,6 +1671,10 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
           );
           const currentPhase = tab.lisaConfig.currentPhase;
           const currentVisitCount = tab.lisaConfig.phaseIterations[currentPhase] || 1;
+          const lastAssistantMsg = [...tab.messages]
+            .reverse()
+            .find((msg) => msg.role === 'assistant');
+          const lastContent = lastAssistantMsg?.content || '';
 
           // New phase flow: plan → plan-review → execute → code-review → validate → final-review → COMPLETE
           const getNextPhase = (phase: LisaPhase): LisaPhase | null => {
