@@ -2101,8 +2101,54 @@ async function initCopilot(): Promise<void> {
     // Start keep-alive timer to prevent session timeouts
     startKeepAlive();
   } catch (err) {
+    const errorStr = String(err);
+    log.error('initCopilot failed:', errorStr);
+
+    // Determine the failure reason and provide actionable guidance
+    let status: 'cli_not_found' | 'auth_failed' | 'unknown' = 'unknown';
+    let title = 'Connection Failed';
+    let message = errorStr;
+    let instructions: string[] = [];
+
+    if (
+      errorStr.includes('ENOENT') ||
+      errorStr.includes('not found') ||
+      errorStr.includes('spawn') ||
+      errorStr.includes('no such file')
+    ) {
+      status = 'cli_not_found';
+      title = 'GitHub Copilot CLI Not Found';
+      message =
+        'Cooper requires the GitHub Copilot CLI to function. The CLI binary was not found on this system.';
+      instructions = [
+        'Install GitHub Copilot CLI: npm install -g @github/copilot-cli',
+        'Or install via GitHub: gh extension install github/gh-copilot',
+        'Restart Cooper after installation',
+      ];
+    } else if (
+      errorStr.includes('auth') ||
+      errorStr.includes('token') ||
+      errorStr.includes('login') ||
+      errorStr.includes('unauthorized') ||
+      errorStr.includes('401')
+    ) {
+      status = 'auth_failed';
+      title = 'Not Logged In';
+      message = 'Cooper requires an active GitHub Copilot subscription and authentication.';
+      instructions = [
+        'Run: gh auth login',
+        'Ensure you have an active GitHub Copilot subscription',
+        'Restart Cooper after logging in',
+      ];
+    }
+
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('copilot:error', String(err));
+      mainWindow.webContents.send('copilot:initError', {
+        status,
+        title,
+        message,
+        instructions,
+      });
     }
   }
 }

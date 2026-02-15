@@ -459,6 +459,26 @@ const electronAPI = {
       ipcRenderer.on('copilot:error', handler);
       return () => ipcRenderer.removeListener('copilot:error', handler);
     },
+    onInitError: (
+      callback: (data: {
+        status: 'cli_not_found' | 'auth_failed' | 'unknown';
+        title: string;
+        message: string;
+        instructions: string[];
+      }) => void
+    ): (() => void) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        data: {
+          status: 'cli_not_found' | 'auth_failed' | 'unknown';
+          title: string;
+          message: string;
+          instructions: string[];
+        }
+      ): void => callback(data);
+      ipcRenderer.on('copilot:initError', handler);
+      return () => ipcRenderer.removeListener('copilot:initError', handler);
+    },
     onModelsVerified: (
       callback: (data: { models: { id: string; name: string; multiplier: number }[] }) => void
     ): (() => void) => {

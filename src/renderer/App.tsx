@@ -299,6 +299,14 @@ const App: React.FC = () => {
 
   const [alwaysListeningError, setAlwaysListeningError] = useState<string | null>(null);
 
+  // Initialization error state (CLI not found, auth failed, etc.)
+  const [initError, setInitError] = useState<{
+    status: 'cli_not_found' | 'auth_failed' | 'unknown';
+    title: string;
+    message: string;
+    instructions: string[];
+  } | null>(null);
+
   const handleTogglePushToTalk = (enabled: boolean) => {
     setPushToTalk(enabled);
     localStorage.setItem('voice-push-to-talk', String(enabled));
@@ -2216,6 +2224,12 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       );
     });
 
+    // Listen for initialization errors (CLI not found, auth failed)
+    const unsubscribeInitError = window.electronAPI.copilot.onInitError?.((data) => {
+      console.error('Copilot init error:', data.status, data.message);
+      setInitError(data);
+    });
+
     // Listen for verified models update (async verification after startup)
     const unsubscribeModelsVerified = window.electronAPI.copilot.onModelsVerified((data) => {
       setAvailableModels(data.models);
@@ -2311,6 +2325,7 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       unsubscribeSubagentFailed();
       unsubscribePermission();
       unsubscribeError();
+      unsubscribeInitError?.();
       unsubscribeSessionResumed();
       unsubscribeModelsVerified();
       unsubscribeUsageInfo();
@@ -5104,6 +5119,40 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
           {/* Main Content Area */}
           <div className="flex-1 flex flex-col min-h-0 min-w-0">
+            {/* Initialization Error Banner */}
+            {initError && (
+              <div className="flex-1 flex items-center justify-center p-8">
+                <div className="max-w-md text-center space-y-4">
+                  <div className="text-4xl">
+                    {initError.status === 'cli_not_found'
+                      ? '🔍'
+                      : initError.status === 'auth_failed'
+                        ? '🔐'
+                        : '⚠️'}
+                  </div>
+                  <h2 className="text-xl font-semibold text-copilot-text">{initError.title}</h2>
+                  <p className="text-sm text-copilot-text-muted">{initError.message}</p>
+                  {initError.instructions.length > 0 && (
+                    <div className="text-left bg-copilot-surface rounded-lg p-4 space-y-2">
+                      <p className="text-xs font-medium text-copilot-text-muted uppercase">
+                        How to fix
+                      </p>
+                      <ol className="text-sm text-copilot-text space-y-1 list-decimal list-inside">
+                        {initError.instructions.map((instruction, i) => (
+                          <li key={i}>{instruction}</li>
+                        ))}
+                      </ol>
+                    </div>
+                  )}
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="px-4 py-2 bg-copilot-accent text-white rounded-lg text-sm hover:opacity-90 transition-opacity"
+                  >
+                    Retry
+                  </button>
+                </div>
+              </div>
+            )}
             {/* Terminal Toggle Button */}
             {activeTab && (
               <button
