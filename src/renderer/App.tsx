@@ -138,6 +138,42 @@ const INSTRUCTION_TYPE_ORDER: Instruction['type'][] = [
   'custom-dir',
   'agent',
 ];
+
+const ENVIRONMENT_TEMPLATES = [
+  {
+    id: 'agency',
+    name: 'Agency Workflow',
+    icon: '🤖',
+    description: 'Multi-agent orchestration with Lisa phases',
+    prompt:
+      'Set up an Agency workflow for this project. Create instruction files that define:\n1. A planning phase agent\n2. A code review agent\n3. A testing/validation agent\n\nGenerate AGENTS.md and .github/copilot-instructions.md with multi-phase orchestration rules.',
+  },
+  {
+    id: 'tdd',
+    name: 'TDD Workflow',
+    icon: '🧪',
+    description: 'Test-driven development with red-green-refactor',
+    prompt:
+      'Set up a TDD workflow for this project. Create instruction files that enforce:\n1. Write failing test first\n2. Write minimal code to pass\n3. Refactor\n\nGenerate AGENTS.md with TDD constraints and test coverage requirements.',
+  },
+  {
+    id: 'code-review',
+    name: 'Code Review',
+    icon: '👀',
+    description: 'Structured code review with checklists',
+    prompt:
+      'Set up a code review workflow. Create instruction files with review checklists covering:\n1. Security vulnerabilities\n2. Performance issues\n3. Code style and naming\n4. Test coverage\n5. Architecture compliance\n\nGenerate review-specific AGENTS.md.',
+  },
+  {
+    id: 'docs',
+    name: 'Documentation',
+    icon: '📝',
+    description: 'Auto-generate and maintain docs',
+    prompt:
+      'Set up a documentation workflow. Create instruction files that enforce:\n1. JSDoc/TSDoc on all exports\n2. README updates on API changes\n3. Changelog maintenance\n4. Architecture decision records\n\nGenerate documentation-focused AGENTS.md.',
+  },
+];
+
 const SKILL_TYPE_LABELS: Record<Skill['type'], string> = {
   personal: 'Personal skills',
   project: 'Project skills',
@@ -229,6 +265,7 @@ const App: React.FC = () => {
   // Agent Skills state
   const [skills, setSkills] = useState<Skill[]>([]);
   const [showSkills, setShowSkills] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
 
   // Agent discovery state
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -7230,6 +7267,46 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                               })}
                             </div>
                           )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Separator */}
+                    <div className="border-t border-copilot-border" />
+
+                    {/* Environment Templates */}
+                    <div>
+                      <button
+                        onClick={() => setShowTemplates(!showTemplates)}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                      >
+                        <ChevronRightIcon
+                          size={8}
+                          className={`transition-transform ${showTemplates ? 'rotate-90' : ''}`}
+                        />
+                        <span>Templates</span>
+                      </button>
+                      {showTemplates && (
+                        <div className="max-h-48 overflow-y-auto divide-y divide-copilot-border">
+                          {ENVIRONMENT_TEMPLATES.map((tpl) => (
+                            <button
+                              key={tpl.id}
+                              onClick={() => {
+                                setInputValue(tpl.prompt);
+                                inputRef.current?.focus();
+                              }}
+                              className="w-full flex items-start gap-2 px-3 py-1.5 text-xs text-left text-copilot-text hover:bg-copilot-surface transition-colors"
+                              title={tpl.description}
+                            >
+                              <span className="shrink-0">{tpl.icon}</span>
+                              <div className="min-w-0">
+                                <div className="font-medium truncate">{tpl.name}</div>
+                                <div className="text-[10px] text-copilot-text-muted truncate">
+                                  {tpl.description}
+                                </div>
+                              </div>
+                            </button>
+                          ))}
                         </div>
                       )}
                     </div>
