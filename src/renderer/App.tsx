@@ -6153,6 +6153,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     className="flex-1 bg-transparent py-2.5 pl-3 pr-2 text-copilot-text placeholder-copilot-text-muted outline-none text-sm resize-none min-h-[40px] max-h-[200px]"
                     disabled={status !== 'connected'}
                     autoFocus
+                    spellCheck={false}
                     rows={1}
                     style={{ height: 'auto' }}
                     onInput={(e) => {
