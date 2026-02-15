@@ -3376,7 +3376,13 @@ ipcMain.handle('copilot:removeDeniedUrl', async (_event, url: string) => {
 
 // Save open session IDs to persist across restarts
 ipcMain.handle('copilot:saveOpenSessions', async (_event, openSessions: StoredSession[]) => {
-  store.set('openSessions', openSessions);
+  // Exclude worktree sessions — they are tracked in the worktree registry
+  // to prevent duplicate storage (Issue #287).
+  // Sessions without cwd are kept — they'll receive a default cwd on restore.
+  const nonWorktreeSessions = openSessions.filter(
+    (s) => !s.cwd || !worktree.findWorktreeSessionByPath(s.cwd)
+  );
+  store.set('openSessions', nonWorktreeSessions);
 
   // Also persist marks to sessionMarks store (for when sessions go to history)
   const sessionMarks =
@@ -3406,7 +3412,9 @@ ipcMain.handle('copilot:saveOpenSessions', async (_event, openSessions: StoredSe
   }
   store.set('sessionNames', sessionNames);
 
-  console.log(`Saved ${openSessions.length} open sessions with models`);
+  console.log(
+    `Saved ${nonWorktreeSessions.length} open sessions (${openSessions.length - nonWorktreeSessions.length} worktree sessions excluded)`
+  );
   return { success: true };
 });
 
