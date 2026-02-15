@@ -5506,3 +5506,26 @@ function compareVersions(a: string, b: string): number {
   }
   return 0;
 }
+
+// Delegate task to cloud agent via GitHub issue
+ipcMain.handle('git:delegateToCloud', async (_event, cwd: string, task: string) => {
+  try {
+    // Get remote URL to determine repo
+    const { stdout: remoteUrl } = await execAsync('git remote get-url origin', { cwd });
+    const match = remoteUrl.trim().match(/github\.com[:/]([^/]+)\/([^/.]+)/);
+    if (!match) {
+      return { success: false, error: 'Could not determine GitHub repository from remote URL' };
+    }
+    const [, owner, repo] = match;
+    const title = `Delegated: ${task.slice(0, 80)}`;
+    const body = `## Cloud Agent Task\n\n${task}\n\n---\n*Delegated from Cooper desktop client*`;
+    const { stdout } = await execAsync(
+      `gh issue create --repo "${owner}/${repo}" --title "${title.replace(/"/g, '\\"')}" --body "${body.replace(/"/g, '\\"')}"`,
+      { cwd, timeout: 30000 }
+    );
+    const issueUrl = stdout.trim().match(/https:\/\/github\.com\/[^\s]+/)?.[0];
+    return { success: true, issueUrl };
+  } catch (error) {
+    return { success: false, error: String(error) };
+  }
+});

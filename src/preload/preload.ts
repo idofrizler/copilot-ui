@@ -726,6 +726,12 @@ const electronAPI = {
     }> => {
       return ipcRenderer.invoke('git:getWorkingStatus', cwd);
     },
+    delegateToCloud: (
+      cwd: string,
+      task: string
+    ): Promise<{ success: boolean; issueUrl?: string; error?: string }> => {
+      return ipcRenderer.invoke('git:delegateToCloud', cwd, task);
+    },
   },
 
   // Whisper.cpp speech recognition (native)

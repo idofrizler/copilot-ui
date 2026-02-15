@@ -2330,6 +2330,39 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       return;
     if (!activeTab) return;
 
+    // Handle /delegate command — create a GitHub issue for cloud agent
+    if (inputValue.trim().startsWith('/delegate ')) {
+      const task = inputValue.trim().slice('/delegate '.length).trim();
+      if (task) {
+        try {
+          const result = await window.electronAPI.git.delegateToCloud(activeTab.cwd, task);
+          setTabs((prev) =>
+            prev.map((t) =>
+              t.id !== activeTab.id
+                ? t
+                : {
+                    ...t,
+                    messages: [
+                      ...t.messages,
+                      { role: 'user' as const, content: `/delegate ${task}` },
+                      {
+                        role: 'assistant' as const,
+                        content: result.success
+                          ? `✅ Task delegated to cloud agent.${result.issueUrl ? `\n\n[View issue](${result.issueUrl})` : ''}`
+                          : `❌ Failed to delegate: ${result.error}`,
+                      },
+                    ],
+                  }
+            )
+          );
+          setInputValue('');
+          return;
+        } catch {
+          // Fall through to normal send if delegation fails
+        }
+      }
+    }
+
     // If there are pending confirmations, automatically deny them when sending a new message
     // Note: Only the first confirmation is denied (confirmations are processed sequentially)
     // This matches the behavior of handleConfirmation which also processes one at a time
