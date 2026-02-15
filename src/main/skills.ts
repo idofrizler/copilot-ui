@@ -58,7 +58,7 @@ const collectSkillFiles = (skillDir: string): string[] => {
   return files;
 };
 
-// Scan a skills directory and return all valid skills
+// Scan a skills directory and return all valid skills (recursive up to 3 levels deep)
 export async function scanSkillsDirectory(
   basePath: string,
   type: 'personal' | 'project',
@@ -74,48 +74,54 @@ export async function scanSkillsDirectory(
     return { skills, errors };
   }
 
-  try {
-    const entries = readdirSync(basePath, { withFileTypes: true });
+  const maxDepth = 3;
 
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
+  const scanDir = (dirPath: string, depth: number) => {
+    if (depth > maxDepth) return;
+    try {
+      const entries = readdirSync(dirPath, { withFileTypes: true });
 
-      const skillDir = join(basePath, entry.name);
-      const skillMdPath = join(skillDir, 'SKILL.md');
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
 
-      if (!existsSync(skillMdPath)) {
-        // Skip directories without SKILL.md
-        continue;
+        const skillDir = join(dirPath, entry.name);
+        const skillMdPath = join(skillDir, 'SKILL.md');
+
+        if (existsSync(skillMdPath)) {
+          let files: string[] = [];
+          try {
+            files = collectSkillFiles(skillDir).sort((a, b) =>
+              normalizePath(a).localeCompare(normalizePath(b))
+            );
+          } catch (err) {
+            errors.push(
+              `Failed to list files for skill at ${skillDir}: ${err instanceof Error ? err.message : String(err)}`
+            );
+          }
+
+          skills.push({
+            name: entry.name,
+            description: '',
+            path: skillDir,
+            files,
+            type,
+            source,
+            relativePath: formatRelativeDisplayPath(skillDir, displayBaseDir, options),
+            locationLabel,
+          });
+        } else {
+          // No SKILL.md here, but check subdirectories for nested skills
+          scanDir(skillDir, depth + 1);
+        }
       }
-
-      let files: string[] = [];
-      try {
-        files = collectSkillFiles(skillDir).sort((a, b) =>
-          normalizePath(a).localeCompare(normalizePath(b))
-        );
-      } catch (err) {
-        errors.push(
-          `Failed to list files for skill at ${skillDir}: ${err instanceof Error ? err.message : String(err)}`
-        );
-      }
-
-      skills.push({
-        name: entry.name,
-        description: '',
-        path: skillDir,
-        files,
-        type,
-        source,
-        relativePath: formatRelativeDisplayPath(skillDir, displayBaseDir, options),
-        locationLabel,
-      });
+    } catch (err) {
+      errors.push(
+        `Failed to scan skills directory ${dirPath}: ${err instanceof Error ? err.message : String(err)}`
+      );
     }
-  } catch (err) {
-    errors.push(
-      `Failed to scan skills directory ${basePath}: ${err instanceof Error ? err.message : String(err)}`
-    );
-  }
+  };
 
+  scanDir(basePath, 0);
   return { skills, errors };
 }
 
