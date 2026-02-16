@@ -402,3 +402,37 @@ Using .first() was selecting the wrong (offscreen) button!
 2. Apply same .last() pattern to other duplicate button scenarios
 3. Fix Ralph/Lisa panel tests (similar issue likely)
 4. Run full E2E suite to measure total improvement
+
+## Ralph/Lisa Tests Investigation - 2026-02-16T20:41:47
+
+### The Problem
+
+Ralph/Lisa tests were failing because the **top bar doesn't exist** without an active session!
+
+- Top bar (Models/Agents/Loops selectors) only renders when `activeTab` exists
+- Fresh app launch has no tabs, so top bar is completely missing from DOM
+- Tests were looking for buttons that didn't exist yet
+
+### The Solution
+
+1. **Create a session first** - Send a message in beforeAll to create activeTab
+2. **Use data-tour selectors** - Changed from `button[title*="Agent Loops"]` to `[data-tour="agent-modes"]`
+3. **Keep desktop viewport** - Already applied in previous fix
+
+### Results
+
+- **Ralph improvements tests**: 2/16 → 3/16 passing (slight improvement)
+- Still investigating why remaining tests fail
+- Confirmed top bar now appears correctly after session creation
+
+### Files Modified
+
+- tests/e2e/ralph-improvements.spec.ts
+- tests/e2e/debug-ralph.spec.ts (debug helper)
+
+### Next Steps
+
+1. Investigate why 13/16 Ralph tests still fail despite top bar being visible
+2. Apply same session creation fix to UX Changes #275 tests
+3. Apply to other tests that rely on top bar (Model/Agent selectors)
+4. Run full E2E suite to measure cumulative improvements
