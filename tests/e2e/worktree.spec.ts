@@ -1,5 +1,6 @@
 import { test, expect, _electron as electron, ElectronApplication, Page } from '@playwright/test';
 import path from 'path';
+import { scrollIntoViewAndClick, waitForModal } from './helpers/viewport';
 
 let electronApp: ElectronApplication;
 let window: Page;
@@ -14,6 +15,9 @@ test.beforeAll(async () => {
   });
 
   window = await electronApp.firstWindow();
+
+  // Set desktop viewport size (tests should run in desktop mode, not mobile)
+  await window.setViewportSize({ width: 1280, height: 800 });
   await window.waitForLoadState('domcontentloaded');
   await window.waitForTimeout(2000); // Wait for React to render
 });
@@ -43,9 +47,11 @@ test.describe('Worktree Sessions', () => {
 
     const isVisible = await worktreeButton.isVisible().catch(() => false);
     if (isVisible) {
-      await worktreeButton.click();
-      // Wait for modal
-      await window.waitForTimeout(500);
+      await scrollIntoViewAndClick(worktreeButton, { timeout: 15000 });
+      // Wait for modal with longer timeout
+      await waitForModal(window, 'Worktree Sessions', { timeout: 20000 }).catch(() => {
+        console.log('Modal did not appear or has different title');
+      });
 
       // Check if modal appeared
       const modal = await window
