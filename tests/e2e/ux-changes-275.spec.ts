@@ -20,6 +20,12 @@ test.beforeAll(async () => {
 
   await window.waitForLoadState('domcontentloaded');
   await window.waitForTimeout(3000);
+
+  // Create a session by sending a message (required for top bar to appear)
+  const chatInput = window.locator('textarea[placeholder*="Ask Cooper"]');
+  await chatInput.fill('test');
+  await chatInput.press('Enter');
+  await window.waitForTimeout(2000); // Wait for session and top bar to render
 });
 
 test.afterAll(async () => {

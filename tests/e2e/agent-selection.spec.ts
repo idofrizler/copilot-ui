@@ -34,6 +34,14 @@ test.beforeAll(async () => {
   // Set desktop viewport size (tests should run in desktop mode, not mobile)
   await window.setViewportSize({ width: 1280, height: 800 });
   await window.waitForLoadState('domcontentloaded');
+
+  // Create a session by sending a message (required for top bar to appear)
+  await window.waitForTimeout(2000);
+  const chatInput = window.locator('textarea[placeholder*="Ask Cooper"]');
+  await chatInput.fill('test');
+  await chatInput.press('Enter');
+  await window.waitForTimeout(2000); // Wait for session and top bar to render
+
   agentModel = await window.evaluate(async () => {
     const api = (window as any).electronAPI;
     if (!api?.agents?.getAll || !api?.copilot?.getCwd) return null;
