@@ -14,6 +14,9 @@ test.beforeAll(async () => {
   });
 
   window = await electronApp.firstWindow();
+
+  // Set desktop viewport size (tests should run in desktop mode, not mobile)
+  await window.setViewportSize({ width: 1280, height: 800 });
   await window.waitForLoadState('domcontentloaded');
 });
 
