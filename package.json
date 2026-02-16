@@ -3,7 +3,11 @@
   "version": "1.0.1",
   "description": "A beautiful native desktop GUI for GitHub Copilot",
   "main": "./out/main/index.js",
-  "author": "Cooper Labs",
+  "homepage": "https://github.com/CooperAgent/cooper",
+  "author": {
+    "name": "Cooper Labs",
+    "email": "hello@cooperlabs.dev"
+  },
   "license": "MIT",
   "scripts": {
     "dev": "npm run prebuild-info && node scripts/dev-env.js",
@@ -23,6 +27,7 @@
     "clean": "node -e \"const fs=require('fs');['out','release'].forEach(d=>{try{fs.rmSync(d,{recursive:true,force:true})}catch{}})\"",
     "dist": "npm run test && npm run clean && npm run prebuild-info && electron-vite build && electron-builder --mac",
     "dist:win": "npm run test && npm run clean && npm run prebuild-info && electron-vite build && electron-builder --win",
+    "dist:linux": "npm run test && npm run clean && npm run prebuild-info && electron-vite build && electron-builder --linux",
     "prepare": "husky",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
@@ -99,6 +104,25 @@
       "allowToChangeInstallationDirectory": true,
       "artifactName": "${productName}-${version}-win-${arch}-Setup.${ext}",
       "installerHeader": "build/icon.ico"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "category": "Development",
+      "icon": "build/icon.png",
+      "artifactName": "${productName}-${version}-linux-${arch}.${ext}"
     }
   },
   "dependencies": {

@@ -93,6 +93,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb
+          sudo ./scripts/install-linux-deps.sh
           Xvfb :99 -screen 0 1024x768x24 &
 
       - name: Install Electron binary
