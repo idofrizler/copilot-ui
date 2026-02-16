@@ -436,3 +436,81 @@ Ralph/Lisa tests were failing because the **top bar doesn't exist** without an a
 2. Apply same session creation fix to UX Changes #275 tests
 3. Apply to other tests that rely on top bar (Model/Agent selectors)
 4. Run full E2E suite to measure cumulative improvements
+
+## Final Session Update - 2026-02-16T21:13:00
+
+### Session Creation Fix Applied
+
+Successfully applied session creation pattern to 4 additional test files:
+
+- ux-changes-275.spec.ts (7/11 tests now passing)
+- ux-extra-275.spec.ts
+- agent-selection.spec.ts
+- layout.spec.ts
+
+### Results - Full E2E Suite
+
+- **Passing**: 112/188 (59.6%)
+- **Failing**: 56/188 (29.8%)
+- **Skipped**: 17/188 (9.0%)
+- **Runtime**: 7.1 minutes (with 4 workers)
+
+### Cumulative Progress from All Iterations
+
+**Starting Point:**
+
+- 95 passing, 71 failing (57% pass rate)
+- 30+ minute runtime
+
+**Current State:**
+
+- 112 passing, 56 failing (60% pass rate)
+- 7.1 minutes runtime
+
+**Improvement:**
+
+- +17 tests fixed
+- -15 failures (21% reduction)
+- 76% faster runtime
+
+### Files Modified This Session
+
+1. plan.md (created - comprehensive implementation plan)
+2. ux-changes-275.spec.ts - Added session creation
+3. ux-extra-275.spec.ts - Added session creation
+4. agent-selection.spec.ts - Added session creation
+5. layout.spec.ts - Added session creation
+
+### Commits This Session
+
+- "docs: Update ralph-progress.md with Ralph/Lisa investigation"
+- "chore: Add E2E test results - 112 passing, 56 failing"
+- "fix(e2e): Ralph improvements - create session before accessing top bar"
+- "fix(e2e): Add session creation to UX and layout tests"
+
+### Next Steps for Future Work
+
+1. **Debug Ralph Panel** (Priority 1)
+   - 13 tests still failing
+   - Top bar appears but panel interactions fail
+   - Need deeper investigation
+
+2. **Mark as Unread Tests** (Priority 2)
+   - 11 tests failing
+   - Context menu timing issues
+   - Increase timeouts to 20s
+
+3. **Voice Settings** (Priority 3)
+   - 8 tests failing
+   - Toggle button selectors
+
+4. **Miscellaneous** (Priority 4)
+   - 18 tests across various features
+   - Individual triage needed
+
+### Key Insights
+
+1. **Top Bar Dependency**: Models/Agents/Loops selectors require activeTab
+2. **Session Creation Pattern**: Send message in beforeAll to enable top bar
+3. **Duplicate Elements**: Mobile and desktop versions exist simultaneously
+4. **Desktop Viewport Critical**: Must set 1280x800 to avoid mobile mode
