@@ -2483,10 +2483,8 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       });
 
       // Clear input immediately
-      chatInputRef.current?.setValue('');
+      chatInputRef.current?.clearAll();
       setTerminalAttachment(null);
-      chatInputRef.current?.setImageAttachments([]);
-      chatInputRef.current?.setFileAttachments([]);
 
       // Send with enqueue mode to inject into agent's processing queue
       try {
@@ -2679,10 +2677,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       detectedChoices: undefined, // Clear any detected choices
       draftInput: undefined, // Clear draft after sending
     });
-    chatInputRef.current?.setValue('');
+    chatInputRef.current?.clearAll();
     setTerminalAttachment(null);
-    chatInputRef.current?.setImageAttachments([]);
-    chatInputRef.current?.setFileAttachments([]);
 
     // Reset Ralph UI state after sending
     if (ralphEnabled) {
@@ -5267,7 +5263,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                         onClick={() =>
                           setOpenTopBarSelector(openTopBarSelector === 'models' ? null : 'models')
                         }
-                        className={`flex items-center gap-1.5 px-3 py-2 text-xs transition-colors ${
+                        className={`flex items-center gap-1.5 px-3 py-2 text-xs transition-colors rounded-bl-lg ${
                           openTopBarSelector === 'models'
                             ? 'text-copilot-accent bg-copilot-surface-hover'
                             : 'text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover'
@@ -5287,7 +5283,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                         />
                       </button>
                       {openTopBarSelector === 'models' && (
-                        <div className="absolute bottom-full left-0 z-50 mb-0.5 w-60 max-h-80 overflow-y-auto bg-copilot-surface border border-copilot-border rounded-lg rounded-bl-lg shadow-lg">
+                        <div className="absolute bottom-full left-0 z-50 mb-0.5 w-60 max-h-80 overflow-y-auto bg-copilot-surface border border-copilot-border rounded-lg shadow-lg">
                           {sortedModels.map((m, idx) => {
                             const isFav = favoriteModels.includes(m.id);
                             return (
