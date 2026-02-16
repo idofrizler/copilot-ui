@@ -1,0 +1,330 @@
+
+> cooper@1.0.1 test:e2e
+> npm run build && npx playwright test
+
+
+> cooper@1.0.1 build
+> npm run prebuild-info && electron-vite build
+
+
+> cooper@1.0.1 prebuild-info
+> node scripts/build-info.js
+
+Γ£ô Version updated to: 1.0.1+202602161541
+Γ£ô Build info written to: src/renderer/build-info.json
+  - Branch: feature/398-e2e-test-stabilization-fix-76-failing-tests
+  - Commit: 81233c4
+[36mvite v5.4.21 [32mbuilding SSR bundle for production...[36m[39m
+transforming...
+[32mΓ£ô[39m 493 modules transformed.
+rendering chunks...
+[2mout/main/[22m[36mindex.js  [39m[1m[33m869.06 kB[39m[22m
+[32mΓ£ô built in 2.38s[39m
+[36mvite v5.4.21 [32mbuilding SSR bundle for production...[36m[39m
+transforming...
+[32mΓ£ô[39m 1 modules transformed.
+rendering chunks...
+[2mout/preload/[22m[36mindex.js  [39m[1m[2m23.66 kB[22m[1m[22m
+[32mΓ£ô built in 26ms[39m
+[36mvite v5.4.21 [32mbuilding for production...[36m[39m
+transforming...
+[32mΓ£ô[39m 380 modules transformed.
+rendering chunks...
+[2m../../out/renderer/[22m[32mindex.html                      [39m[1m[2m    1.00 kB[22m[1m[22m
+[2m../../out/renderer/[22m[32massets/lisa-head-Dee7yn_P.webp  [39m[1m[2m   11.46 kB[22m[1m[22m
+[2m../../out/renderer/[22m[32massets/ralph-head-2TYX3sxe.png  [39m[1m[2m  159.09 kB[22m[1m[22m
+[2m../../out/renderer/[22m[32massets/logo-BRU_mh-z.png        [39m[1m[2m1,111.86 kB[22m[1m[22m
+[2m../../out/renderer/[22m[35massets/index-Bg70fl_e.css       [39m[1m[2m   56.21 kB[22m[1m[22m
+[2m../../out/renderer/[22m[36massets/index-f_C4a6N-.js        [39m[1m[33m1,755.34 kB[39m[22m
+[32mΓ£ô built in 3.00s[39m
+
+Running 188 tests using 1 worker
+
+  x    1 [electron] ΓÇ║ tests\e2e\agent-selection.spec.ts:49:7 ΓÇ║ Custom Agent Selection ΓÇ║ should select custom agent and auto-switch model (17.1s)
+  ok   2 [electron] ΓÇ║ tests\e2e\app.spec.ts:29:7 ΓÇ║ App Launch ΓÇ║ should launch the app successfully (5.4s)
+  ok   3 [electron] ΓÇ║ tests\e2e\app.spec.ts:34:7 ΓÇ║ App Launch ΓÇ║ should have chat input visible (2.0s)
+  ok   4 [electron] ΓÇ║ tests\e2e\app.spec.ts:43:7 ΓÇ║ App Launch ΓÇ║ should have theme controls (9ms)
+  ok   5 [electron] ΓÇ║ tests\e2e\app.spec.ts:54:7 ΓÇ║ Chat Functionality ΓÇ║ should allow typing in chat input (30ms)
+  ok   6 [electron] ΓÇ║ tests\e2e\app.spec.ts:61:7 ΓÇ║ Chat Functionality ΓÇ║ should have send capability (6ms)
+  ok   7 [electron] ΓÇ║ tests\e2e\app.spec.ts:69:7 ΓÇ║ UI Elements ΓÇ║ should display logo or branding (5ms)
+Custom window controls visible: [33mfalse[39m
+  ok   8 [electron] ΓÇ║ tests\e2e\app.spec.ts:81:7 ΓÇ║ UI Elements ΓÇ║ should have window controls (5ms)
+  ok   9 [electron] ΓÇ║ tests\e2e\ascii-diagram.spec.ts:469:7 ΓÇ║ ASCII Diagram Rendering in Conversation ΓÇ║ 01 - App launches successfully (3.8s)
+Found CSS rule: .ascii-diagram { text-rendering: optimizelegibility; -webkit-font-smoothing: antialiased; font-size: inherit; overflow-wrap: normal; font-family: "SF Mono", Menlo, Monaco, "Cascadia Code", Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace !important; line-height: 1.2 !important; letter-spacing: 0px !important; white-space: pre !important; }
+  ok  10 [electron] ΓÇ║ tests\e2e\ascii-diagram.spec.ts:475:7 ΓÇ║ ASCII Diagram Rendering in Conversation ΓÇ║ 02 - CSS class ascii-diagram is defined (10ms)
+  ok  11 [electron] ΓÇ║ tests\e2e\ascii-diagram.spec.ts:497:7 ΓÇ║ ASCII Diagram Rendering in Conversation ΓÇ║ 03 - Load diagram rendering demo (1.3s)
+  ok  12 [electron] ΓÇ║ tests\e2e\ascii-diagram.spec.ts:513:7 ΓÇ║ ASCII Diagram Rendering in Conversation ΓÇ║ 04 - Session Lifecycle Diagram (Issue Example 1) (429ms)
+  ok  13 [electron] ΓÇ║ tests\e2e\ascii-diagram.spec.ts:524:7 ΓÇ║ ASCII Diagram Rendering in Conversation ΓÇ║ 05 - Multi-Agent Architecture Diagram (Issue Example 3) (417ms)
+  ok  14 [electron] ΓÇ║ tests\e2e\ascii-diagram.spec.ts:535:7 ΓÇ║ ASCII Diagram Rendering in Conversation ΓÇ║ 06 - Login Screen Mockups (Issue Example 2) (420ms)
+  ok  15 [electron] ΓÇ║ tests\e2e\ascii-diagram.spec.ts:546:7 ΓÇ║ ASCII Diagram Rendering in Conversation ΓÇ║ 07 - Classic ASCII Art (+---+ style) (420ms)
+  ok  16 [electron] ΓÇ║ tests\e2e\ascii-diagram.spec.ts:557:7 ΓÇ║ ASCII Diagram Rendering in Conversation ΓÇ║ 08 - Regular Code Block (no special styling) (431ms)
+  ok  17 [electron] ΓÇ║ tests\e2e\ascii-diagram.spec.ts:568:7 ΓÇ║ ASCII Diagram Rendering in Conversation ΓÇ║ 09 - Side-by-Side Comparison (428ms)
+  ok  18 [electron] ΓÇ║ tests\e2e\ascii-diagram.spec.ts:579:7 ΓÇ║ ASCII Diagram Rendering in Conversation ΓÇ║ 10 - Mixed Content (Code + Diagram) (427ms)
+Test helpers available: [33mtrue[39m
+Scroll result: { found: [33mtrue[39m, scrollHeight: [33m2269[39m, childCount: [33m10[39m }
+  ok  19 [electron] ΓÇ║ tests\e2e\ascii-diagram.spec.ts:621:7 ΓÇ║ ASCII Diagram in Real App (Mocked Messages) ΓÇ║ 11 - Inject mock conversation with ASCII diagrams (5.9s)
+Scroll to 30%: { scrollTop: [33m680.5[39m, scrollHeight: [33m2269[39m }
+  ok  20 [electron] ΓÇ║ tests\e2e\ascii-diagram.spec.ts:680:7 ΓÇ║ ASCII Diagram in Real App (Mocked Messages) ΓÇ║ 11b - Scroll to multi-agent architecture diagram (476ms)
+Scroll to 60%: { scrollTop: [33m1361[39m, scrollHeight: [33m2269[39m }
+  ok  21 [electron] ΓÇ║ tests\e2e\ascii-diagram.spec.ts:701:7 ΓÇ║ ASCII Diagram in Real App (Mocked Messages) ΓÇ║ 11c - Scroll to code comparison section (487ms)
+Scroll to bottom: { scrollTop: [33m1753.5[39m, scrollHeight: [33m2269[39m }
+  ok  22 [electron] ΓÇ║ tests\e2e\ascii-diagram.spec.ts:721:7 ΓÇ║ ASCII Diagram in Real App (Mocked Messages) ΓÇ║ 11d - Scroll to login mockups (485ms)
+DOM manipulation result: { success: [33mtrue[39m, method: [32m'overlay'[39m }
+  ok  23 [electron] ΓÇ║ tests\e2e\ascii-diagram.spec.ts:741:7 ΓÇ║ ASCII Diagram in Real App (Mocked Messages) ΓÇ║ 12 - Alternative: Render messages via DOM manipulation (691ms)
+  ok  24 [electron] ΓÇ║ tests\e2e\ascii-diagram.spec.ts:827:7 ΓÇ║ ASCII Diagram in Real App (Mocked Messages) ΓÇ║ 13 - Scroll through mock conversation (483ms)
+  ok  25 [electron] ΓÇ║ tests\e2e\ascii-diagram.spec.ts:842:7 ΓÇ║ ASCII Diagram in Real App (Mocked Messages) ΓÇ║ 14 - View multi-agent architecture in mock (484ms)
+  ok  26 [electron] ΓÇ║ tests\e2e\ascii-diagram.spec.ts:856:7 ΓÇ║ ASCII Diagram in Real App (Mocked Messages) ΓÇ║ 15 - View login mockups in mock conversation (455ms)
+  ok  27 [electron] ΓÇ║ tests\e2e\ascii-diagram.spec.ts:870:7 ΓÇ║ ASCII Diagram in Real App (Mocked Messages) ΓÇ║ 16 - Close overlay and show real app (486ms)
+  ok  28 [electron] ΓÇ║ tests\e2e\copy-icons.spec.ts:38:7 ΓÇ║ Copy Icons for Code Blocks - Issue #103 ΓÇ║ 01 - Initial app state before injecting messages (208ms)
+Messages injected: [33mtrue[39m
+  ok  29 [electron] ΓÇ║ tests\e2e\copy-icons.spec.ts:42:7 ΓÇ║ Copy Icons for Code Blocks - Issue #103 ΓÇ║ 02 - Inject conversation with code blocks (1.6s)
+Code elements: [
+  {
+    "className": "text-copilot-text",
+    "parentTag": "PRE",
+    "text": "npm install\n",
+    "hasGroupWrapper": true
+  },
+  {
+    "className": "text-copilot-text",
+    "parentTag": "PRE",
+    "text": "npm test\n",
+    "hasGroupWrapper": true
+  },
+  {
+    "className": "text-copilot-text",
+    "parentTag": "PRE",
+    "text": "npm run test:watch\n",
+    "hasGroupWrapper": true
+  },
+  {
+    "className": "text-copilot-text",
+    "parentTag": "PRE",
+    "text": "npm install && npm test\n",
+    "hasGroupWrapper": true
+  },
+  {
+    "className": "bg-copilot-bg px-1 py-0.5 rounded text-copilot-warning text-xs break-all",
+    "parentTag": "P",
+    "text": "npm install",
+    "hasGroupWrapper": false
+  }
+]
+Code blocks with copy functionality found: [33m4[39m
+  ok  30 [electron] ΓÇ║ tests\e2e\copy-icons.spec.ts:97:7 ΓÇ║ Copy Icons for Code Blocks - Issue #103 ΓÇ║ 03 - Verify code blocks rendered in conversation (678ms)
+Code block wrappers found: [33m4[39m
+Button info: [
+  {
+    "hasButton": true,
+    "buttonClasses": "p-1 rounded bg-copilot-surface hover:bg-copilot-surface-hover text-copilot-text-muted hover:text-copilot-text transition-colors",
+    "innerHTML": "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"currentColor\"><polygon points=\"5 3 19 12 5 21 "
+  },
+  {
+    "hasButton": true,
+    "buttonClasses": "p-1 rounded bg-copilot-surface hover:bg-copilot-surface-hover text-copilot-text-muted hover:text-copilot-text transition-colors",
+    "innerHTML": "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"currentColor\"><polygon points=\"5 3 19 12 5 21 "
+  },
+  {
+    "hasButton": true,
+    "buttonClasses": "p-1 rounded bg-copilot-surface hover:bg-copilot-surface-hover text-copilot-text-muted hover:text-copilot-text transition-colors",
+    "innerHTML": "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"currentColor\"><polygon points=\"5 3 19 12 5 21 "
+  },
+  {
+    "hasButton": true,
+    "buttonClasses": "p-1 rounded bg-copilot-surface hover:bg-copilot-surface-hover text-copilot-text-muted hover:text-copilot-text transition-colors",
+    "innerHTML": "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"currentColor\"><polygon points=\"5 3 19 12 5 21 "
+  }
+]
+  ok  31 [electron] ΓÇ║ tests\e2e\copy-icons.spec.ts:123:7 ΓÇ║ Copy Icons for Code Blocks - Issue #103 ΓÇ║ 04 - Hover over first code block to reveal copy button (677ms)
+Button visibility: { opacity: [32m'1'[39m, display: [32m'block'[39m, visibility: [32m'visible'[39m }
+  ok  32 [electron] ΓÇ║ tests\e2e\copy-icons.spec.ts:168:7 ΓÇ║ Copy Icons for Code Blocks - Issue #103 ΓÇ║ 05 - Copy button visible after hover (149ms)
+Button clicked: [33mtrue[39m
+  ok  33 [electron] ΓÇ║ tests\e2e\copy-icons.spec.ts:192:7 ΓÇ║ Copy Icons for Code Blocks - Issue #103 ΓÇ║ 06 - Click copy button and verify checkmark feedback (1.1s)
+  ok  34 [electron] ΓÇ║ tests\e2e\copy-icons.spec.ts:235:7 ΓÇ║ Copy Icons for Code Blocks - Issue #103 ΓÇ║ 07 - Hover over second code block (680ms)
+  ok  35 [electron] ΓÇ║ tests\e2e\copy-icons.spec.ts:251:7 ΓÇ║ Copy Icons for Code Blocks - Issue #103 ΓÇ║ 08 - Hover over multiline code block (678ms)
+Inline code elements: [ { text: [32m'npm install'[39m, hasButton: [33mfalse[39m } ]
+  ok  36 [electron] ΓÇ║ tests\e2e\copy-icons.spec.ts:267:7 ΓÇ║ Copy Icons for Code Blocks - Issue #103 ΓÇ║ 09 - Verify inline code has no copy button (142ms)
+  ok  37 [electron] ΓÇ║ tests\e2e\copy-icons.spec.ts:287:7 ΓÇ║ Copy Icons for Code Blocks - Issue #103 ΓÇ║ 10 - Full conversation overview (489ms)
+  ok  38 [electron] ΓÇ║ tests\e2e\copy-icons.spec.ts:294:7 ΓÇ║ Copy Icons for Code Blocks - Issue #103 ΓÇ║ 11 - Add second conversation for more testing (2.5s)
+  ok  39 [electron] ΓÇ║ tests\e2e\copy-icons.spec.ts:336:7 ΓÇ║ Copy Icons for Code Blocks - Issue #103 ΓÇ║ 12 - Hover on git commands code block (983ms)
+Found 0 windows
+First window title: Cooper
+[Browser warning]: %cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security
+  Policy set or a policy with "unsafe-eval" enabled. This exposes users of
+  this app to unnecessary security risks.
+
+For more information and help, consult
+https://electronjs.org/docs/tutorial/security.
+This warning will not show up
+once the app is packaged.
+electronAPI exists: true
+voiceServer exists: true
+Mic button count: 1
+Voice server status before click: {
+  error: [32m'TypeError: window.electronAPI.voiceServer.getStatus is not a function'[39m
+}
+About to click mic button...
+Mic button clicked successfully
+Voice server status after click: {
+  error: [32m'TypeError: window.electronAPI.voiceServer.getStatus is not a function'[39m
+}
+  ok  40 [electron] ΓÇ║ tests\e2e\debug-mic.spec.ts:59:7 ΓÇ║ Debug Mic Button Crash ΓÇ║ debug mic button click (3.2s)
+getStatus result: {
+  error: [32m'TypeError: window.electronAPI.voiceServer.getStatus is not a function'[39m
+}
+getUrl result: {
+  error: [32m'TypeError: window.electronAPI.voiceServer.getUrl is not a function'[39m
+}
+About to call voiceServer.start()...
+start result: {
+  error: [32m'TypeError: window.electronAPI.voiceServer.start is not a function'[39m
+}
+Status after start: {
+  error: [32m'TypeError: window.electronAPI.voiceServer.getStatus is not a function'[39m
+}
+  ok  41 [electron] ΓÇ║ tests\e2e\debug-mic.spec.ts:140:7 ΓÇ║ Debug Mic Button Crash ΓÇ║ test voice server IPC directly (3.0s)
+  x   42 [electron] ΓÇ║ tests\e2e\file-preview.spec.ts:38:7 ΓÇ║ Files Preview Overlay - Stash & Tree View (NEW LOCATION) ΓÇ║ 01 - Initial app state showing right panel (7.9s)
+  x   43 [electron] ΓÇ║ tests\e2e\file-preview.spec.ts:49:7 ΓÇ║ Files Preview Overlay - Stash & Tree View (NEW LOCATION) ΓÇ║ 02 - Expand Edited Files section - verify NO toggle button (30.0s)
+  ok  44 [electron] ΓÇ║ tests\e2e\file-preview.spec.ts:71:7 ΓÇ║ Files Preview Overlay - Stash & Tree View (NEW LOCATION) ΓÇ║ 03 - Demo: Files Preview Overlay with Two-Panel Layout (3.4s)
+  ok  45 [electron] ΓÇ║ tests\e2e\file-preview.spec.ts:196:7 ΓÇ║ Files Preview Overlay - Stash & Tree View (NEW LOCATION) ΓÇ║ 04 - Demo: Tree View in Overlay (797ms)
+  ok  46 [electron] ΓÇ║ tests\e2e\file-preview.spec.ts:358:7 ΓÇ║ Files Preview Overlay - Stash & Tree View (NEW LOCATION) ΓÇ║ 05 - Demo: Stash Button on Hover (782ms)
+  ok  47 [electron] ΓÇ║ tests\e2e\file-preview.spec.ts:435:7 ΓÇ║ Files Preview Overlay - Stash & Tree View (NEW LOCATION) ΓÇ║ 06 - Demo: Stashed Files Section (783ms)
+  ok  48 [electron] ΓÇ║ tests\e2e\file-preview.spec.ts:512:7 ΓÇ║ Files Preview Overlay - Stash & Tree View (NEW LOCATION) ΓÇ║ 07 - Clean up demos (151ms)
+  ok  49 [electron] ΓÇ║ tests\e2e\file-preview.spec.ts:523:7 ΓÇ║ Files Preview Overlay - Stash & Tree View (NEW LOCATION) ΓÇ║ 08 - Verify FilePreviewModal component exports (145ms)
+  x   50 [electron] ΓÇ║ tests\e2e\layout.spec.ts:25:7 ΓÇ║ Window Layout ΓÇ║ should have platform-appropriate title bar layout (7.0s)
+  ok  51 [electron] ΓÇ║ tests\e2e\layout.spec.ts:53:7 ΓÇ║ Window Layout ΓÇ║ should have model selector visible and not obscured (6.1s)
+  ok  52 [electron] ΓÇ║ tests\e2e\layout.spec.ts:60:7 ΓÇ║ Window Layout ΓÇ║ should have title bar visible (1.0s)
+Ralph icon visible after click: [33mfalse[39m
+Lisa icon visible after click: [33mfalse[39m
+  ok  53 [electron] ΓÇ║ tests\e2e\lisa-loop.spec.ts:27:7 ΓÇ║ Lisa Simpson Loop UI ΓÇ║ should open agent modes panel and show Ralph/Lisa options (4.8s)
+Ralph text visible: [33mfalse[39m
+Lisa text visible: [33mfalse[39m
+  ok  54 [electron] ΓÇ║ tests\e2e\lisa-loop.spec.ts:61:7 ΓÇ║ Lisa Simpson Loop UI ΓÇ║ should show Ralph card with white circular icon (1.4s)
+Plan phase visible: [33mfalse[39m
+Code phase visible: [33mtrue[39m
+QA phase visible: [33mfalse[39m
+  ok  55 [electron] ΓÇ║ tests\e2e\lisa-loop.spec.ts:87:7 ΓÇ║ Lisa Simpson Loop UI ΓÇ║ should select Lisa mode and show phase flow description (30.7s)
+  ok  56 [electron] ΓÇ║ tests\e2e\lisa-loop.spec.ts:119:7 ΓÇ║ Lisa Simpson Loop UI ΓÇ║ verify icon backgrounds are white circles (30.7s)
+  x   57 [electron] ΓÇ║ tests\e2e\mark-as-unread.spec.ts:38:7 ΓÇ║ Mark Session as Unread Feature ΓÇ║ 01 - Initial state shows sessions in sidebar (12.9s)
+  x   58 [electron] ΓÇ║ tests\e2e\mark-as-unread.spec.ts:50:7 ΓÇ║ Mark Session as Unread Feature ΓÇ║ 02 - Right-click opens context menu (5.0s)
+  x   59 [electron] ΓÇ║ tests\e2e\mark-as-unread.spec.ts:68:7 ΓÇ║ Mark Session as Unread Feature ΓÇ║ 03 - Mark for Review adds blue indicator (10.0s)
+  x   60 [electron] ΓÇ║ tests\e2e\mark-as-unread.spec.ts:82:7 ΓÇ║ Mark Session as Unread Feature ΓÇ║ 04 - Right-click shows Remove Mark option (10.0s)
+  x   61 [electron] ΓÇ║ tests\e2e\mark-as-unread.spec.ts:100:7 ΓÇ║ Mark Session as Unread Feature ΓÇ║ 05 - Add Note opens modal (10.0s)
+  ok  62 [electron] ΓÇ║ tests\e2e\mark-as-unread.spec.ts:123:7 ΓÇ║ Mark Session as Unread Feature ΓÇ║ 06 - Enter note text (3.2s)
+  x   63 [electron] ΓÇ║ tests\e2e\mark-as-unread.spec.ts:133:7 ΓÇ║ Mark Session as Unread Feature ΓÇ║ 07 - Save note shows banner (10.0s)
+  x   64 [electron] ΓÇ║ tests\e2e\mark-as-unread.spec.ts:146:7 ΓÇ║ Mark Session as Unread Feature ΓÇ║ 08 - Session shows blue indicator after adding note (12.9s)
+  x   65 [electron] ΓÇ║ tests\e2e\mark-as-unread.spec.ts:155:7 ΓÇ║ Mark Session as Unread Feature ΓÇ║ 09 - Edit Note option appears in context menu (10.0s)
+  x   66 [electron] ΓÇ║ tests\e2e\mark-as-unread.spec.ts:173:7 ΓÇ║ Mark Session as Unread Feature ΓÇ║ 10 - Dismiss note banner (10.0s)
+  x   67 [electron] ΓÇ║ tests\e2e\mark-as-unread.spec.ts:188:7 ΓÇ║ Mark Session as Unread Feature ΓÇ║ 11 - Remove mark from session (10.0s)
+  ok  68 [electron] ΓÇ║ tests\e2e\mark-as-unread.spec.ts:204:7 ΓÇ║ Mark Session as Unread Feature ΓÇ║ 12 - Final state shows no blue indicators on unmarked session (2.9s)
+  x   69 [electron] ΓÇ║ tests\e2e\merged-session-history.spec.ts:53:7 ΓÇ║ Issue #91 - Merged Worktree List into Session History ΓÇ║ 01 - Session History modal shows filter toggle (2.8s)
+  x   70 [electron] ΓÇ║ tests\e2e\merged-session-history.spec.ts:70:7 ΓÇ║ Issue #91 - Merged Worktree List into Session History ΓÇ║ 02 - All filter is selected by default (2.8s)
+  x   71 [electron] ΓÇ║ tests\e2e\merged-session-history.spec.ts:85:7 ΓÇ║ Issue #91 - Merged Worktree List into Session History ΓÇ║ 03 - Clicking Worktree filter changes view (2.8s)
+  x   72 [electron] ΓÇ║ tests\e2e\merged-session-history.spec.ts:104:7 ΓÇ║ Issue #91 - Merged Worktree List into Session History ΓÇ║ 04 - Search input works with filter toggle (2.8s)
+  x   73 [electron] ΓÇ║ tests\e2e\merged-session-history.spec.ts:126:7 ΓÇ║ Issue #91 - Merged Worktree List into Session History ΓÇ║ 05 - Full modal layout with new features (2.8s)
+  x   74 [electron] ΓÇ║ tests\e2e\merged-session-history.spec.ts:144:7 ΓÇ║ Issue #91 - Merged Worktree List into Session History ΓÇ║ 06 - Worktree filter with Prune Stale button visibility (2.8s)
+  x   75 [electron] ΓÇ║ tests\e2e\merged-session-history.spec.ts:163:7 ΓÇ║ Issue #91 - Merged Worktree List into Session History ΓÇ║ 07 - Switch between All and Worktree filters (2.8s)
+  x   76 [electron] ΓÇ║ tests\e2e\merged-session-history.spec.ts:195:7 ΓÇ║ Issue #91 - Merged Worktree List into Session History ΓÇ║ 08 - Modal header and close button (2.8s)
+  x   77 [electron] ΓÇ║ tests\e2e\merged-session-history.spec.ts:211:7 ΓÇ║ Issue #91 - Merged Worktree List into Session History ΓÇ║ 09 - New Session button with worktree icon on hover (33.0s)
+  ok  78 [electron] ΓÇ║ tests\e2e\merged-session-history.spec.ts:231:7 ΓÇ║ Issue #91 - Merged Worktree List into Session History ΓÇ║ 10 - Single entry point for Session History (no List button) (2.9s)
+  ok  79 [electron] ΓÇ║ tests\e2e\modal-escape.spec.ts:38:7 ΓÇ║ Issue #108 - Modal Escape Key and Overflow ΓÇ║ 01 - Initial app state (3.9s)
+  x   80 [electron] ΓÇ║ tests\e2e\modal-escape.spec.ts:43:7 ΓÇ║ Issue #108 - Modal Escape Key and Overflow ΓÇ║ 02 - Open Session History modal and test Escape (234ms)
+  ok  81 [electron] ΓÇ║ tests\e2e\modal-escape.spec.ts:74:7 ΓÇ║ Issue #108 - Modal Escape Key and Overflow ΓÇ║ 03 - Open Commit modal via keyboard shortcut or button (3.7s)
+  x   82 [electron] ΓÇ║ tests\e2e\modal-escape.spec.ts:96:7 ΓÇ║ Issue #108 - Modal Escape Key and Overflow ΓÇ║ 04 - Test modal with Escape key multiple times (30.0s)
+  ok  83 [electron] ΓÇ║ tests\e2e\modal-escape.spec.ts:137:7 ΓÇ║ Issue #108 - Modal Escape Key and Overflow ΓÇ║ 05 - Take final screenshot showing app is functional (3.9s)
+  ok  84 [electron] ΓÇ║ tests\e2e\mode-toggles.spec.ts:27:7 ΓÇ║ Ralph/Lisa Mode Screenshots ΓÇ║ Capture Ralph and Lisa mode toggles (4.3s)
+  ok  85 [electron] ΓÇ║ tests\e2e\overflow-test.spec.ts:94:7 ΓÇ║ Issue #108 - Error Message Overflow Test ΓÇ║ Capture commit modal with long error message (6.3s)
+React access available: [33mtrue[39m
+  ok  86 [electron] ΓÇ║ tests\e2e\overflow-test.spec.ts:214:7 ΓÇ║ Issue #108 - Error Message Overflow Test ΓÇ║ Test actual commit modal error injection via React state (138ms)
+  x   87 [electron] ΓÇ║ tests\e2e\ralph-improvements.spec.ts:31:7 ΓÇ║ Ralph Loop Improvements ΓÇ║ 01 - Initial app state before opening agent modes (2.9s)
+  x   88 [electron] ΓÇ║ tests\e2e\ralph-improvements.spec.ts:43:7 ΓÇ║ Ralph Loop Improvements ΓÇ║ 02 - Open Agent Modes panel by clicking chevron button (15.0s)
+  x   89 [electron] ΓÇ║ tests\e2e\ralph-improvements.spec.ts:59:7 ΓÇ║ Ralph Loop Improvements ΓÇ║ 03 - Verify Ralph and Lisa cards are visible (2.7s)
+  x   90 [electron] ΓÇ║ tests\e2e\ralph-improvements.spec.ts:73:7 ΓÇ║ Ralph Loop Improvements ΓÇ║ 04 - Click Ralph Wiggum card to enable (15.0s)
+  x   91 [electron] ΓÇ║ tests\e2e\ralph-improvements.spec.ts:90:7 ΓÇ║ Ralph Loop Improvements ΓÇ║ 05 - Verify Max iterations input is visible with default value 5 (10.0s)
+  x   92 [electron] ΓÇ║ tests\e2e\ralph-improvements.spec.ts:105:7 ΓÇ║ Ralph Loop Improvements ΓÇ║ 06 - Verify Require screenshot checkbox is visible (10.0s)
+  x   93 [electron] ΓÇ║ tests\e2e\ralph-improvements.spec.ts:117:7 ΓÇ║ Ralph Loop Improvements ΓÇ║ 07 - Verify Clear context checkbox is visible and checked by default (10.0s)
+  x   94 [electron] ΓÇ║ tests\e2e\ralph-improvements.spec.ts:133:7 ΓÇ║ Ralph Loop Improvements ΓÇ║ 08 - Uncheck Clear context checkbox (10.0s)
+  x   95 [electron] ΓÇ║ tests\e2e\ralph-improvements.spec.ts:156:7 ΓÇ║ Ralph Loop Improvements ΓÇ║ 09 - Re-check Clear context checkbox (10.0s)
+  x   96 [electron] ΓÇ║ tests\e2e\ralph-improvements.spec.ts:178:7 ΓÇ║ Ralph Loop Improvements ΓÇ║ 10 - Change max iterations to 10 (10.0s)
+  x   97 [electron] ΓÇ║ tests\e2e\ralph-improvements.spec.ts:195:7 ΓÇ║ Ralph Loop Improvements ΓÇ║ 11 - Enable Require screenshot option (10.0s)
+  ok  98 [electron] ΓÇ║ tests\e2e\ralph-improvements.spec.ts:214:7 ΓÇ║ Ralph Loop Improvements ΓÇ║ 12 - All Ralph settings configured (2.9s)
+  x   99 [electron] ΓÇ║ tests\e2e\ralph-improvements.spec.ts:226:7 ΓÇ║ Ralph Loop Improvements ΓÇ║ 13 - Switch to Lisa Simpson mode (15.0s)
+  x  100 [electron] ΓÇ║ tests\e2e\ralph-improvements.spec.ts:241:7 ΓÇ║ Ralph Loop Improvements ΓÇ║ 14 - Switch back to Ralph mode (15.0s)
+  x  101 [electron] ΓÇ║ tests\e2e\ralph-improvements.spec.ts:258:7 ΓÇ║ Ralph Loop Improvements ΓÇ║ 15 - Close Agent Modes panel (15.0s)
+  x  102 [electron] ΓÇ║ tests\e2e\ralph-improvements.spec.ts:273:7 ΓÇ║ Ralph Loop Improvements ΓÇ║ 16 - Reopen panel to verify Ralph is still selected (15.0s)
+  x  103 [electron] ΓÇ║ tests\e2e\run-in-terminal.spec.ts:35:7 ΓÇ║ Run in Terminal Feature ΓÇ║ 01 - Initial app state (0ms)
+  -  104 [electron] ΓÇ║ tests\e2e\run-in-terminal.spec.ts:39:7 ΓÇ║ Run in Terminal Feature ΓÇ║ 02 - Send message to get CLI commands in response
+  -  105 [electron] ΓÇ║ tests\e2e\run-in-terminal.spec.ts:51:7 ΓÇ║ Run in Terminal Feature ΓÇ║ 03 - Verify CLI code blocks have run button
+  -  106 [electron] ΓÇ║ tests\e2e\run-in-terminal.spec.ts:68:7 ΓÇ║ Run in Terminal Feature ΓÇ║ 04 - Click Run in Terminal button
+  -  107 [electron] ΓÇ║ tests\e2e\run-in-terminal.spec.ts:82:7 ΓÇ║ Run in Terminal Feature ΓÇ║ 05 - Verify terminal shows executed command
+  -  108 [electron] ΓÇ║ tests\e2e\run-in-terminal.spec.ts:87:7 ΓÇ║ Run in Terminal Feature ΓÇ║ 06 - Test copy button still works
+  x  109 [electron] ΓÇ║ tests\e2e\screenshot-lisa.spec.ts:28:5 ΓÇ║ capture Lisa Simpson option in CreateWorktreeSession (17.7s)
+  ok 110 [electron] ΓÇ║ tests\e2e\session-history.spec.ts:95:7 ΓÇ║ Session History - Basic UI ΓÇ║ should have Session History button in sidebar (2.9s)
+  x  111 [electron] ΓÇ║ tests\e2e\session-history.spec.ts:109:7 ΓÇ║ Session History - Basic UI ΓÇ║ should open modal when clicking the button (232ms)
+  x  112 [electron] ΓÇ║ tests\e2e\session-history.spec.ts:116:7 ΓÇ║ Session History - Basic UI ΓÇ║ should have search input with correct placeholder (2.8s)
+  x  113 [electron] ΓÇ║ tests\e2e\session-history.spec.ts:124:7 ΓÇ║ Session History - Basic UI ΓÇ║ should auto-focus search input when modal opens (2.8s)
+  x  114 [electron] ΓÇ║ tests\e2e\session-history.spec.ts:133:7 ΓÇ║ Session History - Basic UI ΓÇ║ should close modal when clicking X button (2.8s)
+  x  115 [electron] ΓÇ║ tests\e2e\session-history.spec.ts:146:7 ΓÇ║ Session History - Content Display ΓÇ║ should show mock sessions with time categories (2.9s)
+  x  116 [electron] ΓÇ║ tests\e2e\session-history.spec.ts:172:7 ΓÇ║ Session History - Content Display ΓÇ║ should show session count in footer (2.8s)
+  x  117 [electron] ΓÇ║ tests\e2e\session-history.spec.ts:189:7 ΓÇ║ Session History - Search Functionality ΓÇ║ should filter sessions by name (2.8s)
+  x  118 [electron] ΓÇ║ tests\e2e\session-history.spec.ts:214:7 ΓÇ║ Session History - Search Functionality ΓÇ║ should show "no results" when search matches nothing (2.8s)
+  x  119 [electron] ΓÇ║ tests\e2e\session-history.spec.ts:235:7 ΓÇ║ Session History - Search Functionality ΓÇ║ should clear search and restore all sessions (2.8s)
+  x  120 [electron] ΓÇ║ tests\e2e\session-history.spec.ts:256:7 ΓÇ║ Session History - Search Functionality ΓÇ║ should be case-insensitive search (2.8s)
+  x  121 [electron] ΓÇ║ tests\e2e\session-history.spec.ts:278:7 ΓÇ║ Session History - Session Resumption ΓÇ║ should click session and close modal (2.8s)
+  x  122 [electron] ΓÇ║ tests\e2e\session-history.spec.ts:315:7 ΓÇ║ Session History - Edge Cases ΓÇ║ should handle rapid search input without crashing (2.8s)
+  x  123 [electron] ΓÇ║ tests\e2e\session-history.spec.ts:336:7 ΓÇ║ Session History - Edge Cases ΓÇ║ should handle special characters in search (2.8s)
+  x  124 [electron] ΓÇ║ tests\e2e\session-history.spec.ts:356:7 ΓÇ║ Session History - Edge Cases ΓÇ║ should handle scroll if content is scrollable (2.5s)
+  x  125 [electron] ΓÇ║ tests\e2e\session-history.spec.ts:389:7 ΓÇ║ Session History - Final Screenshots ΓÇ║ should capture feature demonstration with mock data (3.1s)
+  ok 126 [electron] ΓÇ║ tests\e2e\target-branch.spec.ts:38:7 ΓÇ║ Target Branch Selector Feature - Issue #110 ΓÇ║ 01 - App loads with sidebar showing Git Branch section (2.9s)
+  ok 127 [electron] ΓÇ║ tests\e2e\target-branch.spec.ts:47:7 ΓÇ║ Target Branch Selector Feature - Issue #110 ΓÇ║ 02 - Show Edited Files section (304ms)
+  ok 128 [electron] ΓÇ║ tests\e2e\target-branch.spec.ts:62:7 ΓÇ║ Target Branch Selector Feature - Issue #110 ΓÇ║ 03 - Render SearchableBranchSelect component via injection (682ms)
+  ok 129 [electron] ΓÇ║ tests\e2e\target-branch.spec.ts:164:7 ΓÇ║ Target Branch Selector Feature - Issue #110 ΓÇ║ 04 - Show component with selected branch (484ms)
+  ok 130 [electron] ΓÇ║ tests\e2e\target-branch.spec.ts:206:7 ΓÇ║ Target Branch Selector Feature - Issue #110 ΓÇ║ 05 - Show commit modal mockup with target branch (480ms)
+  ok 131 [electron] ΓÇ║ tests\e2e\target-branch.spec.ts:303:7 ΓÇ║ Target Branch Selector Feature - Issue #110 ΓÇ║ 06 - Clean up injected component (153ms)
+  x  132 [electron] ΓÇ║ tests\e2e\telemetry-screenshots.spec.ts:27:7 ΓÇ║ Telemetry Feature Screenshots ΓÇ║ Capture comprehensive feature screenshots (34.8s)
+  ok 133 [electron] ΓÇ║ tests\e2e\textarea-session.spec.ts:33:7 ΓÇ║ Per-Session Textarea State (Issue #99) ΓÇ║ TC-01: textarea is visible and functional (3.2s)
+  ok 134 [electron] ΓÇ║ tests\e2e\textarea-session.spec.ts:53:7 ΓÇ║ Per-Session Textarea State (Issue #99) ΓÇ║ TC-02: demonstrates textarea text entry and clearing (326ms)
+Number of buttons in app: [33m23[39m
+  ok 135 [electron] ΓÇ║ tests\e2e\textarea-session.spec.ts:70:7 ΓÇ║ Per-Session Textarea State (Issue #99) ΓÇ║ TC-03: app UI overview showing tabs and controls (304ms)
+  ok 136 [electron] ΓÇ║ tests\e2e\ux-changes-275.spec.ts:28:7 ΓÇ║ Issue #275 - UX Layout Changes ΓÇ║ 01 - Initial app state (2.8s)
+  ok 137 [electron] ΓÇ║ tests\e2e\ux-changes-275.spec.ts:32:7 ΓÇ║ Issue #275 - UX Layout Changes ΓÇ║ 02 - Top bar shows Models, Agents, Loops selectors (335ms)
+  ok 138 [electron] ΓÇ║ tests\e2e\ux-changes-275.spec.ts:43:7 ΓÇ║ Issue #275 - UX Layout Changes ΓÇ║ 03 - Models dropdown opens (1.1s)
+  x  139 [electron] ΓÇ║ tests\e2e\ux-changes-275.spec.ts:54:7 ΓÇ║ Issue #275 - UX Layout Changes ΓÇ║ 04 - Agents dropdown shows placeholder (15.0s)
+  x  140 [electron] ΓÇ║ tests\e2e\ux-changes-275.spec.ts:66:7 ΓÇ║ Issue #275 - UX Layout Changes ΓÇ║ 05 - Loops dropdown opens with Off/Ralph/Lisa options (15.0s)
+  ok 141 [electron] ΓÇ║ tests\e2e\ux-changes-275.spec.ts:77:7 ΓÇ║ Issue #275 - UX Layout Changes ΓÇ║ 06 - Terminal button in input area (3.3s)
+  ok 142 [electron] ΓÇ║ tests\e2e\ux-changes-275.spec.ts:83:7 ΓÇ║ Issue #275 - UX Layout Changes ΓÇ║ 07 - Terminal opens upward when clicked (1.9s)
+  ok 143 [electron] ΓÇ║ tests\e2e\ux-changes-275.spec.ts:94:7 ΓÇ║ Issue #275 - UX Layout Changes ΓÇ║ 08 - Right panel says Environment (159ms)
+  x  144 [electron] ΓÇ║ tests\e2e\ux-changes-275.spec.ts:101:7 ΓÇ║ Issue #275 - UX Layout Changes ΓÇ║ 09 - Select Ralph loop mode (15.0s)
+  x  145 [electron] ΓÇ║ tests\e2e\ux-changes-275.spec.ts:122:7 ΓÇ║ Issue #275 - UX Layout Changes ΓÇ║ 10 - Select Lisa loop mode (15.0s)
+  ok 146 [electron] ΓÇ║ tests\e2e\ux-changes-275.spec.ts:143:7 ΓÇ║ Issue #275 - UX Layout Changes ΓÇ║ 11 - Final full app view (2.9s)
+  ok 147 [electron] ΓÇ║ tests\e2e\ux-extra-275.spec.ts:25:7 ΓÇ║ Issue #275 - Extra Evidence ΓÇ║ 12 - Collapse right panel to show Environment label (2.8s)
+  x  148 [electron] ΓÇ║ tests\e2e\ux-extra-275.spec.ts:42:7 ΓÇ║ Issue #275 - Extra Evidence ΓÇ║ 13 - Loops selector shows Ralph label when enabled (15.0s)
+  ok 149 [electron] ΓÇ║ tests\e2e\ux-extra-275.spec.ts:66:7 ΓÇ║ Issue #275 - Extra Evidence ΓÇ║ 14 - Terminal icon does NOT rotate (4.8s)
+  ok 150 [electron] ΓÇ║ tests\e2e\ux-extra-275.spec.ts:80:7 ΓÇ║ Issue #275 - Extra Evidence ΓÇ║ 15 - Model selector with favorites toggle (1.5s)
+  -  151 [electron] ΓÇ║ tests\e2e\voice-debug.spec.ts:23:7 ΓÇ║ Voice Input Debug ΓÇ║ should check speech recognition support and errors
+  -  152 [electron] ΓÇ║ tests\e2e\voice-debug.spec.ts:43:7 ΓÇ║ Voice Input Debug ΓÇ║ should click mic button and capture any errors
+  -  153 [electron] ΓÇ║ tests\e2e\voice-debug.spec.ts:96:7 ΓÇ║ Voice Input Debug ΓÇ║ should evaluate speech recognition error handling
+  -  154 [electron] ΓÇ║ tests\e2e\voice-debug.spec.ts:174:7 ΓÇ║ Voice Input Debug ΓÇ║ should check network requests related to speech
+  -  155 [electron] ΓÇ║ tests\e2e\voice-debug.spec.ts:201:7 ΓÇ║ Voice Input Debug ΓÇ║ should dump all console logs at end
+  -  156 [electron] ΓÇ║ tests\e2e\voice-input.spec.ts:6:7 ΓÇ║ Voice Input Feature ΓÇ║ should have microphone button visible
+  -  157 [electron] ΓÇ║ tests\e2e\voice-input.spec.ts:25:7 ΓÇ║ Voice Input Feature ΓÇ║ should display VoiceKeywordsPanel when voice is supported
+  -  158 [electron] ΓÇ║ tests\e2e\voice-input.spec.ts:44:7 ΓÇ║ Voice Input Feature ΓÇ║ should show status indicator in voice panel
+  -  159 [electron] ΓÇ║ tests\e2e\voice-input.spec.ts:59:7 ΓÇ║ Voice Input Feature ΓÇ║ should have mute/unmute toggle button
+  -  160 [electron] ΓÇ║ tests\e2e\voice-input.spec.ts:82:7 ΓÇ║ Voice Input Feature ΓÇ║ should display keyword groups
+  -  161 [electron] ΓÇ║ tests\e2e\voice-input.spec.ts:98:7 ΓÇ║ Voice Input Feature ΓÇ║ should show usage hint
+  -  162 [electron] ΓÇ║ tests\e2e\voice-input.spec.ts:108:7 ΓÇ║ Voice Input Feature ΓÇ║ should handle unsupported browser gracefully
+  ok 163 [electron] ΓÇ║ tests\e2e\voice-server.spec.ts:44:7 ΓÇ║ Voice Server Integration ΓÇ║ should show mic button in chat input (29ms)
+  -  164 [electron] ΓÇ║ tests\e2e\voice-server.spec.ts:49:7 ΓÇ║ Voice Server Integration ΓÇ║ should start voice server when mic button is pressed
+  -  165 [electron] ΓÇ║ tests\e2e\voice-server.spec.ts:81:7 ΓÇ║ Voice Server Integration ΓÇ║ voice server API should respond correctly
+  -  166 [electron] ΓÇ║ tests\e2e\voice-server.spec.ts:125:8 ΓÇ║ Voice Server Manager (IPC) ΓÇ║ should be able to get voice server status via IPC
+  -  167 [electron] ΓÇ║ tests\e2e\voice-server.spec.ts:137:8 ΓÇ║ Voice Server Manager (IPC) ΓÇ║ should be able to get voice server URL via IPC
+  -  168 [electron] ΓÇ║ tests\e2e\voice-server.spec.ts:147:7 ΓÇ║ Voice Server Manager (IPC) ΓÇ║ should handle start/stop commands
+  ok 169 [electron] ΓÇ║ tests\e2e\voice-settings.spec.ts:37:7 ΓÇ║ Voice Settings in Settings Modal ΓÇ║ should capture initial app state (3.9s)
+  x  170 [electron] ΓÇ║ tests\e2e\voice-settings.spec.ts:41:7 ΓÇ║ Voice Settings in Settings Modal ΓÇ║ should open settings modal and navigate to Voice section (33.8s)
+  x  171 [electron] ΓÇ║ tests\e2e\voice-settings.spec.ts:78:7 ΓÇ║ Voice Settings in Settings Modal ΓÇ║ should show voice settings toggles (5.0s)
+  x  172 [electron] ΓÇ║ tests\e2e\voice-settings.spec.ts:94:7 ΓÇ║ Voice Settings in Settings Modal ΓÇ║ should show voice status indicator (10.0s)
+  x  173 [electron] ΓÇ║ tests\e2e\voice-settings.spec.ts:107:7 ΓÇ║ Voice Settings in Settings Modal ΓÇ║ should show voice commands reference (10.0s)
+  x  174 [electron] ΓÇ║ tests\e2e\voice-settings.spec.ts:121:7 ΓÇ║ Voice Settings in Settings Modal ΓÇ║ should toggle Always Listening (13.7s)
+  x  175 [electron] ΓÇ║ tests\e2e\voice-settings.spec.ts:154:7 ΓÇ║ Voice Settings in Settings Modal ΓÇ║ should toggle Push to Talk (10.0s)
+  x  176 [electron] ΓÇ║ tests\e2e\voice-settings.spec.ts:172:7 ΓÇ║ Voice Settings in Settings Modal ΓÇ║ should toggle Text-to-Speech (10.0s)
+  x  177 [electron] ΓÇ║ tests\e2e\voice-settings.spec.ts:187:7 ΓÇ║ Voice Settings in Settings Modal ΓÇ║ should close settings modal (10.0s)

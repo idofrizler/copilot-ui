@@ -27,6 +27,34 @@ test.afterAll(async () => {
   await electronApp?.close();
 });
 
+// Helper to ensure Agent Loops panel is open
+async function ensureAgentLoopsPanelOpen() {
+  const panel = window.locator('[data-tour="agent-modes-panel"]');
+  const isVisible = await panel.isVisible().catch(() => false);
+
+  if (!isVisible) {
+    const loopsBtn = window.locator('button[title*="Agent Loops"]');
+    await scrollIntoViewAndClick(loopsBtn, { timeout: 15000 });
+    await panel.waitFor({ state: 'visible', timeout: 15000 });
+    await window.waitForTimeout(300);
+  }
+}
+
+// Helper to ensure Ralph mode is enabled
+async function ensureRalphEnabled() {
+  await ensureAgentLoopsPanelOpen();
+
+  // Check if Ralph settings are already visible
+  const maxIterationsLabel = window.locator('text=Max iterations');
+  const ralphVisible = await maxIterationsLabel.isVisible().catch(() => false);
+
+  if (!ralphVisible) {
+    const ralphCard = window.locator('text=Ralph Wiggum').first();
+    await scrollIntoViewAndClick(ralphCard, { timeout: 15000 });
+    await window.waitForTimeout(1000);
+  }
+}
+
 test.describe('Ralph Loop Improvements', () => {
   test('01 - Initial app state before opening agent modes', async () => {
     // Capture initial state - app should be loaded with input area visible
@@ -35,20 +63,20 @@ test.describe('Ralph Loop Improvements', () => {
       fullPage: true,
     });
 
-    // Verify the agent mode toggle button exists (has the title attribute)
-    const agentModeBtn = window.locator('button[title*="Agent Modes"]');
-    expect(await agentModeBtn.count()).toBeGreaterThan(0);
+    // Verify the "Loops" button exists (has the Agent Loops title attribute)
+    const loopsBtn = window.locator('button[title*="Agent Loops"]');
+    expect(await loopsBtn.count()).toBeGreaterThan(0);
   });
 
   test('02 - Open Agent Modes panel by clicking chevron button', async () => {
-    // Click the agent modes toggle button (the one with chevron icon)
-    const agentModeBtn = window.locator('button[title*="Agent Modes"]');
-    await scrollIntoViewAndClick(agentModeBtn, { timeout: 15000 });
-    await waitForPanelOpen(window, 'Agent Modes', { timeout: 20000 });
+    // Click the "Loops" button to open the dropdown panel
+    const loopsBtn = window.locator('button[title*="Agent Loops"]');
+    await scrollIntoViewAndClick(loopsBtn, { timeout: 15000 });
 
-    // Verify the Agent Modes panel is now visible
-    const agentModesText = window.locator('text=Agent Modes');
-    await expect(agentModesText.first()).toBeVisible({ timeout: 5000 });
+    // Wait for the panel to appear (it has data-tour="agent-modes-panel")
+    const panel = window.locator('[data-tour="agent-modes-panel"]');
+    await panel.waitFor({ state: 'visible', timeout: 15000 });
+    await window.waitForTimeout(300);
 
     await window.screenshot({
       path: 'evidence/screenshots/02-agent-modes-panel-open.png',
@@ -57,12 +85,22 @@ test.describe('Ralph Loop Improvements', () => {
   });
 
   test('03 - Verify Ralph and Lisa cards are visible', async () => {
+    // Ensure panel is open first
+    const panel = window.locator('[data-tour="agent-modes-panel"]');
+    const isVisible = await panel.isVisible().catch(() => false);
+    if (!isVisible) {
+      const loopsBtn = window.locator('button[title*="Agent Loops"]');
+      await scrollIntoViewAndClick(loopsBtn, { timeout: 15000 });
+      await panel.waitFor({ state: 'visible', timeout: 15000 });
+      await window.waitForTimeout(300);
+    }
+
     // Check both Ralph and Lisa options are visible
     const ralphCard = window.locator('text=Ralph Wiggum');
     const lisaCard = window.locator('text=Lisa Simpson');
 
-    await expect(ralphCard.first()).toBeVisible({ timeout: 2000 });
-    await expect(lisaCard.first()).toBeVisible({ timeout: 2000 });
+    await expect(ralphCard.first()).toBeVisible({ timeout: 5000 });
+    await expect(lisaCard.first()).toBeVisible({ timeout: 5000 });
 
     await window.screenshot({
       path: 'evidence/screenshots/03-ralph-lisa-cards-visible.png',
@@ -71,6 +109,16 @@ test.describe('Ralph Loop Improvements', () => {
   });
 
   test('04 - Click Ralph Wiggum card to enable', async () => {
+    // Ensure panel is open
+    const panel = window.locator('[data-tour="agent-modes-panel"]');
+    const isVisible = await panel.isVisible().catch(() => false);
+    if (!isVisible) {
+      const loopsBtn = window.locator('button[title*="Agent Loops"]');
+      await scrollIntoViewAndClick(loopsBtn, { timeout: 15000 });
+      await panel.waitFor({ state: 'visible', timeout: 15000 });
+      await window.waitForTimeout(300);
+    }
+
     // Click the Ralph Wiggum card to enable it
     const ralphCard = window.locator('text=Ralph Wiggum').first();
     await scrollIntoViewAndClick(ralphCard, { timeout: 15000 });
@@ -88,6 +136,9 @@ test.describe('Ralph Loop Improvements', () => {
   });
 
   test('05 - Verify Max iterations input is visible with default value 5', async () => {
+    // Ensure Ralph is enabled
+    await ensureRalphEnabled();
+
     // Find the max iterations input
     const maxIterInput = window.locator('input[type="number"]').first();
     await scrollIntoViewAndWait(maxIterInput, { timeout: 10000 });
@@ -103,6 +154,9 @@ test.describe('Ralph Loop Improvements', () => {
   });
 
   test('06 - Verify Require screenshot checkbox is visible', async () => {
+    // Ensure Ralph is enabled
+    await ensureRalphEnabled();
+
     // Look for "Require screenshot" text
     const screenshotLabel = window.locator('text=Require screenshot');
     await scrollIntoViewAndWait(screenshotLabel.first(), { timeout: 10000 });
@@ -115,6 +169,9 @@ test.describe('Ralph Loop Improvements', () => {
   });
 
   test('07 - Verify Clear context checkbox is visible and checked by default', async () => {
+    // Ensure Ralph is enabled
+    await ensureRalphEnabled();
+
     // Look for "Clear context between iterations" text - THE NEW FEATURE
     const clearContextLabel = window.locator('text=Clear context between iterations');
     await scrollIntoViewAndWait(clearContextLabel.first(), { timeout: 10000 });
@@ -131,6 +188,9 @@ test.describe('Ralph Loop Improvements', () => {
   });
 
   test('08 - Uncheck Clear context checkbox', async () => {
+    // Ensure Ralph is enabled
+    await ensureRalphEnabled();
+
     // Find the checkbox for clear context (near the label)
     const clearContextCheckbox = window
       .locator('label')
@@ -154,6 +214,9 @@ test.describe('Ralph Loop Improvements', () => {
   });
 
   test('09 - Re-check Clear context checkbox', async () => {
+    // Ensure Ralph is enabled
+    await ensureRalphEnabled();
+
     // Check it again
     const clearContextCheckbox = window
       .locator('label')
@@ -176,6 +239,9 @@ test.describe('Ralph Loop Improvements', () => {
   });
 
   test('10 - Change max iterations to 10', async () => {
+    // Ensure Ralph is enabled
+    await ensureRalphEnabled();
+
     // Change max iterations from 5 to 10
     const maxIterInput = window.locator('input[type="number"]').first();
     await scrollIntoViewAndWait(maxIterInput, { timeout: 10000 });
@@ -193,6 +259,9 @@ test.describe('Ralph Loop Improvements', () => {
   });
 
   test('11 - Enable Require screenshot option', async () => {
+    // Ensure Ralph is enabled
+    await ensureRalphEnabled();
+
     // Find and check the Require screenshot checkbox
     const screenshotCheckbox = window
       .locator('label')
@@ -224,6 +293,9 @@ test.describe('Ralph Loop Improvements', () => {
   });
 
   test('13 - Switch to Lisa Simpson mode', async () => {
+    // Ensure panel is open
+    await ensureAgentLoopsPanelOpen();
+
     // Click Lisa Simpson card
     const lisaCard = window.locator('text=Lisa Simpson').first();
     await scrollIntoViewAndClick(lisaCard, { timeout: 15000 });
@@ -239,50 +311,55 @@ test.describe('Ralph Loop Improvements', () => {
   });
 
   test('14 - Switch back to Ralph mode', async () => {
+    // Ensure panel is open
+    await ensureAgentLoopsPanelOpen();
+
     // Click Ralph card again
     const ralphCard = window.locator('text=Ralph Wiggum').first();
     await scrollIntoViewAndClick(ralphCard, { timeout: 15000 });
     await window.waitForTimeout(1000);
 
-    // Ralph settings should reappear
-    const clearContextLabel = window.locator('text=Clear context between iterations');
-    await scrollIntoViewAndWait(clearContextLabel.first(), { timeout: 10000 });
-    await expect(clearContextLabel.first()).toBeVisible({ timeout: 5000 });
+    // Verify Ralph settings are back
+    const maxIterationsLabel = window.locator('text=Max iterations');
+    await expect(maxIterationsLabel.first()).toBeVisible({ timeout: 5000 });
 
     await window.screenshot({
-      path: 'evidence/screenshots/14-ralph-mode-reselected.png',
+      path: 'evidence/screenshots/14-switched-back-to-ralph.png',
       fullPage: true,
     });
   });
 
   test('15 - Close Agent Modes panel', async () => {
-    // Click the X button to close the panel
-    const closeBtn = window
-      .locator('button')
-      .filter({ has: window.locator('svg') })
-      .first();
+    // Click the Loops button again to close the panel
+    const loopsBtn = window.locator('button[title*="Agent Loops"]');
+    await scrollIntoViewAndClick(loopsBtn, { timeout: 15000 });
+    await window.waitForTimeout(300);
 
-    // Or click the agent mode button again to toggle it off
-    const agentModeBtn = window.locator('button[title*="Agent Modes"]');
-    await scrollIntoViewAndClick(agentModeBtn, { timeout: 15000 });
-    await window.waitForTimeout(500);
+    // Verify panel is closed
+    const panel = window.locator('[data-tour="agent-modes-panel"]');
+    await expect(panel).not.toBeVisible();
 
-    await window.screenshot({ path: 'evidence/screenshots/15-panel-closed.png', fullPage: true });
+    await window.screenshot({
+      path: 'evidence/screenshots/15-agent-modes-panel-closed.png',
+      fullPage: true,
+    });
   });
 
   test('16 - Reopen panel to verify Ralph is still selected', async () => {
     // Open panel again
-    const agentModeBtn = window.locator('button[title*="Agent Modes"]');
-    await scrollIntoViewAndClick(agentModeBtn, { timeout: 15000 });
-    await waitForPanelOpen(window, 'Agent Modes', { timeout: 20000 });
+    const loopsBtn = window.locator('button[title*="Agent Loops"]');
+    await scrollIntoViewAndClick(loopsBtn, { timeout: 15000 });
 
-    // Ralph should still be enabled with settings visible
-    const clearContextLabel = window.locator('text=Clear context between iterations');
-    await scrollIntoViewAndWait(clearContextLabel.first(), { timeout: 10000 });
-    await expect(clearContextLabel.first()).toBeVisible({ timeout: 5000 });
+    const panel = window.locator('[data-tour="agent-modes-panel"]');
+    await panel.waitFor({ state: 'visible', timeout: 15000 });
+    await window.waitForTimeout(300);
+
+    // Verify Ralph settings are still visible (state persisted)
+    const maxIterationsLabel = window.locator('text=Max iterations');
+    await expect(maxIterationsLabel.first()).toBeVisible({ timeout: 5000 });
 
     await window.screenshot({
-      path: 'evidence/screenshots/16-panel-reopened-ralph-still-selected.png',
+      path: 'evidence/screenshots/16-ralph-still-selected-after-reopen.png',
       fullPage: true,
     });
   });

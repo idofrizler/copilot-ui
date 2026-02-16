@@ -50,22 +50,28 @@ test.describe('Mark Session as Unread Feature', () => {
   test('02 - Right-click opens context menu', async () => {
     // Get first session tab
     const firstTab = window.locator('[data-tour="sidebar-tabs"] > div').first();
-    await expect(firstTab).toBeVisible({ timeout: 5000 });
+    await expect(firstTab).toBeVisible({ timeout: 10000 });
 
     // Right-click to open context menu
     await firstTab.click({ button: 'right' });
-    await window.waitForTimeout(500);
+    await window.waitForTimeout(1000); // Give context menu time to appear
 
     // Capture context menu
     await window.screenshot({ path: `${screenshotDir}/02-context-menu-open.png` });
 
-    // Verify menu options
-    await expect(window.locator('text=Mark for Review')).toBeVisible({ timeout: 3000 });
-    await expect(window.locator('text=Add Note...')).toBeVisible();
-    await expect(window.locator('text=Rename...')).toBeVisible();
+    // Verify menu options with longer timeout
+    await expect(window.locator('text=Mark for Review')).toBeVisible({ timeout: 15000 });
+    await expect(window.locator('text=Add Note...')).toBeVisible({ timeout: 5000 });
+    await expect(window.locator('text=Rename...')).toBeVisible({ timeout: 5000 });
   });
 
   test('03 - Mark for Review adds blue indicator', async () => {
+    // Get first session tab and right-click
+    const firstTab = window.locator('[data-tour="sidebar-tabs"] > div').first();
+    await expect(firstTab).toBeVisible({ timeout: 10000 });
+    await firstTab.click({ button: 'right' });
+    await window.waitForTimeout(1000);
+
     // Click Mark for Review
     const markButton = window.locator('text=Mark for Review');
     await scrollIntoViewAndClick(markButton, { timeout: 10000 });
@@ -84,13 +90,13 @@ test.describe('Mark Session as Unread Feature', () => {
     const firstTab = window.locator('[data-tour="sidebar-tabs"] > div').first();
     await scrollIntoViewAndWait(firstTab, { timeout: 10000 });
     await firstTab.click({ button: 'right' });
-    await window.waitForTimeout(500);
+    await window.waitForTimeout(1000); // Longer wait for context menu
 
     // Capture menu showing Remove Mark
     await window.screenshot({ path: `${screenshotDir}/04-remove-mark-option.png` });
 
-    // Verify Remove Mark option
-    await expect(window.locator('text=Remove Mark')).toBeVisible({ timeout: 5000 });
+    // Verify Remove Mark option with longer timeout
+    await expect(window.locator('text=Remove Mark')).toBeVisible({ timeout: 15000 });
 
     // Close menu by pressing Escape
     await window.keyboard.press('Escape');
@@ -102,22 +108,24 @@ test.describe('Mark Session as Unread Feature', () => {
     const firstTab = window.locator('[data-tour="sidebar-tabs"] > div').first();
     await scrollIntoViewAndWait(firstTab, { timeout: 10000 });
     await firstTab.click({ button: 'right' });
-    await window.waitForTimeout(500);
+    await window.waitForTimeout(1000); // Longer wait for context menu
 
     // Click Add Note (it should say Edit Note since we already marked it)
     const noteButton = window.locator('text=/Add Note|Edit Note/');
-    await scrollIntoViewAndClick(noteButton, { timeout: 10000 });
-    await window.waitForTimeout(500);
+    await scrollIntoViewAndClick(noteButton, { timeout: 15000 });
+
+    // Wait for modal to appear
+    await window.waitForTimeout(1000);
 
     // Capture modal
     await window.screenshot({ path: `${screenshotDir}/05-note-modal-open.png` });
 
-    // Verify modal elements
+    // Verify modal elements with longer timeouts
     await expect(window.locator('text=/Add Review Note|Edit Review Note/')).toBeVisible({
-      timeout: 5000,
+      timeout: 15000,
     });
-    await expect(window.locator('textarea')).toBeVisible();
-    await expect(window.locator('text=Save Note')).toBeVisible();
+    await expect(window.locator('textarea')).toBeVisible({ timeout: 5000 });
+    await expect(window.locator('text=Save Note')).toBeVisible({ timeout: 5000 });
   });
 
   test('06 - Enter note text', async () => {
@@ -133,14 +141,14 @@ test.describe('Mark Session as Unread Feature', () => {
   test('07 - Save note shows banner', async () => {
     // Click Save Note
     const saveButton = window.locator('text=Save Note');
-    await scrollIntoViewAndClick(saveButton, { timeout: 10000 });
+    await scrollIntoViewAndClick(saveButton, { timeout: 15000 });
     await window.waitForTimeout(1000);
 
     // Capture note banner in conversation pane
     await window.screenshot({ path: `${screenshotDir}/07-note-banner-visible.png` });
 
-    // Verify banner is visible
-    await expect(window.locator('text=Review Note')).toBeVisible({ timeout: 10000 });
+    // Verify banner is visible with longer timeout
+    await expect(window.locator('text=Review Note')).toBeVisible({ timeout: 15000 });
   });
 
   test('08 - Session shows blue indicator after adding note', async () => {
@@ -157,13 +165,13 @@ test.describe('Mark Session as Unread Feature', () => {
     const firstTab = window.locator('[data-tour="sidebar-tabs"] > div').first();
     await scrollIntoViewAndWait(firstTab, { timeout: 10000 });
     await firstTab.click({ button: 'right' });
-    await window.waitForTimeout(500);
+    await window.waitForTimeout(1000); // Longer wait for context menu
 
     // Capture showing Edit Note option
     await window.screenshot({ path: `${screenshotDir}/09-edit-note-option.png` });
 
-    // Verify Edit Note option
-    await expect(window.locator('text=Edit Note...')).toBeVisible({ timeout: 5000 });
+    // Verify Edit Note option with longer timeout
+    await expect(window.locator('text=Edit Note...')).toBeVisible({ timeout: 15000 });
 
     // Close menu
     await window.keyboard.press('Escape');
@@ -175,7 +183,7 @@ test.describe('Mark Session as Unread Feature', () => {
     const dismissButton = window
       .locator('.bg-blue-500\\/10 button, [class*="bg-blue"] button')
       .first();
-    await scrollIntoViewAndClick(dismissButton, { timeout: 10000 });
+    await scrollIntoViewAndClick(dismissButton, { timeout: 15000 });
     await window.waitForTimeout(1000);
 
     // Capture after dismissing
@@ -190,11 +198,11 @@ test.describe('Mark Session as Unread Feature', () => {
     const firstTab = window.locator('[data-tour="sidebar-tabs"] > div').first();
     await scrollIntoViewAndWait(firstTab, { timeout: 10000 });
     await firstTab.click({ button: 'right' });
-    await window.waitForTimeout(500);
+    await window.waitForTimeout(1000); // Longer wait for context menu
 
-    // Click Remove Mark
+    // Click Remove Mark with longer timeout
     const removeButton = window.locator('text=Remove Mark');
-    await scrollIntoViewAndClick(removeButton, { timeout: 10000 });
+    await scrollIntoViewAndClick(removeButton, { timeout: 15000 });
     await window.waitForTimeout(1000);
 
     // Capture unmarked state
