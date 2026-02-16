@@ -55,6 +55,9 @@ import {
   VolumeMuteIcon,
   TitleBar,
   EyeIcon,
+  MessageItem,
+  ChatInput,
+  type ChatInputHandle,
 } from './components';
 import { GitBranchWidget, CommitModal, useCommitModal } from './features/git';
 import { CreateWorktreeSession } from './features/sessions';
@@ -145,7 +148,6 @@ const SKILL_TYPE_LABELS: Record<Skill['type'], string> = {
 const SKILL_TYPE_ORDER: Skill['type'][] = ['personal', 'project'];
 const App: React.FC = () => {
   const [status, setStatus] = useState<Status>('connecting');
-  const [inputValue, setInputValue] = useState('');
   const [tabs, setTabs] = useState<TabState[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   // Drag-and-drop state for session reordering
@@ -402,19 +404,11 @@ const App: React.FC = () => {
     lastCommandStart?: number;
   } | null>(null);
 
-  // Image attachment state
-  const [imageAttachments, setImageAttachments] = useState<ImageAttachment[]>([]);
+  // Image attachment state (model capabilities for vision warning)
   const [modelCapabilities, setModelCapabilities] = useState<Record<string, ModelCapabilities>>({});
-  const [isDraggingImage, setIsDraggingImage] = useState(false);
-  const imageInputRef = useRef<HTMLInputElement>(null);
 
   // Image lightbox state (for viewing enlarged images)
   const [lightboxImage, setLightboxImage] = useState<{ src: string; alt: string } | null>(null);
-
-  // File attachment state
-  const [fileAttachments, setFileAttachments] = useState<FileAttachment[]>([]);
-  const [isDraggingFile, setIsDraggingFile] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Track user-attached file paths per session for auto-approval
   const userAttachedPathsRef = useRef<Map<string, Set<string>>>(new Map());
@@ -468,7 +462,7 @@ const App: React.FC = () => {
   const [dataLoaded, setDataLoaded] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const chatInputRef = useRef<ChatInputHandle>(null);
   const activeTabIdRef = useRef<string | null>(null);
 
   // Voice speech hook for STT/TTS
@@ -776,7 +770,7 @@ const App: React.FC = () => {
   // Focus input when active tab changes
   useEffect(() => {
     if (activeTabId) {
-      inputRef.current?.focus();
+      chatInputRef.current?.focus();
     }
   }, [activeTabId]);
 
@@ -812,9 +806,9 @@ const App: React.FC = () => {
             ? {
                 ...tab,
                 draftInput: {
-                  text: inputValue,
-                  imageAttachments: [...imageAttachments],
-                  fileAttachments: [...fileAttachments],
+                  text: chatInputRef.current?.getValue() || '',
+                  imageAttachments: [...(chatInputRef.current?.getImageAttachments() || [])],
+                  fileAttachments: [...(chatInputRef.current?.getFileAttachments() || [])],
                   terminalAttachment: terminalAttachment ? { ...terminalAttachment } : null,
                 },
               }
@@ -828,15 +822,15 @@ const App: React.FC = () => {
       const newActiveTab = tabs.find((t) => t.id === activeTabId);
       const draft = newActiveTab?.draftInput;
       if (draft) {
-        setInputValue(draft.text);
-        setImageAttachments(draft.imageAttachments);
-        setFileAttachments(draft.fileAttachments);
+        chatInputRef.current?.setValue(draft.text);
+        chatInputRef.current?.setImageAttachments(draft.imageAttachments);
+        chatInputRef.current?.setFileAttachments(draft.fileAttachments);
         setTerminalAttachment(draft.terminalAttachment);
       } else {
         // No draft saved for this tab - clear inputs
-        setInputValue('');
-        setImageAttachments([]);
-        setFileAttachments([]);
+        chatInputRef.current?.setValue('');
+        chatInputRef.current?.setImageAttachments([]);
+        chatInputRef.current?.setFileAttachments([]);
         setTerminalAttachment(null);
       }
     }
@@ -1013,17 +1007,6 @@ const App: React.FC = () => {
       setRightPanelCollapsed((prev) => !prev);
     }
   }, [isMobileOrTablet]);
-
-  // Reset textarea height when input is cleared, grow when content is set programmatically
-  useEffect(() => {
-    if (!inputRef.current) return;
-    if (!inputValue) {
-      inputRef.current.style.height = 'auto';
-    } else {
-      inputRef.current.style.height = 'auto';
-      inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 200) + 'px';
-    }
-  }, [inputValue]);
 
   // Load MCP servers on startup
   useEffect(() => {
@@ -1898,7 +1881,7 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
         setTabs((currentTabs) => {
           const tab = currentTabs.find((t) => t.id === sessionId);
           if (tab && tab.pendingConfirmations.length === 0) {
-            inputRef.current?.focus();
+            chatInputRef.current?.focus();
           }
           return currentTabs;
         });
@@ -2321,6 +2304,10 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
   }, []);
 
   const handleSendMessage = useCallback(async () => {
+    const inputValue = chatInputRef.current?.getValue() || '';
+    const imageAttachments = chatInputRef.current?.getImageAttachments() || [];
+    const fileAttachments = chatInputRef.current?.getFileAttachments() || [];
+
     if (
       !inputValue.trim() &&
       !terminalAttachment &&
@@ -2496,10 +2483,8 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       });
 
       // Clear input immediately
-      setInputValue('');
+      chatInputRef.current?.clearAll();
       setTerminalAttachment(null);
-      setImageAttachments([]);
-      setFileAttachments([]);
 
       // Send with enqueue mode to inject into agent's processing queue
       try {
@@ -2692,10 +2677,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       detectedChoices: undefined, // Clear any detected choices
       draftInput: undefined, // Clear draft after sending
     });
-    setInputValue('');
+    chatInputRef.current?.clearAll();
     setTerminalAttachment(null);
-    setImageAttachments([]);
-    setFileAttachments([]);
 
     // Reset Ralph UI state after sending
     if (ralphEnabled) {
@@ -2721,7 +2704,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       updateTab(tabId, { isProcessing: false, ralphConfig: undefined, lisaConfig: undefined });
     }
   }, [
-    inputValue,
     activeTab,
     updateTab,
     ralphEnabled,
@@ -2730,8 +2712,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     ralphClearContext,
     lisaEnabled,
     terminalAttachment,
-    imageAttachments,
-    fileAttachments,
   ]);
 
   // Keep ref in sync for voice auto-send
@@ -2752,7 +2732,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         // Store the terminal output as an attachment to be included in next message
         setTerminalAttachment({ output: trimmedOutput, lineCount });
         // Focus the input field
-        inputRef.current?.focus();
+        chatInputRef.current?.focus();
       }
     },
     []
@@ -2761,18 +2741,26 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
   const handleCopyCommitErrorToMessage = useCallback(
     (message: string) => {
       if (!message.trim()) return;
-      setInputValue((prev) => (prev.trim() ? `${prev}\n\n${message}` : message));
+      const currentValue = chatInputRef.current?.getValue() || '';
+      const newValue = currentValue.trim() ? `${currentValue}\n\n${message}` : message;
+      chatInputRef.current?.setValue(newValue);
       commitModal.closeCommitModal();
-      inputRef.current?.focus();
+      chatInputRef.current?.focus();
     },
     [commitModal]
   );
+
+  // Handle image click (for now, just a no-op - can be extended for image viewer modal)
+  const handleImageClick = useCallback((src: string, alt: string) => {
+    // Placeholder for future image viewer modal
+    console.log('Image clicked:', src, alt);
+  }, []);
 
   // Handle confirmation from shrink modal
   const handleShrinkModalConfirm = useCallback((output: string, lineCount: number) => {
     setTerminalAttachment({ output, lineCount });
     setPendingTerminalOutput(null);
-    inputRef.current?.focus();
+    chatInputRef.current?.focus();
   }, []);
 
   // Cancel a specific pending injection by index, or all if index not provided
@@ -2804,297 +2792,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     const caps = modelCapabilities[activeTab.model];
     return caps?.supportsVision ?? false;
   }, [activeTab, modelCapabilities]);
-
-  // Handle image file selection
-  const handleImageSelect = useCallback(async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-
-    const newAttachments: ImageAttachment[] = [];
-
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      if (!file.type.startsWith('image/')) {
-        continue;
-      }
-
-      // Read file as data URL for preview
-      const reader = new FileReader();
-      const dataUrl = await new Promise<string>((resolve) => {
-        reader.onload = (e) => resolve(e.target?.result as string);
-        reader.readAsDataURL(file);
-      });
-
-      // Save to temp file for SDK
-      const filename = `image-${Date.now()}-${i}${file.name.substring(file.name.lastIndexOf('.'))}`;
-      const result = await window.electronAPI.copilot.saveImageToTemp(dataUrl, filename);
-
-      if (result.success && result.path) {
-        newAttachments.push({
-          id: generateId(),
-          path: result.path,
-          previewUrl: dataUrl,
-          name: file.name,
-          size: file.size,
-          mimeType: file.type,
-        });
-      }
-    }
-
-    if (newAttachments.length > 0) {
-      setImageAttachments((prev) => [...prev, ...newAttachments]);
-      inputRef.current?.focus();
-    }
-  }, []);
-
-  // Handle removing an image attachment
-  const handleRemoveImage = useCallback((id: string) => {
-    setImageAttachments((prev) => prev.filter((img) => img.id !== id));
-  }, []);
-
-  // Handle file selection (non-image files)
-  const handleFileSelect = useCallback(async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-
-    const newAttachments: FileAttachment[] = [];
-
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      // Note: We allow all files including images - users can attach images as files if they prefer
-
-      // In Electron, File objects from file picker have a path property
-      // Use it directly to avoid copying and trust issues
-      const electronFile = file as File & { path?: string };
-      if (electronFile.path) {
-        newAttachments.push({
-          id: generateId(),
-          path: electronFile.path,
-          name: file.name,
-          size: file.size,
-          mimeType: file.type || 'application/octet-stream',
-        });
-        continue;
-      }
-
-      // Fallback: Read file as data URL and save to temp (for pasted/dropped files without path)
-      const reader = new FileReader();
-      const dataUrl = await new Promise<string>((resolve) => {
-        reader.onload = (e) => resolve(e.target?.result as string);
-        reader.readAsDataURL(file);
-      });
-
-      // Save to temp file for SDK
-      const ext = file.name.includes('.') ? file.name.substring(file.name.lastIndexOf('.')) : '';
-      const filename = `file-${Date.now()}-${i}${ext}`;
-      const mimeType = file.type || 'application/octet-stream';
-      const result = await window.electronAPI.copilot.saveFileToTemp(dataUrl, filename, mimeType);
-
-      if (result.success && result.path) {
-        newAttachments.push({
-          id: generateId(),
-          path: result.path,
-          name: file.name,
-          size: result.size || file.size,
-          mimeType: mimeType,
-        });
-      }
-    }
-
-    if (newAttachments.length > 0) {
-      setFileAttachments((prev) => [...prev, ...newAttachments]);
-      inputRef.current?.focus();
-    }
-  }, []);
-
-  // Handle removing a file attachment
-  const handleRemoveFile = useCallback((id: string) => {
-    setFileAttachments((prev) => prev.filter((f) => f.id !== id));
-  }, []);
-
-  // Handle paste event for images and files
-  const handlePaste = useCallback(
-    async (e: React.ClipboardEvent) => {
-      const items = e.clipboardData?.items;
-      if (!items) return;
-
-      const imageFiles: File[] = [];
-      const otherFiles: File[] = [];
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        if (item.kind === 'file') {
-          const file = item.getAsFile();
-          if (file) {
-            if (item.type.startsWith('image/')) {
-              imageFiles.push(file);
-            } else {
-              otherFiles.push(file);
-            }
-          }
-        }
-      }
-
-      if (imageFiles.length > 0 || otherFiles.length > 0) {
-        e.preventDefault();
-
-        if (imageFiles.length > 0) {
-          const dataTransfer = new DataTransfer();
-          imageFiles.forEach((f) => dataTransfer.items.add(f));
-          await handleImageSelect(dataTransfer.files);
-        }
-
-        if (otherFiles.length > 0) {
-          const dataTransfer = new DataTransfer();
-          otherFiles.forEach((f) => dataTransfer.items.add(f));
-          await handleFileSelect(dataTransfer.files);
-        }
-      }
-    },
-    [handleImageSelect, handleFileSelect]
-  );
-
-  // Handle drag events for images and files
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    const hasImages = Array.from(e.dataTransfer.items).some(
-      (item) => item.kind === 'file' && item.type.startsWith('image/')
-    );
-    const hasFiles = Array.from(e.dataTransfer.items).some(
-      (item) => item.kind === 'file' && !item.type.startsWith('image/')
-    );
-
-    if (hasImages) {
-      setIsDraggingImage(true);
-    }
-    if (hasFiles) {
-      setIsDraggingFile(true);
-    }
-  }, []);
-
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDraggingImage(false);
-    setIsDraggingFile(false);
-  }, []);
-
-  const handleDrop = useCallback(
-    async (e: React.DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setIsDraggingImage(false);
-      setIsDraggingFile(false);
-
-      // In Electron, we need to get file paths differently
-      const files = e.dataTransfer.files;
-
-      // Try to get files from dataTransfer.files first - separate images and other files
-      if (files.length > 0) {
-        const imageFiles: File[] = [];
-        const otherFiles: File[] = [];
-        for (let i = 0; i < files.length; i++) {
-          const file = files[i];
-          if (
-            file.type.startsWith('image/') ||
-            file.name.match(/\.(png|jpg|jpeg|gif|webp|bmp)$/i)
-          ) {
-            imageFiles.push(file);
-          } else {
-            otherFiles.push(file);
-          }
-        }
-        if (imageFiles.length > 0) {
-          const dataTransfer = new DataTransfer();
-          imageFiles.forEach((f) => dataTransfer.items.add(f));
-          await handleImageSelect(dataTransfer.files);
-        }
-        if (otherFiles.length > 0) {
-          const dataTransfer = new DataTransfer();
-          otherFiles.forEach((f) => dataTransfer.items.add(f));
-          await handleFileSelect(dataTransfer.files);
-        }
-        return;
-      }
-
-      // Try getting files from items
-      const items = e.dataTransfer.items;
-      if (items && items.length > 0) {
-        const imageFiles: File[] = [];
-        const otherFiles: File[] = [];
-        for (let i = 0; i < items.length; i++) {
-          const item = items[i];
-          if (item.kind === 'file') {
-            const file = item.getAsFile();
-            if (file) {
-              if (
-                file.type.startsWith('image/') ||
-                file.name.match(/\.(png|jpg|jpeg|gif|webp|bmp)$/i)
-              ) {
-                imageFiles.push(file);
-              } else {
-                otherFiles.push(file);
-              }
-            }
-          }
-        }
-        if (imageFiles.length > 0) {
-          const dataTransfer = new DataTransfer();
-          imageFiles.forEach((f) => dataTransfer.items.add(f));
-          await handleImageSelect(dataTransfer.files);
-        }
-        if (otherFiles.length > 0) {
-          const dataTransfer = new DataTransfer();
-          otherFiles.forEach((f) => dataTransfer.items.add(f));
-          await handleFileSelect(dataTransfer.files);
-        }
-        if (imageFiles.length > 0 || otherFiles.length > 0) {
-          return;
-        }
-      }
-
-      // Try getting file paths from URI list
-      const uriList = e.dataTransfer.getData('text/uri-list');
-      if (uriList) {
-        const urls = uriList.split('\n').filter((uri) => uri.trim());
-
-        // Handle http/https image URLs - fetch via main process (bypasses CSP)
-        const httpUrls = urls.filter(
-          (uri) => uri.startsWith('http://') || uri.startsWith('https://')
-        );
-        if (httpUrls.length > 0) {
-          const newAttachments: ImageAttachment[] = [];
-          for (const url of httpUrls) {
-            try {
-              const result = await window.electronAPI.copilot.fetchImageFromUrl(url);
-              if (result.success && result.path && result.dataUrl) {
-                newAttachments.push({
-                  id: generateId(),
-                  path: result.path,
-                  previewUrl: result.dataUrl,
-                  name: result.filename || 'image.png',
-                  size: result.size || 0,
-                  mimeType: result.mimeType || 'image/png',
-                });
-              }
-            } catch (err) {
-              console.error('Failed to fetch image from URL:', url, err);
-            }
-          }
-          if (newAttachments.length > 0) {
-            setImageAttachments((prev) => [...prev, ...newAttachments]);
-            inputRef.current?.focus();
-            return;
-          }
-        }
-
-        // Handle file:// URLs
-        const filePaths = urls
-          .filter((uri) => uri.startsWith('file://'))
-          .map((uri) => decodeURIComponent(uri.replace('file://', '')));
-      }
-    },
-    [handleImageSelect, handleFileSelect]
-  );
 
   const handleStop = useCallback(() => {
     if (!activeTab) return;
@@ -5170,7 +4867,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 </div>
               )}
 
-              {(() => {
+              {useMemo(() => {
                 const filteredMessages = (activeTab?.messages || [])
                   .filter((m) => m.role !== 'system')
                   .filter((m) => m.role === 'user' || m.content.trim());
@@ -5185,279 +4882,17 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 }
 
                 return filteredMessages.map((message, index) => (
-                  <div
-                    key={message.id}
-                    className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}
-                  >
-                    <div
-                      className={`max-w-[85%] rounded-lg px-4 py-2.5 overflow-hidden relative ${
-                        message.role === 'user'
-                          ? message.isPendingInjection
-                            ? 'bg-copilot-warning text-white border border-dashed border-copilot-warning/50'
-                            : 'bg-copilot-success text-copilot-text-inverse'
-                          : 'bg-copilot-surface text-copilot-text'
-                      }`}
-                    >
-                      {/* Stop speaking overlay on last assistant message */}
-                      {message.role === 'assistant' &&
-                        index === lastAssistantIndex &&
-                        voiceSpeech.isSpeaking && (
-                          <button
-                            onClick={() => voiceSpeech.stopSpeaking()}
-                            className="absolute top-1.5 right-1.5 flex items-center gap-1 px-2 py-1 text-[10px] font-medium bg-copilot-warning text-white rounded-md hover:bg-copilot-warning/80 transition-colors z-10"
-                            title="Stop reading aloud"
-                          >
-                            <VolumeMuteIcon size={12} />
-                            Stop
-                          </button>
-                        )}
-                      {/* Pending injection indicator */}
-                      {message.isPendingInjection && (
-                        <div className="flex items-center gap-1.5 text-[10px] opacity-80 mb-1.5">
-                          <ClockIcon size={10} />
-                          <span>Pending — will be read by agent</span>
-                        </div>
-                      )}
-                      <div className="text-sm break-words overflow-hidden">
-                        {message.role === 'user' ? (
-                          <>
-                            {/* User message images */}
-                            {message.imageAttachments && message.imageAttachments.length > 0 && (
-                              <div className="flex flex-wrap gap-2 mb-2">
-                                {message.imageAttachments.map((img) => (
-                                  <img
-                                    key={img.id}
-                                    src={img.previewUrl}
-                                    alt={img.name}
-                                    className="max-h-32 w-auto rounded border border-white/30 object-contain cursor-pointer hover:opacity-80 transition-opacity"
-                                    onClick={() =>
-                                      setLightboxImage({ src: img.previewUrl, alt: img.name })
-                                    }
-                                    title="Click to enlarge"
-                                  />
-                                ))}
-                              </div>
-                            )}
-                            {/* User message files */}
-                            {message.fileAttachments && message.fileAttachments.length > 0 && (
-                              <div className="flex flex-wrap gap-2 mb-2">
-                                {message.fileAttachments.map((file) => (
-                                  <div
-                                    key={file.id}
-                                    className="flex items-center gap-2 px-2.5 py-1.5 bg-black/20 rounded-lg"
-                                  >
-                                    <FileIcon size={16} className="opacity-60 shrink-0" />
-                                    <div className="flex flex-col min-w-0">
-                                      <span
-                                        className="text-xs truncate max-w-[150px]"
-                                        title={file.name}
-                                      >
-                                        {file.name}
-                                      </span>
-                                      <span className="text-[10px] opacity-50">
-                                        {(file.size / 1024).toFixed(1)} KB
-                                      </span>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                            {/* Render user message content - use ReactMarkdown if it contains code blocks */}
-                            {message.content.includes('```') ? (
-                              <ReactMarkdown
-                                remarkPlugins={[remarkGfm]}
-                                components={{
-                                  p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                                  code: ({ className, children }) => {
-                                    const textContent = String(children).replace(/\n$/, '');
-                                    const hasLanguageClass = className?.startsWith('language-');
-                                    const isMultiLine = textContent.includes('\n');
-                                    const isBlock = hasLanguageClass || isMultiLine;
-
-                                    if (isBlock) {
-                                      return (
-                                        <CodeBlockWithCopy
-                                          isDiagram={false}
-                                          textContent={textContent}
-                                          isCliCommand={false}
-                                        >
-                                          {children}
-                                        </CodeBlockWithCopy>
-                                      );
-                                    } else {
-                                      return (
-                                        <code className="bg-copilot-bg px-1 py-0.5 rounded text-copilot-warning text-xs break-all">
-                                          {children}
-                                        </code>
-                                      );
-                                    }
-                                  },
-                                  pre: ({ children }) => (
-                                    <div className="overflow-x-auto max-w-full">{children}</div>
-                                  ),
-                                }}
-                              >
-                                {message.content}
-                              </ReactMarkdown>
-                            ) : (
-                              <span className="whitespace-pre-wrap break-words">
-                                {message.content}
-                              </span>
-                            )}
-                          </>
-                        ) : (
-                          <>
-                            {/* Tool Activity Section for assistant messages */}
-                            {(() => {
-                              // Show live tools only if this message is actively streaming with content
-                              // (otherwise tools show in the thinking bubble)
-                              // For completed messages, show stored tools
-                              const isLive = message.isStreaming && message.content;
-                              const toolsToShow = isLive ? activeTab?.activeTools : message.tools;
-                              const subagentsToShow = isLive
-                                ? activeTab?.activeSubagents
-                                : message.subagents;
-                              if (toolsToShow && toolsToShow.length > 0) {
-                                return (
-                                  <ToolActivitySection tools={toolsToShow} isLive={!!isLive} />
-                                );
-                              }
-                              if (subagentsToShow && subagentsToShow.length > 0) {
-                                return (
-                                  <SubagentActivitySection
-                                    subagents={subagentsToShow}
-                                    isLive={!!isLive}
-                                  />
-                                );
-                              }
-                              return null;
-                            })()}
-                            {message.content ? (
-                              <ReactMarkdown
-                                remarkPlugins={[remarkGfm]}
-                                components={{
-                                  p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                                  strong: ({ children }) => (
-                                    <strong className="font-semibold text-copilot-text">
-                                      {children}
-                                    </strong>
-                                  ),
-                                  em: ({ children }) => <em className="italic">{children}</em>,
-                                  ul: ({ children }) => (
-                                    <ul className="list-disc list-inside mb-2 space-y-1">
-                                      {children}
-                                    </ul>
-                                  ),
-                                  ol: ({ children }) => (
-                                    <ol className="list-decimal list-inside mb-2 space-y-1">
-                                      {children}
-                                    </ol>
-                                  ),
-                                  li: ({ children }) => <li className="ml-2">{children}</li>,
-                                  code: ({ children, className }) => {
-                                    // Extract text content for analysis
-                                    const textContent = extractTextContent(children);
-
-                                    // Fix block detection: treat as block if:
-                                    // 1. Has language class (e.g., language-javascript)
-                                    // 2. OR contains newlines (multi-line content)
-                                    const hasLanguageClass = className?.includes('language-');
-                                    const isMultiLine = textContent.includes('\n');
-                                    const isBlock = hasLanguageClass || isMultiLine;
-
-                                    // Check if content is an ASCII diagram
-                                    const isDiagram = isAsciiDiagram(textContent);
-
-                                    // Check if this is a CLI command (should show run button)
-                                    const isCliCmd = isCliCommand(className, textContent);
-
-                                    if (isBlock) {
-                                      return (
-                                        <CodeBlockWithCopy
-                                          isDiagram={isDiagram}
-                                          textContent={textContent}
-                                          isCliCommand={isCliCmd}
-                                        >
-                                          {children}
-                                        </CodeBlockWithCopy>
-                                      );
-                                    } else {
-                                      return (
-                                        <code className="bg-copilot-bg px-1 py-0.5 rounded text-copilot-warning text-xs break-all">
-                                          {children}
-                                        </code>
-                                      );
-                                    }
-                                  },
-                                  pre: ({ children }) => (
-                                    <div className="overflow-x-auto max-w-full">{children}</div>
-                                  ),
-                                  a: ({ href, children }) => (
-                                    <a
-                                      href={href}
-                                      className="text-copilot-accent hover:underline"
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                    >
-                                      {children}
-                                    </a>
-                                  ),
-                                  h1: ({ children }) => (
-                                    <h1 className="text-lg font-bold mb-2 text-copilot-text">
-                                      {children}
-                                    </h1>
-                                  ),
-                                  h2: ({ children }) => (
-                                    <h2 className="text-base font-bold mb-2 text-copilot-text">
-                                      {children}
-                                    </h2>
-                                  ),
-                                  h3: ({ children }) => (
-                                    <h3 className="text-sm font-bold mb-1 text-copilot-text">
-                                      {children}
-                                    </h3>
-                                  ),
-                                  blockquote: ({ children }) => (
-                                    <blockquote className="border-l-2 border-copilot-border pl-3 my-2 text-copilot-text-muted italic">
-                                      {children}
-                                    </blockquote>
-                                  ),
-                                  table: ({ children }) => (
-                                    <div className="overflow-x-auto my-2">
-                                      <table className="min-w-full border-collapse border border-copilot-border text-sm">
-                                        {children}
-                                      </table>
-                                    </div>
-                                  ),
-                                  thead: ({ children }) => (
-                                    <thead className="bg-copilot-bg">{children}</thead>
-                                  ),
-                                  tbody: ({ children }) => <tbody>{children}</tbody>,
-                                  tr: ({ children }) => (
-                                    <tr className="border-b border-copilot-border">{children}</tr>
-                                  ),
-                                  th: ({ children }) => (
-                                    <th className="px-3 py-2 text-left font-semibold text-copilot-text border border-copilot-border">
-                                      {children}
-                                    </th>
-                                  ),
-                                  td: ({ children }) => (
-                                    <td className="px-3 py-2 text-copilot-text border border-copilot-border">
-                                      {children}
-                                    </td>
-                                  ),
-                                }}
-                              >
-                                {message.content}
-                              </ReactMarkdown>
-                            ) : null}
-                          </>
-                        )}
-                        {message.isStreaming && message.content && (
-                          <span className="inline-block w-2 h-4 ml-1 bg-copilot-accent animate-pulse rounded-sm" />
-                        )}
-                      </div>
-                    </div>
+                  <React.Fragment key={message.id}>
+                    <MessageItem
+                      message={message}
+                      index={index}
+                      lastAssistantIndex={lastAssistantIndex}
+                      isVoiceSpeaking={voiceSpeech.isSpeaking}
+                      activeTools={activeTab?.activeTools}
+                      activeSubagents={activeTab?.activeSubagents}
+                      onStopSpeaking={voiceSpeech.stopSpeaking}
+                      onImageClick={handleImageClick}
+                    />
                     {/* Show timestamp for the last assistant message (only when not processing) */}
                     {index === lastAssistantIndex &&
                       message.timestamp &&
@@ -5479,9 +4914,19 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                           onSelect={handleChoiceSelect}
                         />
                       )}
-                  </div>
+                  </React.Fragment>
                 ));
-              })()}
+              }, [
+                activeTab?.messages,
+                activeTab?.isProcessing,
+                activeTab?.activeTools,
+                activeTab?.activeSubagents,
+                activeTab?.detectedChoices,
+                voiceSpeech.isSpeaking,
+                voiceSpeech.stopSpeaking,
+                handleImageClick,
+                handleChoiceSelect,
+              ])}
 
               {/* Thinking indicator when processing but no streaming content yet */}
               {activeTab?.isProcessing &&
@@ -5786,511 +5231,39 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
             {/* Input Area */}
             <div className="shrink-0 p-3 bg-copilot-surface border-t border-copilot-border">
-              {/* Lisa Phase Progress - Shows during active Lisa loop or after completion */}
-              {(activeTab?.lisaConfig?.active || activeTab?.lisaConfig?.phaseHistory?.length) && (
-                <div className="mb-2 p-3 bg-copilot-bg rounded-lg border border-copilot-border">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-medium text-copilot-text flex items-center gap-2">
-                      <LisaIcon size={16} />
-                      Lisa Simpson Loop
-                    </span>
-                  </div>
-
-                  {/* Phase progress as a horizontal pipeline */}
-                  <div className="flex items-center gap-2">
-                    {[
-                      {
-                        work: 'plan' as const,
-                        review: 'plan-review' as const,
-                        emoji: '📋',
-                        workLabel: 'Plan',
-                        reviewLabel: 'Review',
-                      },
-                      {
-                        work: 'execute' as const,
-                        review: 'code-review' as const,
-                        emoji: '💻',
-                        workLabel: 'Code',
-                        reviewLabel: 'Review',
-                      },
-                      {
-                        work: 'validate' as const,
-                        review: 'final-review' as const,
-                        emoji: '🧪',
-                        workLabel: 'Test',
-                        reviewLabel: 'Final',
-                      },
-                    ].map((group, groupIdx) => {
-                      const workIteration = activeTab.lisaConfig?.phaseIterations[group.work] || 0;
-                      const reviewIteration =
-                        activeTab.lisaConfig?.phaseIterations[group.review] || 0;
-                      const isCurrentWork = activeTab.lisaConfig?.currentPhase === group.work;
-                      const isCurrentReview = activeTab.lisaConfig?.currentPhase === group.review;
-                      const workDone = workIteration > 0 && !isCurrentWork;
-                      const reviewDone = reviewIteration > 0 && !isCurrentReview;
-
-                      return (
-                        <React.Fragment key={group.work}>
-                          {/* Arrow connector between groups */}
-                          {groupIdx > 0 && (
-                            <span className="text-sm text-copilot-warning/70">→</span>
-                          )}
-
-                          {/* Work phase */}
-                          <div
-                            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all ${
-                              isCurrentWork
-                                ? 'bg-copilot-accent/20 ring-2 ring-copilot-accent'
-                                : workDone
-                                  ? 'bg-copilot-success/15 text-copilot-success'
-                                  : 'bg-copilot-surface text-copilot-text-muted'
-                            }`}
-                            title={`${group.workLabel}: ${workIteration} iteration(s)`}
-                          >
-                            <span className="text-sm">{group.emoji}</span>
-                            <span
-                              className={`text-xs font-medium ${isCurrentWork ? 'text-copilot-accent' : ''}`}
-                            >
-                              {group.workLabel}
-                            </span>
-                            {workDone && <span className="text-xs">✓</span>}
-                            {isCurrentWork && (
-                              <span className="text-[10px] text-copilot-text-muted">
-                                {workIteration}
-                              </span>
-                            )}
-                          </div>
-
-                          {/* Arrow to review */}
-                          <span className="text-xs text-copilot-warning/70">→</span>
-
-                          {/* Review phase */}
-                          <div
-                            className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-all ${
-                              isCurrentReview
-                                ? 'bg-copilot-warning/20 ring-2 ring-copilot-warning'
-                                : reviewDone
-                                  ? 'bg-copilot-success/15 text-copilot-success'
-                                  : 'bg-copilot-surface text-copilot-text-muted'
-                            }`}
-                            title={`${group.reviewLabel} Review: ${reviewIteration} iteration(s)`}
-                          >
-                            <span className="text-xs">👀</span>
-                            <span
-                              className={`text-xs font-medium ${isCurrentReview ? 'text-copilot-warning' : ''}`}
-                            >
-                              {group.reviewLabel}
-                            </span>
-                            {reviewDone && <span className="text-xs">✓</span>}
-                            {isCurrentReview && (
-                              <span className="text-[10px] text-copilot-text-muted">
-                                {reviewIteration}
-                              </span>
-                            )}
-                          </div>
-                        </React.Fragment>
-                      );
-                    })}
-                  </div>
-
-                  {/* Current status */}
-                  <div className="mt-2 pt-2 border-t border-copilot-border/50">
-                    <div className="text-xs text-copilot-text-muted">
-                      {activeTab?.lisaConfig?.active ? (
-                        (() => {
-                          const phase = activeTab.lisaConfig?.currentPhase;
-                          const iter = activeTab.lisaConfig?.phaseIterations[phase!] || 1;
-                          const descriptions: Record<LisaPhase, string> = {
-                            plan: 'Planner is creating the implementation plan...',
-                            'plan-review': 'Reviewer is checking the plan before coding begins...',
-                            execute: 'Coder is implementing the plan...',
-                            'code-review': 'Reviewer is checking code quality & architecture...',
-                            validate: 'Tester is testing and gathering evidence...',
-                            'final-review': 'Reviewer is analyzing screenshots and approving...',
-                          };
-                          return (
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <span className="animate-pulse">●</span>
-                                <span>{descriptions[phase!]}</span>
-                                <span className="text-copilot-text-muted/50">
-                                  (iteration {iter})
-                                </span>
-                              </div>
-                              {(phase === 'validate' || phase === 'final-review') &&
-                                activeTab?.lisaConfig?.evidenceFolderPath && (
-                                  <button
-                                    onClick={() => {
-                                      window.electronAPI.file.openFile(
-                                        `${activeTab.lisaConfig!.evidenceFolderPath!}/summary.html`
-                                      );
-                                    }}
-                                    className="px-2 py-1 text-xs bg-copilot-surface text-copilot-text-muted rounded hover:bg-copilot-border flex items-center gap-1"
-                                    title="Open evidence summary"
-                                  >
-                                    📄 Summary
-                                  </button>
-                                )}
-                            </div>
-                          );
-                        })()
-                      ) : (
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2 text-copilot-success">
-                            <span>✅</span>
-                            <span>Loop completed - all phases approved</span>
-                          </div>
-                          {activeTab?.lisaConfig?.evidenceFolderPath && (
-                            <button
-                              onClick={() => {
-                                window.electronAPI.file.openFile(
-                                  `${activeTab.lisaConfig!.evidenceFolderPath!}/summary.html`
-                                );
-                              }}
-                              className="px-2 py-1 text-xs bg-copilot-accent/20 text-copilot-accent rounded hover:bg-copilot-accent/30 flex items-center gap-1"
-                              title="Open evidence summary"
-                            >
-                              📄 View Summary
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Context Usage Indicator */}
-              {activeTab?.contextUsage && (
-                <div className="mb-1.5 flex items-center gap-2 px-1">
-                  <div className="flex-1 h-1.5 bg-copilot-border rounded-full overflow-hidden">
-                    <div
-                      className={`h-full transition-all duration-300 ${
-                        activeTab.contextUsage.currentTokens / activeTab.contextUsage.tokenLimit >=
-                        0.9
-                          ? 'bg-copilot-error'
-                          : activeTab.contextUsage.currentTokens /
-                                activeTab.contextUsage.tokenLimit >=
-                              0.7
-                            ? 'bg-copilot-warning'
-                            : 'bg-copilot-accent'
-                      }`}
-                      style={{
-                        width: `${Math.min(100, (activeTab.contextUsage.currentTokens / activeTab.contextUsage.tokenLimit) * 100)}%`,
-                      }}
-                    />
-                  </div>
-                  <span
-                    className={`text-[10px] shrink-0 ${
-                      activeTab.contextUsage.currentTokens / activeTab.contextUsage.tokenLimit >=
-                      0.9
-                        ? 'text-copilot-error'
-                        : activeTab.contextUsage.currentTokens /
-                              activeTab.contextUsage.tokenLimit >=
-                            0.7
-                          ? 'text-copilot-warning'
-                          : 'text-copilot-text-muted'
-                    }`}
-                  >
-                    {activeTab.compactionStatus === 'compacting'
-                      ? '📦 Compacting...'
-                      : `${((activeTab.contextUsage.currentTokens / activeTab.contextUsage.tokenLimit) * 100).toFixed(0)}% (${(activeTab.contextUsage.currentTokens / 1000).toFixed(0)}K/${(activeTab.contextUsage.tokenLimit / 1000).toFixed(0)}K)`}
-                  </span>
-                </div>
-              )}
-
-              {/* Terminal Attachment Indicator */}
-              {terminalAttachment && (
-                <div className="flex items-center gap-2 px-3 py-1.5 bg-copilot-surface border border-b-0 border-copilot-border rounded-t-lg">
-                  <TerminalIcon size={12} className="text-copilot-accent shrink-0" />
-                  <span className="text-xs text-copilot-text">
-                    Terminal output: {terminalAttachment.lineCount} lines
-                  </span>
-                  <button
-                    onClick={() => setTerminalAttachment(null)}
-                    className="ml-auto text-copilot-text-muted hover:text-copilot-text text-xs"
-                    title="Remove terminal output"
-                  >
-                    ✕
-                  </button>
-                </div>
-              )}
-
-              {/* Image Attachments Preview */}
-              {imageAttachments.length > 0 && (
-                <div
-                  className={`flex flex-wrap gap-2 p-2 bg-copilot-surface border border-b-0 border-copilot-border ${terminalAttachment ? '' : 'rounded-t-lg'}`}
-                >
-                  {imageAttachments.map((img) => (
-                    <div key={img.id} className="relative group">
-                      <img
-                        src={img.previewUrl}
-                        alt={img.name}
-                        className="h-16 w-auto rounded border border-copilot-border object-cover"
-                        onError={(e) =>
-                          console.error(
-                            'Image preview failed to load:',
-                            img.name,
-                            img.previewUrl?.substring(0, 100)
-                          )
-                        }
-                      />
-                      <button
-                        onClick={() => handleRemoveImage(img.id)}
-                        className="absolute -top-1.5 -right-1.5 bg-copilot-error text-white rounded-full w-4 h-4 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-                        title="Remove image"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* File Attachments Preview */}
-              {fileAttachments.length > 0 && (
-                <div
-                  className={`flex flex-wrap gap-2 p-2 bg-copilot-surface border border-b-0 border-copilot-border ${terminalAttachment || imageAttachments.length > 0 ? '' : 'rounded-t-lg'}`}
-                >
-                  {fileAttachments.map((file) => (
-                    <div
-                      key={file.id}
-                      className="relative group flex items-center gap-2 px-2 py-1.5 bg-copilot-bg rounded border border-copilot-border"
-                    >
-                      <FileIcon size={16} className="text-copilot-text-muted shrink-0" />
-                      <div className="flex flex-col min-w-0">
-                        <span
-                          className="text-xs text-copilot-text truncate max-w-[120px]"
-                          title={file.name}
-                        >
-                          {file.name}
-                        </span>
-                        <span className="text-[10px] text-copilot-text-muted">
-                          {(file.size / 1024).toFixed(1)} KB
-                        </span>
-                      </div>
-                      <button
-                        onClick={() => handleRemoveFile(file.id)}
-                        className="shrink-0 text-copilot-text-muted hover:text-copilot-error transition-colors"
-                        title="Remove file"
-                      >
-                        <CloseIcon size={14} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Vision Warning */}
-              {imageAttachments.length > 0 &&
-                activeTab &&
-                modelCapabilities[activeTab.model] &&
-                !modelCapabilities[activeTab.model].supportsVision && (
-                  <div className="flex items-center gap-2 px-3 py-1.5 bg-copilot-warning/10 border border-b-0 border-copilot-warning/30 text-copilot-warning text-xs">
-                    <span>⚠️</span>
-                    <span>
-                      The current model ({activeTab.model}) may not support image processing. If
-                      images aren't recognized, try switching models.
-                    </span>
-                  </div>
-                )}
-
-              <div
-                className={`relative flex flex-col bg-copilot-bg border border-copilot-border focus-within:border-copilot-accent transition-colors ${terminalAttachment || imageAttachments.length > 0 || fileAttachments.length > 0 || (imageAttachments.length > 0 && activeTab && modelCapabilities[activeTab.model] && !modelCapabilities[activeTab.model].supportsVision) ? 'rounded-b-lg' : 'rounded-lg'} ${isDraggingImage || isDraggingFile ? 'border-copilot-accent border-dashed bg-copilot-accent/5' : ''}`}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
+              <ChatInput
+                ref={chatInputRef}
+                status={status}
+                isProcessing={activeTab?.isProcessing || false}
+                activeTabModel={activeTab?.model || ''}
+                modelCapabilities={modelCapabilities}
+                terminalAttachment={terminalAttachment}
+                lisaEnabled={lisaEnabled}
+                ralphEnabled={ralphEnabled}
+                isMobile={isMobile}
+                pushToTalk={pushToTalk}
+                alwaysListening={alwaysListening}
+                voiceAutoSendCountdown={voiceAutoSendCountdown}
+                onSendMessage={handleSendMessage}
+                onStop={handleStop}
+                onKeyPress={handleKeyPress}
+                onRemoveTerminalAttachment={() => setTerminalAttachment(null)}
+                onAlwaysListeningError={setAlwaysListeningError}
+                onAbortDetected={cancelVoiceAutoSend}
+                onCancelVoiceAutoSend={cancelVoiceAutoSend}
+                onStartVoiceAutoSend={startVoiceAutoSend}
+                onOpenSettings={() => openSettingsVoice(true)}
               >
-                <div className="flex items-center">
-                  {/* Hidden file inputs */}
-                  <input
-                    ref={imageInputRef}
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={(e) => handleImageSelect(e.target.files)}
-                    className="hidden"
-                  />
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    multiple
-                    onChange={(e) => handleFileSelect(e.target.files)}
-                    className="hidden"
-                  />
-
-                  <textarea
-                    ref={inputRef}
-                    value={inputValue}
-                    onChange={(e) => {
-                      setInputValue(e.target.value);
-                      // Cancel auto-send if user starts typing
-                      if (voiceAutoSendCountdown !== null) {
-                        cancelVoiceAutoSend();
-                      }
-                    }}
-                    onKeyDown={handleKeyPress}
-                    onPaste={handlePaste}
-                    placeholder={
-                      isDraggingImage || isDraggingFile
-                        ? 'Drop files here...'
-                        : activeTab?.isProcessing
-                          ? isMobile
-                            ? 'Inject message...'
-                            : 'Type to inject message to agent...'
-                          : lisaEnabled
-                            ? isMobile
-                              ? 'Describe task...'
-                              : 'Describe task for multi-phase analysis (Plan → Execute → Validate → Review)...'
-                            : ralphEnabled
-                              ? isMobile
-                                ? 'Describe task...'
-                                : 'Describe task with clear completion criteria...'
-                              : isMobile
-                                ? 'Ask Cooper...'
-                                : 'Ask Cooper... (Shift+Enter for new line)'
-                    }
-                    className="flex-1 bg-transparent py-2.5 pl-3 pr-2 text-copilot-text placeholder-copilot-text-muted outline-none text-sm resize-none min-h-[40px] max-h-[200px]"
-                    disabled={status !== 'connected'}
-                    autoFocus
-                    rows={1}
-                    style={{ height: 'auto' }}
-                    onInput={(e) => {
-                      const target = e.target as HTMLTextAreaElement;
-                      target.style.height = 'auto';
-                      target.style.height = Math.min(target.scrollHeight, 200) + 'px';
-                    }}
-                  />
-                  {/* Audio Input (Mic) Button - uses whisper.cpp for STT */}
-                  {!activeTab?.isProcessing && (
-                    <MicButton
-                      onTranscript={(text) => {
-                        if (text.trim()) {
-                          setInputValue((prev) => (prev ? prev + ' ' + text : text));
-                          // Start auto-send countdown if always listening is enabled
-                          if (alwaysListening) {
-                            startVoiceAutoSend();
-                          }
-                        }
-                      }}
-                      className="shrink-0"
-                      pushToTalk={pushToTalk}
-                      alwaysListening={alwaysListening}
-                      onAlwaysListeningError={setAlwaysListeningError}
-                      onAbortDetected={cancelVoiceAutoSend}
-                      onOpenSettings={() => openSettingsVoice(true)}
-                    />
-                  )}
-                  {/* File Attach Button */}
-                  {!activeTab?.isProcessing && (
-                    <button
-                      onClick={() => fileInputRef.current?.click()}
-                      className={`shrink-0 p-1.5 transition-colors ${
-                        fileAttachments.length > 0
-                          ? 'text-copilot-accent'
-                          : 'text-copilot-text-muted hover:text-copilot-text'
-                      }`}
-                      title="Attach file (or drag & drop, or paste)"
-                    >
-                      <PaperclipIcon size={18} />
-                    </button>
-                  )}
-                  {/* Image Attach Button */}
-                  {!activeTab?.isProcessing && (
-                    <button
-                      onClick={() => imageInputRef.current?.click()}
-                      className={`shrink-0 p-1.5 transition-colors ${
-                        imageAttachments.length > 0
-                          ? 'text-copilot-accent'
-                          : 'text-copilot-text-muted hover:text-copilot-text'
-                      }`}
-                      title="Attach image (or drag & drop, or paste)"
-                    >
-                      <ImageIcon size={18} />
-                    </button>
-                  )}
-                  {activeTab?.isProcessing ? (
-                    <>
-                      {/* Send button while processing - queues message */}
-                      {(inputValue.trim() ||
-                        terminalAttachment ||
-                        imageAttachments.length > 0 ||
-                        fileAttachments.length > 0) && (
-                        <button
-                          onClick={handleSendMessage}
-                          disabled={status !== 'connected'}
-                          className="shrink-0 px-3 py-2.5 text-copilot-warning hover:brightness-110 disabled:opacity-30 disabled:cursor-not-allowed text-xs font-medium transition-colors"
-                          title="Send message (will be queued until agent finishes)"
-                        >
-                          Send
-                        </button>
-                      )}
-                      {/* Stop button */}
-                      <button
-                        onClick={handleStop}
-                        className="shrink-0 px-4 py-2.5 text-copilot-error hover:brightness-110 text-xs font-medium transition-colors flex items-center gap-1.5"
-                        title={
-                          activeTab?.lisaConfig?.active
-                            ? 'Stop Lisa Loop'
-                            : activeTab?.ralphConfig?.active
-                              ? 'Stop Ralph Loop'
-                              : 'Stop'
-                        }
-                      >
-                        <StopIcon size={10} />
-                        {activeTab?.ralphConfig?.active || activeTab?.lisaConfig?.active
-                          ? 'Stop Loop'
-                          : 'Stop'}
-                      </button>
-                    </>
-                  ) : (
-                    <div className="relative">
-                      <button
-                        onClick={() => {
-                          cancelVoiceAutoSend();
-                          handleSendMessage();
-                        }}
-                        disabled={
-                          (!inputValue.trim() &&
-                            !terminalAttachment &&
-                            imageAttachments.length === 0 &&
-                            fileAttachments.length === 0) ||
-                          status !== 'connected'
-                        }
-                        className={`shrink-0 px-4 py-2.5 hover:brightness-110 disabled:opacity-30 disabled:cursor-not-allowed text-xs font-medium transition-colors ${
-                          voiceAutoSendCountdown !== null
-                            ? 'text-copilot-success'
-                            : 'text-copilot-accent'
-                        }`}
-                      >
-                        {lisaEnabled ? 'Start Lisa Loop' : ralphEnabled ? 'Start Loop' : 'Send'}
-                      </button>
-                      {/* Auto-send countdown tooltip */}
-                      {voiceAutoSendCountdown !== null && (
-                        <div
-                          className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-copilot-success text-white rounded-lg shadow-lg cursor-pointer animate-pulse text-center"
-                          onClick={cancelVoiceAutoSend}
-                          title="Click to cancel auto-send"
-                        >
-                          <div className="text-xs font-bold whitespace-nowrap">
-                            Sending in {voiceAutoSendCountdown}s
-                          </div>
-                          <div className="text-[10px] opacity-80 mt-0.5">Say "abort" to cancel</div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
                 {/* Models, Agents, Loops selectors */}
                 {activeTab && (
-                  <div className="flex items-center mx-1.5 mb-1.5 mt-0.5 border-t border-copilot-border relative">
+                  <div className="flex items-center border-t !border-t-copilot-border relative">
                     {/* Models Selector */}
                     <div className="relative" data-tour="model-selector">
                       <button
                         onClick={() =>
                           setOpenTopBarSelector(openTopBarSelector === 'models' ? null : 'models')
                         }
-                        className={`flex items-center gap-1.5 px-3 py-2 text-xs transition-colors ${
+                        className={`flex items-center gap-1.5 px-3 h-[39px] text-xs transition-colors rounded-bl-lg ${
                           openTopBarSelector === 'models'
                             ? 'text-copilot-accent bg-copilot-surface-hover'
                             : 'text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover'
@@ -6310,7 +5283,13 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                         />
                       </button>
                       {openTopBarSelector === 'models' && (
-                        <div className="absolute bottom-full left-0 z-50 mb-0.5 w-60 max-h-80 overflow-y-auto bg-copilot-surface border border-copilot-border rounded-lg shadow-lg">
+                        <div
+                          className="absolute bottom-full left-0 z-50 mb-0.5 w-60 max-h-80 overflow-y-auto bg-copilot-surface border border-copilot-border rounded-lg"
+                          style={{
+                            boxShadow:
+                              '0 -4px 6px -1px rgb(0 0 0 / 0.1), 0 -2px 4px -2px rgb(0 0 0 / 0.1)',
+                          }}
+                        >
                           {sortedModels.map((m, idx) => {
                             const isFav = favoriteModels.includes(m.id);
                             return (
@@ -6358,7 +5337,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                                   )}
                                   <span className="flex-1 text-left truncate">
                                     {m.id === activeTab?.model && (
-                                      <span className="text-copilot-accent">✓ </span>
+                                      <span className="text-copilot-accent">✔ </span>
                                     )}
                                     {m.name || m.id}
                                   </span>
@@ -6392,163 +5371,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       )}
                     </div>
 
-                    {/* Agents Selector - Commented out until SDK supports true agent selection */}
-                    {/* TODO: Uncomment when @github/copilot-sdk exposes selectCustomAgent() or selectedCustomAgent config
-                    <div className="relative">
-                      <button
-                        onClick={() =>
-                          setOpenTopBarSelector(openTopBarSelector === 'agents' ? null : 'agents')
-                        }
-                        className={`flex items-center gap-1.5 px-3 py-2 text-xs transition-colors ${
-                          openTopBarSelector === 'agents'
-                            ? 'text-copilot-accent bg-copilot-surface-hover'
-                            : 'text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover'
-                        }`}
-                        title="Select agent"
-                      >
-                        <ZapIcon size={12} />
-                        <span className="font-medium truncate max-w-[120px]">
-                          {activeAgent?.name || 'Agents'}
-                        </span>
-                        <ChevronDownIcon
-                          size={10}
-                          className={`transition-transform duration-200 ${openTopBarSelector === 'agents' ? 'rotate-180' : ''}`}
-                        />
-                      </button>
-                      {openTopBarSelector === 'agents' && (
-                        <div className="absolute bottom-full left-0 z-50 mb-0.5 w-60 max-h-80 overflow-y-auto bg-copilot-surface border border-copilot-border rounded-lg shadow-lg">
-                          {groupedAgents.length === 0 ? (
-                            <div className="px-4 py-4 text-xs text-copilot-text-muted text-center">
-                              No agents found
-                            </div>
-                          ) : (
-                            groupedAgents.map((section, sectionIdx) => (
-                              <div key={section.id}>
-                                <div className="px-3 py-1.5 text-[10px] uppercase tracking-wide text-copilot-text-muted">
-                                  {section.label}
-                                </div>
-                                {section.agents.map((agent) => {
-                                  const isFav = favoriteAgents.includes(agent.path);
-                                  const isActive = activeAgentPath === agent.path;
-                                  const selectAgent = async () => {
-                                    if (!activeTab) return;
-                                    setOpenTopBarSelector(null);
-                                    const selectedAgentName =
-                                      agent.path === COOPER_DEFAULT_AGENT.path ? undefined : agent.name;
-                                    const previousSessionId = activeTab.id;
-                                    let updatedSessionId = activeTab.id;
-                                    let hasMessages = activeTab.messages.length > 0;
-                                    if (agent.model && activeTab.model !== agent.model) {
-                                      const modelResult = await handleModelChange(agent.model);
-                                      if (modelResult?.sessionId) {
-                                        updatedSessionId = modelResult.sessionId;
-                                        hasMessages = !modelResult.newSession;
-                                      }
-                                    }
-                                    setSelectedAgentByTab((prev) => {
-                                      const next = { ...prev, [updatedSessionId]: agent.path };
-                                      if (updatedSessionId !== previousSessionId) {
-                                        delete next[previousSessionId];
-                                      }
-                                      return next;
-                                    });
-                                    try {
-                                      const result = await window.electronAPI.copilot.setActiveAgent(
-                                        updatedSessionId,
-                                        selectedAgentName,
-                                        hasMessages
-                                      );
-                                      if (result.sessionId !== updatedSessionId) {
-                                        const priorSessionId = updatedSessionId;
-                                        updatedSessionId = result.sessionId;
-                                        setTabs((prev) =>
-                                          prev.map((t) =>
-                                            t.id === priorSessionId ? { ...t, id: result.sessionId } : t
-                                          )
-                                        );
-                                        setSelectedAgentByTab((prev) => {
-                                          const next = { ...prev, [result.sessionId]: agent.path };
-                                          delete next[priorSessionId];
-                                          return next;
-                                        });
-                                        setActiveTabId(result.sessionId);
-                                      }
-                                    } catch (error) {
-                                      console.error('Failed to select agent:', error);
-                                    }
-                                    updateTab(updatedSessionId, {
-                                      activeAgentName: selectedAgentName ? agent.name : undefined,
-                                    });
-                                  };
-                                  return (
-                                    <div
-                                      key={agent.path}
-                                      role="button"
-                                      tabIndex={0}
-                                      onClick={selectAgent}
-                                      onKeyDown={(event) => {
-                                        if (event.key === 'Enter' || event.key === ' ') {
-                                          event.preventDefault();
-                                          selectAgent();
-                                        }
-                                      }}
-                                      className={`group w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-copilot-surface-hover transition-colors ${
-                                        isActive
-                                          ? 'text-copilot-accent bg-copilot-surface'
-                                          : 'text-copilot-text'
-                                      }`}
-                                    >
-                                      <button
-                                        type="button"
-                                        onClick={(event) => {
-                                          event.stopPropagation();
-                                          handleToggleFavoriteAgent(agent.path);
-                                        }}
-                                        className={`shrink-0 transition-colors ${
-                                          isFav
-                                            ? 'text-copilot-warning'
-                                            : 'text-transparent group-hover:text-copilot-text-muted hover:!text-copilot-warning'
-                                        }`}
-                                        title={isFav ? 'Remove from favorites' : 'Add to favorites'}
-                                      >
-                                        {isFav ? (
-                                          <StarFilledIcon size={12} />
-                                        ) : (
-                                          <StarIcon size={12} />
-                                        )}
-                                      </button>
-                                      <span className="flex-1 text-left truncate">
-                                        {isActive && (
-                                          <span className="text-copilot-accent">✓ </span>
-                                        )}
-                                        {agent.name}
-                                      </span>
-                                      {agent.type !== 'system' && (
-                                        <button
-                                          type="button"
-                                          onClick={(event) =>
-                                            handleOpenEnvironment('agents', event, agent.path)
-                                          }
-                                          className="shrink-0 opacity-0 group-hover:opacity-100 text-copilot-text-muted hover:text-copilot-text transition-opacity"
-                                          title="View agent file"
-                                        >
-                                          <EyeIcon size={12} />
-                                        </button>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                                {sectionIdx < groupedAgents.length - 1 && (
-                                  <div className="border-t border-copilot-border" />
-                                )}
-                              </div>
-                            ))
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    */}
-
                     {/* Loops Selector */}
                     <div className="relative">
                       <button
@@ -6563,7 +5385,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                             setShowLisaSettings(false);
                           }
                         }}
-                        className={`flex items-center gap-1.5 px-3 py-2 text-xs transition-colors ${
+                        className={`flex items-center gap-1.5 px-3 h-[39px] text-xs transition-colors ${
                           ralphEnabled || lisaEnabled
                             ? 'text-copilot-warning'
                             : openTopBarSelector === 'loops'
@@ -6590,7 +5412,11 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       </button>
                       {openTopBarSelector === 'loops' && (
                         <div
-                          className={`absolute bottom-full z-50 mb-0.5 w-80 max-w-[calc(100vw-2rem)] bg-copilot-surface border border-copilot-border rounded-lg shadow-lg p-3 ${isMobile ? 'right-0' : 'left-0'}`}
+                          className={`absolute bottom-full z-50 mb-0.5 w-80 max-w-[calc(100vw-2rem)] bg-copilot-surface border border-copilot-border rounded-lg p-3 ${isMobile ? 'right-0' : 'left-0'}`}
+                          style={{
+                            boxShadow:
+                              '0 -4px 6px -1px rgb(0 0 0 / 0.1), 0 -2px 4px -2px rgb(0 0 0 / 0.1)',
+                          }}
                           data-tour="agent-modes-panel"
                         >
                           <div className="flex items-center gap-2 mb-3">
@@ -6730,7 +5556,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                                   </span>
                                   <span>→</span>
                                   <span className="px-1 py-0.5 bg-copilot-warning/20 rounded text-[9px]">
-                                    👀
+                                    🔍
                                   </span>
                                   <span>→</span>
                                   <span className="px-1.5 py-0.5 bg-copilot-surface rounded">
@@ -6738,7 +5564,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                                   </span>
                                   <span>→</span>
                                   <span className="px-1 py-0.5 bg-copilot-warning/20 rounded text-[9px]">
-                                    👀
+                                    🔍
                                   </span>
                                   <span>→</span>
                                   <span className="px-1.5 py-0.5 bg-copilot-surface rounded">
@@ -6746,7 +5572,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                                   </span>
                                   <span>→</span>
                                   <span className="px-1 py-0.5 bg-copilot-warning/20 rounded text-[9px]">
-                                    👀
+                                    🔍
                                   </span>
                                 </div>
                                 <p>
@@ -6761,6 +5587,51 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       )}
                     </div>
 
+                    {/* Context Usage Tracker */}
+                    {activeTab?.contextUsage && (
+                      <div className="ml-auto flex items-center gap-2 px-3 h-[39px] text-[10px]">
+                        {activeTab.compactionStatus === 'compacting' ? (
+                          <>
+                            <span className="text-copilot-warning animate-pulse">
+                              Compacting...
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <span
+                              className={
+                                (activeTab.contextUsage.currentTokens /
+                                  activeTab.contextUsage.tokenLimit) *
+                                  100 >=
+                                90
+                                  ? 'text-copilot-error font-medium'
+                                  : (activeTab.contextUsage.currentTokens /
+                                        activeTab.contextUsage.tokenLimit) *
+                                        100 >=
+                                      70
+                                    ? 'text-copilot-warning'
+                                    : 'text-copilot-text-muted'
+                              }
+                            >
+                              {(
+                                (activeTab.contextUsage.currentTokens /
+                                  activeTab.contextUsage.tokenLimit) *
+                                100
+                              ).toFixed(0)}
+                              %
+                            </span>
+                            <span className="text-copilot-text-muted">
+                              {(activeTab.contextUsage.currentTokens / 1000).toFixed(1)}K /{' '}
+                              {(activeTab.contextUsage.tokenLimit / 1000).toFixed(0)}K
+                            </span>
+                            <span className="text-copilot-text-muted">
+                              ({activeTab.contextUsage.messagesLength} msgs)
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    )}
+
                     {/* Click-away handler for dropdowns */}
                     {openTopBarSelector && (
                       <div
@@ -6774,7 +5645,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     )}
                   </div>
                 )}
-              </div>
+              </ChatInput>
             </div>
           </div>
 

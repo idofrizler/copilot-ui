@@ -2136,6 +2136,7 @@ function createWindow(): void {
         symbolColor: '#e6edf3',
         height: 38,
       },
+      roundedCorners: false, // Sharp corners on Windows (standard for Windows apps)
     }),
     hasShadow: true,
     webPreferences: {
