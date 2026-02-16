@@ -24,7 +24,6 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { createServer, Server } from 'http';
-import { disableRoundedCorners } from './utils/windowsCorners';
 
 const execAsync = promisify(exec);
 
@@ -2137,6 +2136,7 @@ function createWindow(): void {
         symbolColor: '#e6edf3',
         height: 38,
       },
+      roundedCorners: false, // Sharp corners on Windows (standard for Windows apps)
     }),
     hasShadow: true,
     webPreferences: {
@@ -2147,9 +2147,6 @@ function createWindow(): void {
       webSecurity: true,
     },
   });
-
-  // Windows 11: Remove rounded corners
-  disableRoundedCorners(mainWindow);
 
   const savedZoomFactor = clampZoomFactor(store.get('zoomFactor') as number);
   mainWindow.webContents.setZoomFactor(savedZoomFactor);
