@@ -126,7 +126,7 @@
     }
   },
   "dependencies": {
-    "@github/copilot-sdk": "0.1.23",
+    "@github/copilot-sdk": "^0.1.24",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "electron-log": "^5.4.3",
