@@ -288,3 +288,17 @@ Complete all E2E test fixes and performance optimizations
 ### Current Work
 
 Starting with parallelization and test optimizations...
+
+### Major Fixes Applied:
+
+1. ✅ Enabled parallel test execution (workers: 4)
+2. ✅ Fixed Session History modal selector (wrong button issue)
+3. ✅ Fixed Ralph/Lisa panel tests (wrong title issue)
+4. ✅ Increased context menu timeouts to 15s
+5. ✅ Added helper functions for panel/Ralph state management
+6. ✅ Updated 40+ test cases with proper selectors
+
+### Commit: 05bcd06
+
+All unit tests passing (395/395)
+Ready to run E2E tests to verify improvements

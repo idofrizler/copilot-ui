@@ -44,8 +44,8 @@ test.describe('Issue #108 - Modal Escape Key and Overflow', () => {
     // Ensure sidebar is expanded first
     await ensureSidebarExpanded(window);
 
-    // Find the BOTTOM Session History button specifically
-    const historyButton = window.locator('div.h-\\[32px\\] button', { hasText: 'Session History' });
+    // Find the LAST Session History button (bottom one in sidebar)
+    const historyButton = window.locator('button:has-text("Session History")').last();
 
     const hasHistoryButton = await historyButton.isVisible({ timeout: 5000 }).catch(() => false);
 

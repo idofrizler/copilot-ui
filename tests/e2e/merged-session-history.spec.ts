@@ -39,9 +39,9 @@ async function openSessionHistoryModal() {
     // Ensure sidebar is expanded first
     await ensureSidebarExpanded(window);
 
-    // Find the BOTTOM Session History button specifically (not the one in left drawer)
-    // The bottom button is in a container with h-[32px] class
-    const historyButton = window.locator('div.h-\\[32px\\] button', { hasText: 'Session History' });
+    // Find the LAST Session History button (the bottom one in sidebar, not the one in left drawer)
+    // We use .last() to get the bottom button since the left drawer button comes first in DOM
+    const historyButton = window.locator('button:has-text("Session History")').last();
     await scrollIntoViewAndClick(historyButton, { timeout: 15000 });
     await waitForModal(window, 'Session History', { timeout: 20000 });
   }
