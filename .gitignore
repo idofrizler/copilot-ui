@@ -41,6 +41,17 @@ screenshot*.png
 evidence/
 plan.md
 
+# Test documentation and analysis files (session artifacts)
+test-triage-plan.md
+E2E-TEST-ANALYSIS-FINAL.md
+ITERATION-4-FINAL-REPORT.md
+WORK-SUMMARY.md
+ralph-progress.md
+e2e-results-*.txt
+e2e-test-results-*.txt
+failed-tests-*.txt
+failing-tests-*.txt
+
 # Voice/speech models (downloaded at runtime)
 public/vosk-model/
 public/vosk-model.tar.gz
