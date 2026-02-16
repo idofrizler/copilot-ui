@@ -4249,18 +4249,117 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 <GitBranchWidget cwd={activeTab?.cwd} refreshKey={activeTab?.gitBranchRefresh} />
               </div>
 
-              {/* Edited Files Count */}
-              {cleanedEditedFiles.length > 0 && (
-                <div className="px-4 py-3 border-b border-copilot-border">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <FileIcon size={14} className="text-copilot-success" />
-                      <span className="text-sm text-copilot-text">Edited Files</span>
-                    </div>
-                    <span className="text-sm text-copilot-accent">{cleanedEditedFiles.length}</span>
-                  </div>
+              {/* Edited Files */}
+              <div className="border-b border-copilot-border">
+                <div className="flex items-center">
+                  <button
+                    onClick={handleToggleEditedFiles}
+                    className="flex-1 flex items-center gap-3 px-4 py-3 text-sm text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                  >
+                    <ChevronRightIcon
+                      size={14}
+                      className={`transition-transform ${showEditedFiles ? 'rotate-90' : ''}`}
+                    />
+                    <span>Edited Files</span>
+                    {cleanedEditedFiles.length > 0 && (
+                      <span className="text-copilot-accent">
+                        ({cleanedEditedFiles.length - (activeTab?.untrackedFiles?.length || 0)})
+                      </span>
+                    )}
+                    {(activeTab?.untrackedFiles?.length || 0) > 0 && (
+                      <span
+                        className="text-copilot-text-muted text-xs"
+                        title="Untracked files (excluded from commit)"
+                      >
+                        +{activeTab?.untrackedFiles?.length} untracked
+                      </span>
+                    )}
+                    {showEditedFiles && !isGitRepo && (
+                      <span
+                        className="text-copilot-warning"
+                        title="Not in a Git repository. File list is based on manual tracking of files touched in this session."
+                      >
+                        <WarningIcon size={12} />
+                      </span>
+                    )}
+                  </button>
+                  {isGitRepo && (
+                    <IconButton
+                      icon={<CommitIcon size={14} />}
+                      onClick={() =>
+                        activeTab && commitModal.handleOpenCommitModal(activeTab, updateTab)
+                      }
+                      variant="accent"
+                      size="sm"
+                      title="Commit and push"
+                      className="mr-2"
+                    />
+                  )}
                 </div>
-              )}
+                {showEditedFiles && activeTab && (
+                  <div className="max-h-48 overflow-y-auto">
+                    {activeTab.editedFiles.length === 0 ? (
+                      <div className="px-4 py-3 text-xs text-copilot-text-muted">
+                        No files edited
+                      </div>
+                    ) : (
+                      // File list - clicking opens the preview modal
+                      cleanedEditedFiles.map((filePath) => {
+                        const isConflicted =
+                          isGitRepo &&
+                          commitModal.conflictedFiles.some(
+                            (cf) =>
+                              filePath.endsWith(cf) ||
+                              cf.endsWith(filePath.split(/[/\\]/).pop() || '')
+                          );
+                        const isUntracked = (activeTab.untrackedFiles || []).includes(filePath);
+                        return (
+                          <button
+                            key={filePath}
+                            onClick={() => {
+                              setFilePreviewPath(filePath);
+                              setRightDrawerOpen(false);
+                            }}
+                            className={`w-full flex items-center gap-2 px-4 py-2 text-xs hover:bg-copilot-surface text-left ${
+                              isUntracked
+                                ? 'text-copilot-text-muted/50'
+                                : isConflicted
+                                  ? 'text-copilot-error'
+                                  : 'text-copilot-text-muted'
+                            }`}
+                            title={
+                              isUntracked
+                                ? `${filePath} (untracked) - Click to preview`
+                                : isConflicted
+                                  ? `${filePath} (conflict) - Click to preview`
+                                  : `${filePath} - Click to preview`
+                            }
+                          >
+                            <FileIcon
+                              size={10}
+                              className={`shrink-0 ${
+                                isUntracked
+                                  ? 'text-copilot-text-muted/50'
+                                  : isConflicted
+                                    ? 'text-copilot-error'
+                                    : 'text-copilot-success'
+                              }`}
+                            />
+                            <span
+                              className={`truncate font-mono ${isUntracked ? 'line-through' : ''}`}
+                            >
+                              {filePath}
+                            </span>
+                            {isConflicted && (
+                              <WarningIcon size={10} className="ml-auto text-copilot-error" />
+                            )}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+              </div>
 
               {/* MCP Servers */}
               <div className="border-b border-copilot-border">
