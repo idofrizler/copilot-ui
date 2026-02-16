@@ -5256,7 +5256,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               >
                 {/* Models, Agents, Loops selectors */}
                 {activeTab && (
-                  <div className="flex items-center border-t border-copilot-border relative">
+                  <div className="flex items-center border-t !border-t-copilot-border relative">
                     {/* Models Selector */}
                     <div className="relative" data-tour="model-selector">
                       <button
