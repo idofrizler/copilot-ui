@@ -489,6 +489,21 @@ const App: React.FC = () => {
     });
   }, []);
 
+  // Prevent page refresh shortcuts (causes limbo state)
+  // Handles: Ctrl+R (Win/Linux), Cmd+R (Mac), F5 (Win), Ctrl+Shift+R, Cmd+Shift+R
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'r') {
+        e.preventDefault();
+      }
+      if (e.key === 'F5') {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
   useEffect(() => {
     if (!window.electronAPI?.window?.onZoomChanged) return;
     return window.electronAPI.window.onZoomChanged((data) => {
