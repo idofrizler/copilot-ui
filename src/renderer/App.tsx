@@ -464,6 +464,9 @@ const App: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<ChatInputHandle>(null);
   const activeTabIdRef = useRef<string | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const isAtBottomRef = useRef<boolean>(true);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
 
   // Voice speech hook for STT/TTS
   const voiceSpeech = useVoiceSpeech();
@@ -487,6 +490,21 @@ const App: React.FC = () => {
         setZoomFactor(result.zoomFactor);
       }
     });
+  }, []);
+
+  // Prevent page refresh shortcuts (causes limbo state)
+  // Handles: Ctrl+R (Win/Linux), Cmd+R (Mac), F5 (Win), Ctrl+Shift+R, Cmd+Shift+R
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'r') {
+        e.preventDefault();
+      }
+      if (e.key === 'F5') {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
   }, []);
 
   useEffect(() => {
@@ -879,7 +897,23 @@ const App: React.FC = () => {
   }, [tabs]);
 
   const scrollToBottom = (instant?: boolean) => {
-    messagesEndRef.current?.scrollIntoView({ behavior: instant ? 'instant' : 'smooth' });
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+    }
+  };
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    // Consider 'at bottom' if within 50px of bottom
+    const atBottom = scrollHeight - scrollTop - clientHeight < 50;
+    isAtBottomRef.current = atBottom;
+    setShowScrollToBottom(!atBottom);
+  };
+
+  const handleScrollToBottomClick = () => {
+    scrollToBottom();
+    isAtBottomRef.current = true;
+    setShowScrollToBottom(false);
   };
 
   // Track previous message count and session ID for scroll logic
@@ -897,13 +931,18 @@ const App: React.FC = () => {
     prevSessionIdForScrollRef.current = currentSessionId;
 
     // Only scroll to bottom when:
-    // 1. New messages are added to the SAME session (message count increased)
-    // 2. NOT when switching sessions (session ID changed)
+    // 1. User is at the bottom (or switching sessions)
+    // 2. New messages are added to the SAME session (message count increased)
+    // 3. NOT when switching sessions (session ID changed)
     if (currentSessionId === prevSessionId && currentMessageCount > prevMessageCount) {
-      scrollToBottom();
+      // Only auto-scroll if user is already at bottom
+      if (isAtBottomRef.current) {
+        scrollToBottom();
+      }
     } else if (currentSessionId !== prevSessionId && currentMessageCount > 0) {
-      // When switching sessions, instantly scroll to bottom (no animation)
-      // This preserves the "show end of conversation" behavior without the annoying animated scroll
+      // When switching sessions, instantly scroll to bottom and reset tracking
+      isAtBottomRef.current = true;
+      setShowScrollToBottom(false);
       scrollToBottom(true);
     }
   }, [activeTab?.messages, activeTab?.id]);
@@ -4210,18 +4249,117 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 <GitBranchWidget cwd={activeTab?.cwd} refreshKey={activeTab?.gitBranchRefresh} />
               </div>
 
-              {/* Edited Files Count */}
-              {cleanedEditedFiles.length > 0 && (
-                <div className="px-4 py-3 border-b border-copilot-border">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <FileIcon size={14} className="text-copilot-success" />
-                      <span className="text-sm text-copilot-text">Edited Files</span>
-                    </div>
-                    <span className="text-sm text-copilot-accent">{cleanedEditedFiles.length}</span>
-                  </div>
+              {/* Edited Files */}
+              <div className="border-b border-copilot-border">
+                <div className="flex items-center">
+                  <button
+                    onClick={handleToggleEditedFiles}
+                    className="flex-1 flex items-center gap-3 px-4 py-3 text-sm text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                  >
+                    <ChevronRightIcon
+                      size={14}
+                      className={`transition-transform ${showEditedFiles ? 'rotate-90' : ''}`}
+                    />
+                    <span>Edited Files</span>
+                    {cleanedEditedFiles.length > 0 && (
+                      <span className="text-copilot-accent">
+                        ({cleanedEditedFiles.length - (activeTab?.untrackedFiles?.length || 0)})
+                      </span>
+                    )}
+                    {(activeTab?.untrackedFiles?.length || 0) > 0 && (
+                      <span
+                        className="text-copilot-text-muted text-xs"
+                        title="Untracked files (excluded from commit)"
+                      >
+                        +{activeTab?.untrackedFiles?.length} untracked
+                      </span>
+                    )}
+                    {showEditedFiles && !isGitRepo && (
+                      <span
+                        className="text-copilot-warning"
+                        title="Not in a Git repository. File list is based on manual tracking of files touched in this session."
+                      >
+                        <WarningIcon size={12} />
+                      </span>
+                    )}
+                  </button>
+                  {isGitRepo && (
+                    <IconButton
+                      icon={<CommitIcon size={14} />}
+                      onClick={() =>
+                        activeTab && commitModal.handleOpenCommitModal(activeTab, updateTab)
+                      }
+                      variant="accent"
+                      size="sm"
+                      title="Commit and push"
+                      className="mr-2"
+                    />
+                  )}
                 </div>
-              )}
+                {showEditedFiles && activeTab && (
+                  <div className="max-h-48 overflow-y-auto">
+                    {activeTab.editedFiles.length === 0 ? (
+                      <div className="px-4 py-3 text-xs text-copilot-text-muted">
+                        No files edited
+                      </div>
+                    ) : (
+                      // File list - clicking opens the preview modal
+                      cleanedEditedFiles.map((filePath) => {
+                        const isConflicted =
+                          isGitRepo &&
+                          commitModal.conflictedFiles.some(
+                            (cf) =>
+                              filePath.endsWith(cf) ||
+                              cf.endsWith(filePath.split(/[/\\]/).pop() || '')
+                          );
+                        const isUntracked = (activeTab.untrackedFiles || []).includes(filePath);
+                        return (
+                          <button
+                            key={filePath}
+                            onClick={() => {
+                              setFilePreviewPath(filePath);
+                              setRightDrawerOpen(false);
+                            }}
+                            className={`w-full flex items-center gap-2 px-4 py-2 text-xs hover:bg-copilot-surface text-left ${
+                              isUntracked
+                                ? 'text-copilot-text-muted/50'
+                                : isConflicted
+                                  ? 'text-copilot-error'
+                                  : 'text-copilot-text-muted'
+                            }`}
+                            title={
+                              isUntracked
+                                ? `${filePath} (untracked) - Click to preview`
+                                : isConflicted
+                                  ? `${filePath} (conflict) - Click to preview`
+                                  : `${filePath} - Click to preview`
+                            }
+                          >
+                            <FileIcon
+                              size={10}
+                              className={`shrink-0 ${
+                                isUntracked
+                                  ? 'text-copilot-text-muted/50'
+                                  : isConflicted
+                                    ? 'text-copilot-error'
+                                    : 'text-copilot-success'
+                              }`}
+                            />
+                            <span
+                              className={`truncate font-mono ${isUntracked ? 'line-through' : ''}`}
+                            >
+                              {filePath}
+                            </span>
+                            {isConflicted && (
+                              <WarningIcon size={10} className="ml-auto text-copilot-error" />
+                            )}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+              </div>
 
               {/* MCP Servers */}
               <div className="border-b border-copilot-border">
@@ -4854,7 +4992,11 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               ))}
 
             {/* Messages Area - Conversation Only */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-2 min-h-0">
+            <div
+              ref={scrollContainerRef}
+              onScroll={handleScroll}
+              className="flex-1 overflow-y-auto p-4 space-y-2 min-h-0 relative"
+            >
               {activeTab?.messages.length === 0 && (
                 <div className="flex flex-col items-center justify-center min-h-full text-center -m-4 p-4">
                   <img src={logo} alt="Cooper" className="w-16 h-16 mb-4" />
@@ -4987,6 +5129,17 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     </button>
                   </div>
                 </div>
+              )}
+
+              {/* Scroll to Bottom Button */}
+              {showScrollToBottom && (
+                <button
+                  onClick={handleScrollToBottomClick}
+                  className="sticky bottom-1 float-right mr-1 w-8 h-8 flex items-center justify-center bg-copilot-bg hover:bg-copilot-surface border border-copilot-border rounded-full shadow-sm text-copilot-text-muted hover:text-copilot-text transition-all"
+                  title="Scroll to bottom"
+                >
+                  <span className="text-sm">↓</span>
+                </button>
               )}
 
               <div ref={messagesEndRef} />
