@@ -108,6 +108,10 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>((props, ref
         setInputValue('');
         setImageAttachments([]);
         setFileAttachments([]);
+        // Reset textarea height
+        if (inputRef.current) {
+          inputRef.current.style.height = 'auto';
+        }
       },
     }),
     [inputValue, imageAttachments, fileAttachments]

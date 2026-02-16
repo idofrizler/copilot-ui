@@ -5287,7 +5287,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                         />
                       </button>
                       {openTopBarSelector === 'models' && (
-                        <div className="absolute bottom-full left-0 z-50 mb-0.5 w-60 max-h-80 overflow-y-auto bg-copilot-surface border border-copilot-border rounded-lg shadow-lg">
+                        <div className="absolute bottom-full left-0 z-50 mb-0.5 w-60 max-h-80 overflow-y-auto bg-copilot-surface border border-copilot-border rounded-lg rounded-bl-lg shadow-lg">
                           {sortedModels.map((m, idx) => {
                             const isFav = favoriteModels.includes(m.id);
                             return (
