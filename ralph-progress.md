@@ -63,3 +63,48 @@
 - Investigate Session History implementation
 - Focus on tests that can be fixed vs those testing unimplemented features
 - Consider skipping tests for unimplemented features
+
+## Iteration 3 Summary - 2026-02-16T15:05:47.978Z
+
+### Status: COMPLETE
+
+### What was accomplished:
+
+- Identified root cause: Session History button not visible when left panel collapsed
+- Created ensureSidebarExpanded() helper function
+- Updated 3 test files to expand sidebar before accessing Session History
+- All unit tests passing (395/395)
+- Successfully committed changes (hash: f209496)
+
+### Completed this iteration:
+
+- [x] Analyzed remaining 69 test failures
+- [x] Identified sidebar collapse issue as root cause for Session History failures
+- [x] Added ensureSidebarExpanded() helper to viewport.ts
+- [x] Updated session-history.spec.ts with sidebar expansion
+- [x] Updated merged-session-history.spec.ts with sidebar expansion
+- [x] Updated modal-escape.spec.ts with sidebar expansion
+- [x] Build passes without errors
+- [x] All unit tests pass (395/395)
+- [x] Changes committed successfully
+
+### Key Insight:
+
+The left sidebar can be collapsed in Cooper's UI, hiding the Session History button. Tests were failing because they tried to click the button without first ensuring the sidebar was expanded. Added a helper that clicks the "Show sessions panel" button if present.
+
+### Files Modified This Iteration:
+
+1. tests/e2e/helpers/viewport.ts - Added ensureSidebarExpanded()
+2. tests/e2e/session-history.spec.ts - Integrated sidebar expansion
+3. tests/e2e/merged-session-history.spec.ts - Integrated sidebar expansion
+4. tests/e2e/modal-escape.spec.ts - Integrated sidebar expansion
+5. ralph-progress.md - Updated progress tracking
+
+### Next steps for future iterations:
+
+- Run E2E tests again to verify how many failures are fixed
+- Address remaining failures (likely ~50-60 tests still failing)
+- Focus on Ralph/Lisa panel tests
+- Fix Mark as Unread context menu tests
+- Fix Voice Settings tests
+- Consider additional viewport/interaction helpers as needed
