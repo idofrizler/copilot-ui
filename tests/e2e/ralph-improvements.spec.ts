@@ -25,6 +25,12 @@ test.beforeAll(async () => {
 
   await window.waitForLoadState('domcontentloaded');
   await window.waitForTimeout(3000); // Wait for app to fully load
+
+  // Create a session by sending a message (required for top bar to appear)
+  const chatInput = window.locator('textarea[placeholder*="Ask Cooper"]');
+  await chatInput.fill('test');
+  await chatInput.press('Enter');
+  await window.waitForTimeout(2000); // Wait for session and top bar to render
 });
 
 test.afterAll(async () => {
@@ -37,7 +43,7 @@ async function ensureAgentLoopsPanelOpen() {
   const isVisible = await panel.isVisible().catch(() => false);
 
   if (!isVisible) {
-    const loopsBtn = window.locator('button[title*="Agent Loops"]');
+    const loopsBtn = window.locator('[data-tour="agent-modes"]');
     await scrollIntoViewAndClick(loopsBtn, { timeout: 15000 });
     await panel.waitFor({ state: 'visible', timeout: 15000 });
     await window.waitForTimeout(300);
@@ -61,20 +67,20 @@ async function ensureRalphEnabled() {
 
 test.describe('Ralph Loop Improvements', () => {
   test('01 - Initial app state before opening agent modes', async () => {
-    // Capture initial state - app should be loaded with input area visible
+    // Capture initial state - app should be loaded with input area and top bar visible
     await window.screenshot({
       path: 'evidence/screenshots/01-initial-app-state.png',
       fullPage: true,
     });
 
-    // Verify the "Loops" button exists (has the Agent Loops title attribute)
-    const loopsBtn = window.locator('button[title*="Agent Loops"]');
+    // Verify the "Loops" button exists
+    const loopsBtn = window.locator('[data-tour="agent-modes"]');
     expect(await loopsBtn.count()).toBeGreaterThan(0);
   });
 
   test('02 - Open Agent Modes panel by clicking chevron button', async () => {
     // Click the "Loops" button to open the dropdown panel
-    const loopsBtn = window.locator('button[title*="Agent Loops"]');
+    const loopsBtn = window.locator('[data-tour="agent-modes"]');
     await scrollIntoViewAndClick(loopsBtn, { timeout: 15000 });
 
     // Wait for the panel to appear (it has data-tour="agent-modes-panel")
