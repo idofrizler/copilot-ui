@@ -372,3 +372,33 @@ Some tests that were passing before are now failing. This suggests:
 1. Analyze which NEW tests are failing vs before
 2. Check if failures are due to parallel execution conflicts
 3. May need to reduce workers or add test isolation
+
+## BREAKTHROUGH - Session History Fixed! - 2026-02-16T19:43:54
+
+### The Problem
+
+Cooper has TWO "Session History" buttons:
+
+1. **Mobile drawer button** (x=-280, offscreen) - renders even in desktop mode
+2. **Desktop sidebar button** (x=0, visible)
+
+Using .first() was selecting the wrong (offscreen) button!
+
+### The Solution
+
+1. Use **.last()** to select the desktop sidebar button
+2. Fix waitForModal() to use specific dialog selector: [role="dialog"]:has(h3:has-text("..."))
+3. Set **desktop viewport (1280x800)** for all tests
+
+### Results
+
+- **Session History tests**: 11/16 now passing! ✅
+- Fixed in: session-history.spec.ts, merged-session-history.spec.ts, modal-escape.spec.ts
+- All 395 unit tests still passing
+
+### Next Steps
+
+1. Apply desktop viewport to ALL remaining test files
+2. Apply same .last() pattern to other duplicate button scenarios
+3. Fix Ralph/Lisa panel tests (similar issue likely)
+4. Run full E2E suite to measure total improvement
