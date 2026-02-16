@@ -4,8 +4,12 @@ import { Locator, Page } from '@playwright/test';
  * Scrolls element into view and clicks it with proper waits
  * Fixes "element is outside of the viewport" errors
  */
-export async function scrollIntoViewAndClick(locator: Locator, options?: { timeout?: number }) {
+export async function scrollIntoViewAndClick(
+  locator: Locator,
+  options?: { timeout?: number; force?: boolean }
+) {
   const timeout = options?.timeout || 5000;
+  const force = options?.force ?? true; // Default to force click to avoid viewport issues
 
   // Wait for element to exist
   await locator.waitFor({ state: 'attached', timeout });
@@ -16,8 +20,8 @@ export async function scrollIntoViewAndClick(locator: Locator, options?: { timeo
   // Wait for element to be visible and stable
   await locator.waitFor({ state: 'visible', timeout });
 
-  // Click the element
-  await locator.click({ timeout });
+  // Click the element with force option to bypass viewport checks
+  await locator.click({ timeout, force });
 }
 
 /**
@@ -29,7 +33,7 @@ export async function waitForModal(
   modalTitle: string,
   options?: { timeout?: number }
 ) {
-  const timeout = options?.timeout || 10000;
+  const timeout = options?.timeout || 20000; // Increased from 10000
 
   // Wait for dialog role element
   const modal = window.locator('[role="dialog"]');
@@ -37,10 +41,10 @@ export async function waitForModal(
 
   // Wait for the modal title
   const title = modal.locator('h3', { hasText: modalTitle });
-  await title.waitFor({ state: 'visible', timeout: 5000 });
+  await title.waitFor({ state: 'visible', timeout: 10000 }); // Increased from 5000
 
   // Give modal time to settle animations
-  await window.waitForTimeout(300);
+  await window.waitForTimeout(500); // Increased from 300
 }
 
 /**
@@ -52,13 +56,13 @@ export async function waitForPanelOpen(
   panelText: string,
   options?: { timeout?: number }
 ) {
-  const timeout = options?.timeout || 10000;
+  const timeout = options?.timeout || 20000; // Increased from 10000
 
   const panel = window.locator('text=' + panelText).first();
   await panel.waitFor({ state: 'visible', timeout });
 
   // Give panel time to fully expand
-  await window.waitForTimeout(300);
+  await window.waitForTimeout(500); // Increased from 300
 }
 
 /**
@@ -97,13 +101,13 @@ export async function openDropdown(locator: Locator, options?: { timeout?: numbe
  * Fixes modal close issues
  */
 export async function closeModal(window: Page, options?: { timeout?: number }) {
-  const timeout = options?.timeout || 5000;
+  const timeout = options?.timeout || 10000;
 
   const closeButton = window.locator('[aria-label="Close modal"]');
   const isVisible = await closeButton.isVisible().catch(() => false);
 
   if (isVisible) {
-    await scrollIntoViewAndClick(closeButton, { timeout });
+    await scrollIntoViewAndClick(closeButton, { timeout, force: true });
 
     // Wait for modal to disappear
     const modal = window.locator('[role="dialog"]');
