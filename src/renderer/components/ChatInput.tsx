@@ -31,6 +31,7 @@ export interface ChatInputProps {
   onCancelVoiceAutoSend: () => void;
   onStartVoiceAutoSend: () => void;
   onOpenSettings: () => void;
+  children?: React.ReactNode; // For selectors
 }
 
 export interface ChatInputHandle {
@@ -70,6 +71,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>((props, ref
     onCancelVoiceAutoSend,
     onStartVoiceAutoSend,
     onOpenSettings,
+    children,
   } = props;
 
   // Local state - isolated from parent
@@ -656,6 +658,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>((props, ref
             </div>
           )}
         </div>
+
+        {/* Selectors area (passed as children from parent) */}
+        {children}
       </div>
     </>
   );
