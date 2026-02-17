@@ -978,7 +978,10 @@ const App: React.FC = () => {
   // Keep scroll at bottom when tool calls/subagents change (if user was already at bottom)
   useEffect(() => {
     if (isAtBottomRef.current) {
-      scrollToBottom();
+      // Defer scroll until after DOM has updated
+      requestAnimationFrame(() => {
+        scrollToBottom();
+      });
     }
   }, [activeTab?.activeTools, activeTab?.activeSubagents]);
 
