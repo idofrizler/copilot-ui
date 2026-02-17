@@ -258,6 +258,7 @@ interface StoredSession {
   fileViewMode?: 'flat' | 'tree';
   yoloMode?: boolean;
   activeAgentName?: string;
+  sourceIssue?: { url: string; number: number; owner: string; repo: string };
 }
 
 const DEFAULT_ZOOM_FACTOR = 1;
@@ -858,6 +859,7 @@ interface EarlyResumedSession {
   fileViewMode?: 'flat' | 'tree';
   yoloMode?: boolean;
   messages?: { role: 'user' | 'assistant'; content: string }[]; // Pre-loaded messages
+  sourceIssue?: { url: string; number: number; owner: string; repo: string };
 }
 let earlyResumedSessions: EarlyResumedSession[] = [];
 let earlyResumptionComplete = false;
@@ -901,6 +903,7 @@ async function startEarlySessionResumption(): Promise<void> {
         untrackedFiles,
         fileViewMode,
         yoloMode,
+        sourceIssue,
       } = storedSession;
       const sessionCwd = cwd || (app.isPackaged ? app.getPath('home') : process.cwd());
       const sessionModel = model || (store.get('model') as string) || 'gpt-5.2';
@@ -1057,6 +1060,7 @@ async function startEarlySessionResumption(): Promise<void> {
           fileViewMode: fileViewMode || 'flat',
           yoloMode: yoloMode || false,
           messages,
+          sourceIssue,
         };
         earlyResumedSessions.push(resumed);
 
@@ -4298,6 +4302,7 @@ ipcMain.handle(
       draft?: boolean;
       targetBranch: string;
       untrackedFiles?: string[];
+      sourceIssue?: { url: string; number: number; owner: string; repo: string };
     }
   ) => {
     try {
@@ -4406,7 +4411,26 @@ ipcMain.handle(
       // Construct PR creation URL - GitHub will auto-fill the form
       const title = data.title || currentBranch.replace(/[-_]/g, ' ');
       const encodedTitle = encodeURIComponent(title);
-      const prUrl = `https://github.com/${repoPath}/compare/${targetBranch}...${currentBranch}?quick_pull=1&title=${encodedTitle}`;
+
+      // Build PR URL with optional body that links to source issue
+      let prUrl = `https://github.com/${repoPath}/compare/${targetBranch}...${currentBranch}?quick_pull=1&title=${encodedTitle}`;
+
+      // If this session was created from a GitHub issue, add body to link PR to issue
+      if (data.sourceIssue) {
+        // Use "Closes" keyword to auto-close the issue when PR is merged
+        // Check if PR is in the same repo as the issue
+        const [prOwner, prRepo] = repoPath.split('/');
+        const isSameRepo =
+          prOwner.toLowerCase() === data.sourceIssue.owner.toLowerCase() &&
+          prRepo.toLowerCase() === data.sourceIssue.repo.toLowerCase();
+
+        const issueRef = isSameRepo
+          ? `#${data.sourceIssue.number}` // Same repo: use short reference
+          : `${data.sourceIssue.owner}/${data.sourceIssue.repo}#${data.sourceIssue.number}`; // Different repo: use full reference
+
+        const body = `Closes ${issueRef}`;
+        prUrl += `&body=${encodeURIComponent(body)}`;
+      }
 
       return { success: true, prUrl, branch: currentBranch, targetBranch };
     } catch (error) {

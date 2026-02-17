@@ -68,6 +68,7 @@ const electronAPI = {
         alwaysAllowed?: string[];
         name?: string;
         yoloMode?: boolean;
+        sourceIssue?: { url: string; number: number; owner: string; repo: string };
       }[]
     ): Promise<{ success: boolean }> => {
       return ipcRenderer.invoke('copilot:saveOpenSessions', sessions);
@@ -700,7 +701,8 @@ const electronAPI = {
       title: string | undefined,
       draft: boolean | undefined,
       targetBranch: string,
-      untrackedFiles?: string[]
+      untrackedFiles?: string[],
+      sourceIssue?: { url: string; number: number; owner: string; repo: string }
     ): Promise<{
       success: boolean;
       error?: string;
@@ -714,6 +716,7 @@ const electronAPI = {
         draft,
         targetBranch,
         untrackedFiles,
+        sourceIssue,
       });
     },
     getWorkingStatus: (
