@@ -972,6 +972,13 @@ const App: React.FC = () => {
     }
   }, [activeTab?.messages, activeTab?.id]);
 
+  // Keep scroll at bottom when tool calls/subagents change (if user was already at bottom)
+  useEffect(() => {
+    if (isAtBottomRef.current) {
+      scrollToBottom();
+    }
+  }, [activeTab?.activeTools, activeTab?.activeSubagents]);
+
   // Resize handlers for side panels
   const handleResizeMouseDown = useCallback(
     (e: React.MouseEvent, panel: 'left' | 'right') => {
@@ -4722,8 +4729,9 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               >
                 Sessions
               </span>
-              {tabs.filter((t) => t.hasUnreadCompletion || (t.pendingConfirmations?.length ?? 0) > 0)
-                .length > 0 && (
+              {tabs.filter(
+                (t) => t.hasUnreadCompletion || (t.pendingConfirmations?.length ?? 0) > 0
+              ).length > 0 && (
                 <span className="w-2 h-2 rounded-full bg-copilot-accent animate-pulse" />
               )}
             </button>
@@ -5112,12 +5120,13 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       {activeTab?.activeTools && (activeTab.activeTools?.length ?? 0) > 0 && (
                         <ToolActivitySection tools={activeTab.activeTools} isLive={true} />
                       )}
-                      {activeTab?.activeSubagents && (activeTab.activeSubagents?.length ?? 0) > 0 && (
-                        <SubagentActivitySection
-                          subagents={activeTab.activeSubagents}
-                          isLive={true}
-                        />
-                      )}
+                      {activeTab?.activeSubagents &&
+                        (activeTab.activeSubagents?.length ?? 0) > 0 && (
+                          <SubagentActivitySection
+                            subagents={activeTab.activeSubagents}
+                            isLive={true}
+                          />
+                        )}
                       <div className="flex items-center gap-2 text-sm">
                         <Spinner size="sm" />
                         <span className="text-copilot-text-muted">
