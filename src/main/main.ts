@@ -1219,8 +1219,17 @@ async function verifyAvailableModels(client: CopilotClient): Promise<ModelInfo[]
       })
       .sort((a, b) => a.multiplier - b.multiplier);
 
-    // Add fallback models that aren't in API response
+    // Add baseline models that aren't in API response
     const apiIds = new Set(models.map((m) => m.id));
+    for (const baseline of BASELINE_MODELS) {
+      if (!apiIds.has(baseline.id)) {
+        console.log(`Adding baseline model: ${baseline.id} (not in API response)`);
+        models.push(baseline);
+        apiIds.add(baseline.id);
+      }
+    }
+
+    // Add fallback models that aren't in API response
     for (const fallback of FALLBACK_MODELS) {
       if (!apiIds.has(fallback.id)) {
         console.log(`Adding fallback model: ${fallback.id} (not in API response)`);
