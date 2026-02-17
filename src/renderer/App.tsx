@@ -204,6 +204,9 @@ const App: React.FC = () => {
   const [noteInputValue, setNoteInputValue] = useState('');
   const contextMenuRef = useRef<HTMLDivElement>(null);
 
+  // Worktree map for grouping tabs by original repository
+  const [worktreeMap, setWorktreeMap] = useState<Map<string, { repoPath: string }>>(new Map());
+
   // Close context menu when clicking outside
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);
@@ -1139,6 +1142,26 @@ const App: React.FC = () => {
     };
     loadInstructions();
   }, [activeTab?.cwd]);
+
+  // Fetch worktree data to map worktree paths to original repo paths
+  useEffect(() => {
+    const fetchWorktrees = async () => {
+      try {
+        if (!window.electronAPI?.worktree?.listSessions) return;
+        const result = await window.electronAPI.worktree.listSessions();
+        if (result?.sessions) {
+          const map = new Map<string, { repoPath: string }>();
+          result.sessions.forEach((wt: { worktreePath: string; repoPath: string }) => {
+            map.set(wt.worktreePath, { repoPath: wt.repoPath });
+          });
+          setWorktreeMap(map);
+        }
+      } catch (err) {
+        console.error('Failed to fetch worktree list:', err);
+      }
+    };
+    fetchWorktrees();
+  }, [tabs.length]); // Re-fetch when tabs change
 
   const handleOpenEnvironment = useCallback(
     (tab: 'instructions' | 'skills' | 'agents', event?: React.MouseEvent, itemPath?: string) => {
@@ -4780,145 +4803,254 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
               {/* Open Tabs */}
               <div className="flex-1 overflow-y-auto" data-tour="sidebar-tabs">
-                {tabs.map((tab) => (
-                  <div
-                    key={tab.id}
-                    draggable={!tab.isRenaming}
-                    onDragStart={(e) => handleTabDragStart(e, tab.id)}
-                    onDragOver={(e) => handleTabDragOver(e, tab.id)}
-                    onDragLeave={handleTabDragLeave}
-                    onDrop={(e) => handleTabDrop(e, tab.id)}
-                    onDragEnd={handleTabDragEnd}
-                    onClick={() => handleSwitchTab(tab.id)}
-                    onContextMenu={(e) => handleTabContextMenu(e, tab.id)}
-                    className={`group w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors text-left cursor-pointer ${
-                      tab.id === activeTabId
-                        ? 'bg-copilot-surface text-copilot-text border-l-2 border-l-copilot-accent'
-                        : 'text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface border-l-2 border-l-transparent'
-                    } ${draggedTabId === tab.id ? 'opacity-50' : ''} ${dragOverTabId === tab.id ? 'border-t-2 border-t-copilot-accent' : ''}`}
-                  >
-                    {/* Status indicator - priority: pending > processing > marked > unread > idle */}
-                    {(tab.pendingConfirmations?.length ?? 0) > 0 ? (
-                      <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-accent animate-pulse" />
-                    ) : tab.isProcessing ? (
-                      <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-warning animate-pulse" />
-                    ) : tab.markedForReview ? (
-                      <span
-                        className="shrink-0 w-2 h-2 rounded-full bg-cyan-500"
-                        title="Marked for review"
-                      />
-                    ) : tab.hasUnreadCompletion ? (
-                      <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-success" />
-                    ) : (
-                      <span className="shrink-0 w-2 h-2 rounded-full bg-transparent" />
-                    )}
-                    {tab.isRenaming ? (
-                      <input
-                        autoFocus
-                        value={tab.renameDraft ?? tab.name}
-                        onChange={(e) =>
-                          setTabs((prev) =>
-                            prev.map((t) =>
-                              t.id === tab.id ? { ...t, renameDraft: e.target.value } : t
-                            )
-                          )
-                        }
-                        onClick={(e) => e.stopPropagation()}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === 'Escape') {
-                            e.preventDefault();
-                            e.stopPropagation();
-                          }
-                        }}
-                        onKeyUp={async (e) => {
-                          if (e.key === 'Escape') {
-                            e.stopPropagation();
-                            setTabs((prev) =>
-                              prev.map((t) =>
-                                t.id === tab.id
-                                  ? {
-                                      ...t,
-                                      isRenaming: false,
-                                      renameDraft: undefined,
-                                    }
-                                  : t
-                              )
-                            );
-                            return;
-                          }
-                          if (e.key === 'Enter') {
-                            e.stopPropagation();
-                            const nextName = (tab.renameDraft ?? tab.name).trim();
-                            const finalName = nextName || tab.name;
-                            setTabs((prev) =>
-                              prev.map((t) =>
-                                t.id === tab.id
-                                  ? {
-                                      ...t,
-                                      name: finalName,
-                                      isRenaming: false,
-                                      renameDraft: undefined,
-                                      needsTitle: false,
-                                    }
-                                  : t
-                              )
-                            );
-                            try {
-                              await window.electronAPI.copilot.renameSession(tab.id, finalName);
-                            } catch (err) {
-                              console.error('Failed to rename session:', err);
-                            }
-                          }
-                        }}
-                        onBlur={async () => {
-                          const nextName = (tab.renameDraft ?? tab.name).trim();
-                          const finalName = nextName || tab.name;
-                          setTabs((prev) =>
-                            prev.map((t) =>
-                              t.id === tab.id
-                                ? {
-                                    ...t,
-                                    name: finalName,
-                                    isRenaming: false,
-                                    renameDraft: undefined,
-                                    needsTitle: false,
+                {(() => {
+                  // Helper to get folder path for a tab (for grouping)
+                  const getTabFolder = (tab: TabState): string => {
+                    if (tab.cwd) {
+                      // Check if this is a worktree session
+                      const worktreeInfo = worktreeMap.get(tab.cwd);
+                      if (worktreeInfo) {
+                        // Use the original repo path for worktrees
+                        return worktreeInfo.repoPath;
+                      }
+
+                      // Fallback: Check if path looks like a worktree (unregistered/old worktree)
+                      // Pattern: .copilot-sessions/<repo-name>--<branch-name>
+                      const worktreePattern = /[/\\]\.copilot-sessions[/\\]([^/\\]+)$/i;
+                      const match = tab.cwd.match(worktreePattern);
+                      if (match) {
+                        // Extract repo name from worktree folder name (format: repo--branch)
+                        const worktreeFolder = match[1];
+                        const repoName = worktreeFolder.split('--')[0]; // Get part before --
+                        // Return a placeholder path using the repo name
+                        // This groups all worktrees from the same repo together
+                        return `worktree:${repoName}`;
+                      }
+
+                      // Use cwd for regular sessions
+                      return tab.cwd;
+                    }
+                    return ''; // No folder
+                  };
+
+                  // Helper to shorten path for display
+                  const shortenPath = (path: string): string => {
+                    if (!path) return 'Other';
+                    // Replace Unix home directory with ~
+                    const homeDir = '/Users/';
+                    if (path.startsWith(homeDir)) {
+                      const afterUsers = path.slice(homeDir.length);
+                      const slashIndex = afterUsers.indexOf('/');
+                      if (slashIndex !== -1) {
+                        return '~' + afterUsers.slice(slashIndex);
+                      }
+                    }
+                    // Replace Windows home directory with ~
+                    const windowsHomePattern = /^[A-Z]:\\Users\\/i;
+                    if (windowsHomePattern.test(path)) {
+                      const afterUsers = path.replace(windowsHomePattern, '');
+                      const slashIndex = afterUsers.indexOf('\\');
+                      if (slashIndex !== -1) {
+                        return '~' + afterUsers.slice(slashIndex).replace(/\\/g, '/');
+                      }
+                    }
+                    return path;
+                  };
+
+                  // Helper to extract just the folder name from a path
+                  const getFolderName = (path: string): string => {
+                    if (!path) return 'Other';
+                    // Get the last component of the path
+                    const normalized = path.replace(/\\/g, '/'); // Normalize to forward slashes
+                    const parts = normalized.split('/').filter((p) => p); // Remove empty parts
+                    return parts[parts.length - 1] || 'Other';
+                  };
+
+                  // Group tabs by folder
+                  const tabsByFolder = new Map<string, TabState[]>();
+                  for (const tab of tabs) {
+                    const folder = getTabFolder(tab);
+                    if (!tabsByFolder.has(folder)) {
+                      tabsByFolder.set(folder, []);
+                    }
+                    tabsByFolder.get(folder)!.push(tab);
+                  }
+
+                  // Convert to array and keep stable order (by first tab's position in tabs array)
+                  const folderGroups = Array.from(tabsByFolder.entries())
+                    .map(([folder, folderTabs]) => ({
+                      folder,
+                      displayName: getFolderName(folder), // Just the folder name for display
+                      fullPath: shortenPath(folder), // Full path for tooltip
+                      tabs: folderTabs,
+                      // Keep stable order based on the first occurrence
+                      sortKey: tabs.indexOf(folderTabs[0]),
+                    }))
+                    .sort((a, b) => a.sortKey - b.sortKey);
+
+                  // Render grouped tabs
+                  return folderGroups.map(({ folder, displayName, fullPath, tabs: folderTabs }) => (
+                    <div key={folder || 'no-folder'}>
+                      {/* Folder header - only show if there's more than one folder */}
+                      {tabsByFolder.size > 1 && (
+                        <div className="px-3 py-2 border-t border-copilot-border bg-copilot-bg sticky top-0 z-10">
+                          <div
+                            className="text-[10px] text-copilot-text-muted uppercase tracking-wide"
+                            title={fullPath}
+                          >
+                            {displayName}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Tabs in this folder */}
+                      {folderTabs.map((tab) => (
+                        <div
+                          key={tab.id}
+                          draggable={!tab.isRenaming}
+                          onDragStart={(e) => handleTabDragStart(e, tab.id)}
+                          onDragOver={(e) => handleTabDragOver(e, tab.id)}
+                          onDragLeave={handleTabDragLeave}
+                          onDrop={(e) => handleTabDrop(e, tab.id)}
+                          onDragEnd={handleTabDragEnd}
+                          onClick={() => handleSwitchTab(tab.id)}
+                          onContextMenu={(e) => handleTabContextMenu(e, tab.id)}
+                          className={`group w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors text-left cursor-pointer ${
+                            tab.id === activeTabId
+                              ? 'bg-copilot-surface text-copilot-text border-l-2 border-l-copilot-accent'
+                              : 'text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface border-l-2 border-l-transparent'
+                          } ${draggedTabId === tab.id ? 'opacity-50' : ''} ${dragOverTabId === tab.id ? 'border-t-2 border-t-copilot-accent' : ''}`}
+                        >
+                          {/* Status indicator - priority: pending > processing > marked > unread > idle */}
+                          {(tab.pendingConfirmations?.length ?? 0) > 0 ? (
+                            <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-accent animate-pulse" />
+                          ) : tab.isProcessing ? (
+                            <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-warning animate-pulse" />
+                          ) : tab.markedForReview ? (
+                            <span
+                              className="shrink-0 w-2 h-2 rounded-full bg-cyan-500"
+                              title="Marked for review"
+                            />
+                          ) : tab.hasUnreadCompletion ? (
+                            <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-success" />
+                          ) : (
+                            <span className="shrink-0 w-2 h-2 rounded-full bg-transparent" />
+                          )}
+                          {tab.isRenaming ? (
+                            <input
+                              autoFocus
+                              value={tab.renameDraft ?? tab.name}
+                              onChange={(e) =>
+                                setTabs((prev) =>
+                                  prev.map((t) =>
+                                    t.id === tab.id ? { ...t, renameDraft: e.target.value } : t
+                                  )
+                                )
+                              }
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === 'Escape') {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                }
+                              }}
+                              onKeyUp={async (e) => {
+                                if (e.key === 'Escape') {
+                                  e.stopPropagation();
+                                  setTabs((prev) =>
+                                    prev.map((t) =>
+                                      t.id === tab.id
+                                        ? {
+                                            ...t,
+                                            isRenaming: false,
+                                            renameDraft: undefined,
+                                          }
+                                        : t
+                                    )
+                                  );
+                                  return;
+                                }
+                                if (e.key === 'Enter') {
+                                  e.stopPropagation();
+                                  const nextName = (tab.renameDraft ?? tab.name).trim();
+                                  const finalName = nextName || tab.name;
+                                  setTabs((prev) =>
+                                    prev.map((t) =>
+                                      t.id === tab.id
+                                        ? {
+                                            ...t,
+                                            name: finalName,
+                                            isRenaming: false,
+                                            renameDraft: undefined,
+                                            needsTitle: false,
+                                          }
+                                        : t
+                                    )
+                                  );
+                                  try {
+                                    await window.electronAPI.copilot.renameSession(
+                                      tab.id,
+                                      finalName
+                                    );
+                                  } catch (err) {
+                                    console.error('Failed to rename session:', err);
                                   }
-                                : t
-                            )
-                          );
-                          try {
-                            await window.electronAPI.copilot.renameSession(tab.id, finalName);
-                          } catch (err) {
-                            console.error('Failed to rename session:', err);
-                          }
-                        }}
-                        className="flex-1 min-w-0 bg-copilot-bg border border-copilot-border rounded px-1 py-0.5 text-xs text-copilot-text outline-none focus:border-copilot-accent"
-                      />
-                    ) : (
-                      <span
-                        className="flex-1 truncate"
-                        onDoubleClick={(e) => {
-                          e.stopPropagation();
-                          setTabs((prev) =>
-                            prev.map((t) =>
-                              t.id === tab.id ? { ...t, isRenaming: true, renameDraft: t.name } : t
-                            )
-                          );
-                        }}
-                        title="Double-click to rename"
-                      >
-                        {tab.name}
-                      </span>
-                    )}
-                    <button
-                      onClick={(e) => handleCloseTab(tab.id, e)}
-                      className="shrink-0 p-0.5 rounded hover:bg-copilot-border opacity-0 group-hover:opacity-100 transition-opacity"
-                      title="Close tab"
-                    >
-                      <CloseIcon size={10} />
-                    </button>
-                  </div>
-                ))}
+                                }
+                              }}
+                              onBlur={async () => {
+                                const nextName = (tab.renameDraft ?? tab.name).trim();
+                                const finalName = nextName || tab.name;
+                                setTabs((prev) =>
+                                  prev.map((t) =>
+                                    t.id === tab.id
+                                      ? {
+                                          ...t,
+                                          name: finalName,
+                                          isRenaming: false,
+                                          renameDraft: undefined,
+                                          needsTitle: false,
+                                        }
+                                      : t
+                                  )
+                                );
+                                try {
+                                  await window.electronAPI.copilot.renameSession(tab.id, finalName);
+                                } catch (err) {
+                                  console.error('Failed to rename session:', err);
+                                }
+                              }}
+                              className="flex-1 min-w-0 bg-copilot-bg border border-copilot-border rounded px-1 py-0.5 text-xs text-copilot-text outline-none focus:border-copilot-accent"
+                            />
+                          ) : (
+                            <span
+                              className="flex-1 truncate"
+                              onDoubleClick={(e) => {
+                                e.stopPropagation();
+                                setTabs((prev) =>
+                                  prev.map((t) =>
+                                    t.id === tab.id
+                                      ? { ...t, isRenaming: true, renameDraft: t.name }
+                                      : t
+                                  )
+                                );
+                              }}
+                              title="Double-click to rename"
+                            >
+                              {tab.name}
+                            </span>
+                          )}
+                          <button
+                            onClick={(e) => handleCloseTab(tab.id, e)}
+                            className="shrink-0 p-0.5 rounded hover:bg-copilot-border opacity-0 group-hover:opacity-100 transition-opacity"
+                            title="Close tab"
+                          >
+                            <CloseIcon size={10} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ));
+                })()}
               </div>
 
               {/* Bottom section - aligned with input area */}
