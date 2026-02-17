@@ -975,6 +975,13 @@ const App: React.FC = () => {
     }
   }, [activeTab?.messages, activeTab?.id]);
 
+  // Keep scroll at bottom when tool calls/subagents change (if user was already at bottom)
+  useEffect(() => {
+    if (isAtBottomRef.current) {
+      scrollToBottom();
+    }
+  }, [activeTab?.activeTools, activeTab?.activeSubagents]);
+
   // Resize handlers for side panels
   const handleResizeMouseDown = useCallback(
     (e: React.MouseEvent, panel: 'left' | 'right') => {
