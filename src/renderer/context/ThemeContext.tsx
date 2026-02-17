@@ -74,7 +74,8 @@ function applyThemeToDocument(theme: Theme): void {
  */
 function cssColorToHex(color: string): string {
   // Already hex
-  if (color.startsWith('#')) return color.length === 4 || color.length === 7 ? color : color.slice(0, 7);
+  if (color.startsWith('#'))
+    return color.length === 4 || color.length === 7 ? color : color.slice(0, 7);
 
   // Parse rgb/rgba
   const match = color.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
@@ -121,6 +122,18 @@ export function ThemeProvider({ children }: ThemeProviderProps): React.ReactElem
       document.documentElement.classList.add('no-transitions');
 
       try {
+        // Wait for electronAPI to be available (should be immediate in production)
+        if (!window.electronAPI?.theme) {
+          console.warn('electronAPI.theme not available yet, waiting...');
+          // Wait a bit and retry once in case of race condition
+          await new Promise((resolve) => setTimeout(resolve, 100));
+
+          if (!window.electronAPI?.theme) {
+            console.error('electronAPI.theme still not available after waiting');
+            return;
+          }
+        }
+
         // Load saved preference
         const savedPreference = await window.electronAPI.theme.get();
         if (savedPreference) {
@@ -154,6 +167,8 @@ export function ThemeProvider({ children }: ThemeProviderProps): React.ReactElem
 
   // Subscribe to system theme changes
   useEffect(() => {
+    if (!window.electronAPI?.theme?.onSystemChange) return;
+
     const unsubscribe = window.electronAPI.theme.onSystemChange(({ systemTheme: newTheme }) => {
       setSystemTheme(newTheme);
     });

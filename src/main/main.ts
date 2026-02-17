@@ -20,7 +20,7 @@ import {
   statSync,
   unlinkSync,
 } from 'fs';
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { createServer, Server } from 'http';
@@ -258,6 +258,7 @@ interface StoredSession {
   fileViewMode?: 'flat' | 'tree';
   yoloMode?: boolean;
   activeAgentName?: string;
+  sourceIssue?: { url: string; number: number; owner: string; repo: string };
 }
 
 const DEFAULT_ZOOM_FACTOR = 1;
@@ -504,6 +505,58 @@ async function getClientForCwd(cwd: string): Promise<CopilotClient> {
     return await clientPromise;
   } finally {
     inFlightCopilotClients.delete(cwd);
+  }
+}
+
+// Check CLI installation and authentication status
+async function checkCliStatus(): Promise<{
+  cliInstalled: boolean;
+  authenticated: boolean;
+  npmAvailable: boolean;
+  error?: string;
+}> {
+  try {
+    // Check if CLI binary exists
+    const cliPath = getCliPath();
+    const cliInstalled = existsSync(cliPath);
+
+    // Check if npm is available (for potential installation)
+    let npmAvailable = false;
+    try {
+      await execAsync('npm --version', { env: getAugmentedEnv() });
+      npmAvailable = true;
+    } catch {
+      npmAvailable = false;
+    }
+
+    // If CLI not installed, can't check auth
+    if (!cliInstalled) {
+      return { cliInstalled: false, authenticated: false, npmAvailable };
+    }
+
+    // Check authentication status by looking for copilot CLI config
+    let authenticated = false;
+    try {
+      const configDir = join(process.env.HOME || process.env.USERPROFILE || '', '.copilot');
+      const configPath = join(configDir, 'config.json');
+      if (existsSync(configPath)) {
+        const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+        // The copilot CLI stores last_logged_in_user after successful login
+        authenticated = !!config.last_logged_in_user?.login;
+      }
+    } catch (error) {
+      log.warn('Failed to check copilot auth status:', error);
+    }
+
+    return { cliInstalled, authenticated, npmAvailable };
+  } catch (error) {
+    log.error('Error checking CLI status:', error);
+    return {
+      cliInstalled: false,
+      authenticated: false,
+      npmAvailable: false,
+      error: String(error),
+    };
   }
 }
 
@@ -858,6 +911,7 @@ interface EarlyResumedSession {
   fileViewMode?: 'flat' | 'tree';
   yoloMode?: boolean;
   messages?: { role: 'user' | 'assistant'; content: string }[]; // Pre-loaded messages
+  sourceIssue?: { url: string; number: number; owner: string; repo: string };
 }
 let earlyResumedSessions: EarlyResumedSession[] = [];
 let earlyResumptionComplete = false;
@@ -901,6 +955,7 @@ async function startEarlySessionResumption(): Promise<void> {
         untrackedFiles,
         fileViewMode,
         yoloMode,
+        sourceIssue,
       } = storedSession;
       const sessionCwd = cwd || (app.isPackaged ? app.getPath('home') : process.cwd());
       const sessionModel = model || (store.get('model') as string) || 'gpt-5.2';
@@ -1057,6 +1112,7 @@ async function startEarlySessionResumption(): Promise<void> {
           fileViewMode: fileViewMode || 'flat',
           yoloMode: yoloMode || false,
           messages,
+          sourceIssue,
         };
         earlyResumedSessions.push(resumed);
 
@@ -1131,9 +1187,22 @@ const MODEL_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
 // Returns verified models, using cache if valid
 function getVerifiedModels(): ModelInfo[] {
+  // Check in-memory cache first
   if (verifiedModelsCache && Date.now() - verifiedModelsCache.timestamp < MODEL_CACHE_TTL) {
     return verifiedModelsCache.models;
   }
+
+  // Check persistent storage (electron-store)
+  try {
+    const storedCache = store.get('verifiedModelsCache') as VerifiedModelsCache | undefined;
+    if (storedCache && Date.now() - storedCache.timestamp < MODEL_CACHE_TTL) {
+      verifiedModelsCache = storedCache; // Hydrate in-memory cache
+      return storedCache.models;
+    }
+  } catch (err) {
+    console.warn('Failed to load stored models cache:', err);
+  }
+
   // If no cache, return baseline + fallback models (API models load async)
   return [...BASELINE_MODELS, ...FALLBACK_MODELS];
 }
@@ -1163,8 +1232,17 @@ async function verifyAvailableModels(client: CopilotClient): Promise<ModelInfo[]
       })
       .sort((a, b) => a.multiplier - b.multiplier);
 
-    // Add fallback models that aren't in API response
+    // Add baseline models that aren't in API response
     const apiIds = new Set(models.map((m) => m.id));
+    for (const baseline of BASELINE_MODELS) {
+      if (!apiIds.has(baseline.id)) {
+        console.log(`Adding baseline model: ${baseline.id} (not in API response)`);
+        models.push(baseline);
+        apiIds.add(baseline.id);
+      }
+    }
+
+    // Add fallback models that aren't in API response
     for (const fallback of FALLBACK_MODELS) {
       if (!apiIds.has(fallback.id)) {
         console.log(`Adding fallback model: ${fallback.id} (not in API response)`);
@@ -1175,14 +1253,36 @@ async function verifyAvailableModels(client: CopilotClient): Promise<ModelInfo[]
     // Re-sort after adding fallbacks
     models.sort((a, b) => a.multiplier - b.multiplier);
 
+    // Cache both in-memory and persistent storage
     verifiedModelsCache = { models, timestamp: Date.now() };
+    try {
+      store.set('verifiedModelsCache', verifiedModelsCache);
+    } catch (err) {
+      console.warn('Failed to persist models cache:', err);
+    }
+
     console.log(
       `Model list complete: ${models.length} models (${apiModels.length} from API, ${models.length - apiModels.length} fallback)`
     );
     return models;
   } catch (error) {
     console.error('Failed to fetch models from API:', error);
-    // On error, use baseline + fallback models
+
+    // Try to use previously cached models from storage (even if expired)
+    try {
+      const storedCache = store.get('verifiedModelsCache') as VerifiedModelsCache | undefined;
+      if (storedCache && storedCache.models.length > 0) {
+        console.log(
+          `Using stored models cache from ${new Date(storedCache.timestamp).toLocaleString()} (${storedCache.models.length} models)`
+        );
+        verifiedModelsCache = storedCache;
+        return storedCache.models;
+      }
+    } catch (err) {
+      console.warn('Failed to load stored models cache as fallback:', err);
+    }
+
+    // Last resort: use baseline + fallback models
     const fallbackList = [...BASELINE_MODELS, ...FALLBACK_MODELS];
     verifiedModelsCache = { models: fallbackList, timestamp: Date.now() };
     return fallbackList;
@@ -1596,6 +1696,23 @@ async function handlePermissionRequest(
   return permissionPromise;
 }
 
+// Build subagent prompting section to encourage delegation
+function buildSubagentPrompt(): string {
+  return `## Subagents and Task Delegation
+
+You have access to specialized subagents via the \`task\` tool. **Prefer using subagents** instead of doing work yourself when they're better suited for the task.
+
+**Delegation Mindset**:
+* When subagents are available, your role is to manage and coordinate, not to implement everything directly.
+* Instruct subagents to complete tasks themselves - don't just ask for advice.
+* If a custom agent and built-in agent both fit, prefer the custom agent (specialized knowledge).
+
+**After Delegation**:
+* Trust successful results, but spot-check critical changes.
+* If a subagent fails, refine your instructions and try again.
+* Only do the work yourself if repeated subagent attempts fail.`;
+}
+
 // Create a new session and return its ID
 async function createNewSession(model?: string, cwd?: string): Promise<string> {
   const sessionModel = model || (store.get('model') as string);
@@ -1640,6 +1757,9 @@ async function createNewSession(model?: string, cwd?: string): Promise<string> {
     browserTools.map((t) => t.name)
   );
 
+  // Build subagent prompting section
+  const subagentPrompt = buildSubagentPrompt();
+
   const newSession = await client.createSession({
     sessionId: generatedSessionId,
     model: sessionModel,
@@ -1651,9 +1771,7 @@ async function createNewSession(model?: string, cwd?: string): Promise<string> {
     systemMessage: {
       mode: 'append',
       content: `
-## Subagents and Task Delegation
-
-You have access to specialized subagents via the \`task\` tool. **Use subagents proactively** when they're better suited for the task.
+${subagentPrompt}
 
 ## Web Information Lookup
 
@@ -4298,6 +4416,7 @@ ipcMain.handle(
       draft?: boolean;
       targetBranch: string;
       untrackedFiles?: string[];
+      sourceIssue?: { url: string; number: number; owner: string; repo: string };
     }
   ) => {
     try {
@@ -4406,7 +4525,26 @@ ipcMain.handle(
       // Construct PR creation URL - GitHub will auto-fill the form
       const title = data.title || currentBranch.replace(/[-_]/g, ' ');
       const encodedTitle = encodeURIComponent(title);
-      const prUrl = `https://github.com/${repoPath}/compare/${targetBranch}...${currentBranch}?quick_pull=1&title=${encodedTitle}`;
+
+      // Build PR URL with optional body that links to source issue
+      let prUrl = `https://github.com/${repoPath}/compare/${targetBranch}...${currentBranch}?quick_pull=1&title=${encodedTitle}`;
+
+      // If this session was created from a GitHub issue, add body to link PR to issue
+      if (data.sourceIssue) {
+        // Use "Closes" keyword to auto-close the issue when PR is merged
+        // Check if PR is in the same repo as the issue
+        const [prOwner, prRepo] = repoPath.split('/');
+        const isSameRepo =
+          prOwner.toLowerCase() === data.sourceIssue.owner.toLowerCase() &&
+          prRepo.toLowerCase() === data.sourceIssue.repo.toLowerCase();
+
+        const issueRef = isSameRepo
+          ? `#${data.sourceIssue.number}` // Same repo: use short reference
+          : `${data.sourceIssue.owner}/${data.sourceIssue.repo}#${data.sourceIssue.number}`; // Different repo: use full reference
+
+        const body = `Closes ${issueRef}`;
+        prUrl += `&body=${encodeURIComponent(body)}`;
+      }
 
       return { success: true, prUrl, branch: currentBranch, targetBranch };
     } catch (error) {
@@ -4577,6 +4715,108 @@ ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string
 
   console.log(`Resumed previous session ${sessionId} in ${sessionCwd}`);
   return { sessionId, model: sessionModel, cwd: sessionCwd, alreadyOpen: false };
+});
+
+// CLI Setup & Authentication
+ipcMain.handle('copilot:checkCliStatus', async () => {
+  return await checkCliStatus();
+});
+
+ipcMain.handle('copilot:installCli', async () => {
+  try {
+    // Check if npm is available
+    const { npmAvailable } = await checkCliStatus();
+    if (!npmAvailable) {
+      return { success: false, error: 'npm is not available' };
+    }
+
+    // Return success - caller will run the command in terminal
+    // (We don't actually run it here, the UI will use the terminal)
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: String(error) };
+  }
+});
+
+let authLoginInProgress = false;
+
+ipcMain.handle('copilot:authLogin', async () => {
+  if (authLoginInProgress) {
+    return { success: false, error: 'Authentication already in progress' };
+  }
+
+  authLoginInProgress = true;
+  try {
+    const cliPath = getCliPath();
+    if (!existsSync(cliPath)) {
+      return { success: false, error: 'Copilot CLI not found' };
+    }
+
+    return new Promise<{ success: boolean; error?: string; url?: string; code?: string }>(
+      (resolve) => {
+        const child = spawn(cliPath, ['login'], {
+          env: getAugmentedEnv(),
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+
+        let stdout = '';
+        let stderr = '';
+        let deviceUrl = '';
+        let deviceCode = '';
+        let deviceFlowSent = false;
+
+        const parseDeviceFlow = (data: string) => {
+          // Parse: "visit https://github.com/login/device and enter code XXXX-XXXX"
+          const urlMatch = data.match(/(https:\/\/github\.com\/login\/device)/);
+          const codeMatch = data.match(/enter code\s+([A-Z0-9]{4}-[A-Z0-9]{4})/);
+          if (urlMatch) deviceUrl = urlMatch[1];
+          if (codeMatch) deviceCode = codeMatch[1];
+
+          // Send device flow info to renderer once
+          if (deviceUrl && deviceCode && mainWindow && !deviceFlowSent) {
+            deviceFlowSent = true;
+            mainWindow.webContents.send('copilot:authDeviceFlow', {
+              url: deviceUrl,
+              code: deviceCode,
+            });
+          }
+        };
+
+        child.stdout?.on('data', (data: Buffer) => {
+          const text = data.toString();
+          stdout += text;
+          parseDeviceFlow(stdout);
+        });
+
+        child.stderr?.on('data', (data: Buffer) => {
+          const text = data.toString();
+          stderr += text;
+          parseDeviceFlow(stderr);
+        });
+
+        child.on('close', (exitCode) => {
+          authLoginInProgress = false;
+          if (exitCode === 0) {
+            resolve({ success: true, url: deviceUrl, code: deviceCode });
+          } else {
+            resolve({
+              success: false,
+              error: stderr || stdout || `Login failed with exit code ${exitCode}`,
+            });
+          }
+        });
+
+        child.on('error', (err) => {
+          authLoginInProgress = false;
+          child.kill();
+          resolve({ success: false, error: String(err) });
+        });
+      }
+    );
+  } catch (error) {
+    authLoginInProgress = false;
+    return { success: false, error: String(error) };
+  }
 });
 
 // MCP Server Management
@@ -4943,9 +5183,7 @@ if (!gotTheLock) {
         submenu: [
           { role: 'minimize' as const },
           { role: 'zoom' as const },
-          ...(isMac
-            ? [{ type: 'separator' as const }, { role: 'front' as const }]
-            : [{ role: 'close' as const }]),
+          ...(isMac ? [{ type: 'separator' as const }, { role: 'front' as const }] : []),
         ],
       },
     ];

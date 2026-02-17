@@ -2,6 +2,7 @@
 export * from './AccordionSelect';
 export * from './Button';
 export * from './ChoiceSelector';
+export * from './CliSetupModal';
 export * from './CodeBlock';
 export * from './Dropdown';
 export * from './EnvironmentModal';

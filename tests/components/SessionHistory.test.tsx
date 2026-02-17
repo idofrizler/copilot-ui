@@ -182,8 +182,10 @@ describe('SessionHistory Component', () => {
   });
 
   describe('Time-based Grouping', () => {
-    it('shows Today category for sessions from today', async () => {
-      const todaySessions = [createMockSession('today-1', 'Today session', 0)];
+    it('shows folder path as category for sessions with cwd', async () => {
+      const todaySessions = [
+        createMockSession('today-1', 'Today session', 0, '/Users/dev/my-project'),
+      ];
       await renderAndSettle(
         <SessionHistory
           isOpen={true}
@@ -197,16 +199,16 @@ describe('SessionHistory Component', () => {
         />
       );
 
-      expect(screen.getByText('Today')).toBeInTheDocument();
+      expect(screen.getByText('~/my-project')).toBeInTheDocument();
     });
 
-    it('shows Yesterday category for sessions from yesterday', async () => {
-      const yesterdaySessions = [createMockSession('yesterday-1', 'Yesterday session', 1)];
+    it('shows Other category for sessions without cwd', async () => {
+      const noCwdSessions = [createMockSession('no-cwd-1', 'Session without cwd', 1)];
       await renderAndSettle(
         <SessionHistory
           isOpen={true}
           onClose={mockOnClose}
-          sessions={yesterdaySessions}
+          sessions={noCwdSessions}
           onResumeSession={mockOnResumeSession}
           onDeleteSession={mockOnDeleteSession}
           activeSessions={[]}
@@ -215,16 +217,19 @@ describe('SessionHistory Component', () => {
         />
       );
 
-      expect(screen.getByText('Yesterday')).toBeInTheDocument();
+      expect(screen.getByText('Other')).toBeInTheDocument();
     });
 
-    it('shows Last 7 Days category for sessions 2-7 days old', async () => {
-      const weekSessions = [createMockSession('week-1', 'Week session', 5)];
+    it('groups sessions from same folder together', async () => {
+      const sameFolderSessions = [
+        createMockSession('week-1', 'Week session 1', 5, '/Users/dev/project'),
+        createMockSession('week-2', 'Week session 2', 3, '/Users/dev/project'),
+      ];
       await renderAndSettle(
         <SessionHistory
           isOpen={true}
           onClose={mockOnClose}
-          sessions={weekSessions}
+          sessions={sameFolderSessions}
           onResumeSession={mockOnResumeSession}
           onDeleteSession={mockOnDeleteSession}
           activeSessions={[]}
@@ -233,29 +238,14 @@ describe('SessionHistory Component', () => {
         />
       );
 
-      expect(screen.getByText('Last 7 Days')).toBeInTheDocument();
+      // Both sessions should be under the same folder category
+      expect(screen.getByText('~/project')).toBeInTheDocument();
+      expect(screen.getByText('Week session 1')).toBeInTheDocument();
+      expect(screen.getByText('Week session 2')).toBeInTheDocument();
     });
 
-    it('shows Last 30 Days category for sessions 8-30 days old', async () => {
-      const monthSessions = [createMockSession('month-1', 'Month session', 15)];
-      await renderAndSettle(
-        <SessionHistory
-          isOpen={true}
-          onClose={mockOnClose}
-          sessions={monthSessions}
-          onResumeSession={mockOnResumeSession}
-          onDeleteSession={mockOnDeleteSession}
-          activeSessions={[]}
-          activeSessionId={null}
-          onSwitchToSession={mockOnSwitchToSession}
-        />
-      );
-
-      expect(screen.getByText('Last 30 Days')).toBeInTheDocument();
-    });
-
-    it('shows Older category for sessions more than 30 days old', async () => {
-      const oldSessions = [createMockSession('old-1', 'Old session', 45)];
+    it('sorts folders by most recent session activity', async () => {
+      const oldSessions = [createMockSession('old-1', 'Old session', 45, '/Users/dev/old-project')];
       await renderAndSettle(
         <SessionHistory
           isOpen={true}
@@ -269,10 +259,10 @@ describe('SessionHistory Component', () => {
         />
       );
 
-      expect(screen.getByText('Older')).toBeInTheDocument();
+      expect(screen.getByText('~/old-project')).toBeInTheDocument();
     });
 
-    it('shows multiple categories when sessions span different time periods', async () => {
+    it('shows multiple categories when sessions are in different folders', async () => {
       await renderAndSettle(
         <SessionHistory
           isOpen={true}
@@ -286,26 +276,28 @@ describe('SessionHistory Component', () => {
         />
       );
 
-      expect(screen.getByText('Today')).toBeInTheDocument();
-      expect(screen.getByText('Yesterday')).toBeInTheDocument();
-      expect(screen.getByText('Last 7 Days')).toBeInTheDocument();
-      expect(screen.getByText('Last 30 Days')).toBeInTheDocument();
-      expect(screen.getByText('Older')).toBeInTheDocument();
+      // Sessions are now grouped by folder path (shortened with ~)
+      expect(screen.getByText('~/project-a')).toBeInTheDocument();
+      expect(screen.getByText('~/project-b')).toBeInTheDocument();
+      expect(screen.getByText('~/project-c')).toBeInTheDocument();
+      expect(screen.getByText('~/cooper')).toBeInTheDocument();
     });
 
-    it('orders sessions newest-first within each timeframe', async () => {
+    it('orders sessions newest-first within each folder', async () => {
       const newerDate = new Date();
       const olderDate = new Date(newerDate.getTime() - 60 * 60 * 1000);
 
       const older = {
-        sessionId: 'today-older',
-        name: 'Older today session',
+        sessionId: 'folder-older',
+        name: 'Older session',
         modifiedTime: olderDate.toISOString(),
+        cwd: '/Users/dev/project-a',
       };
       const newer = {
-        sessionId: 'today-newer',
-        name: 'Newer today session',
+        sessionId: 'folder-newer',
+        name: 'Newer session',
         modifiedTime: newerDate.toISOString(),
+        cwd: '/Users/dev/project-a',
       };
 
       await renderAndSettle(
@@ -321,8 +313,8 @@ describe('SessionHistory Component', () => {
         />
       );
 
-      const newerEl = screen.getByText('Newer today session');
-      const olderEl = screen.getByText('Older today session');
+      const newerEl = screen.getByText('Newer session');
+      const olderEl = screen.getByText('Older session');
       expect(
         newerEl.compareDocumentPosition(olderEl) & Node.DOCUMENT_POSITION_FOLLOWING
       ).toBeTruthy();

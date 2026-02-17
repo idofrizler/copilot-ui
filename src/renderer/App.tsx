@@ -58,6 +58,7 @@ import {
   MessageItem,
   ChatInput,
   type ChatInputHandle,
+  CliSetupModal,
 } from './components';
 import { GitBranchWidget, CommitModal, useCommitModal } from './features/git';
 import { CreateWorktreeSession } from './features/sessions';
@@ -102,6 +103,7 @@ import { LONG_OUTPUT_LINE_THRESHOLD } from './utils/cliOutputCompression';
 import { isAsciiDiagram, extractTextContent } from './utils/isAsciiDiagram';
 import { isCliCommand } from './utils/isCliCommand';
 import { groupAgents } from './utils/agentPicker';
+import { parseGitHubIssueUrl } from './utils/parseGitHubIssueUrl';
 import { useClickOutside, useResponsive, useVoiceSpeech } from './hooks';
 import buildInfo from './build-info.json';
 import { TerminalProvider } from './context/TerminalContext';
@@ -201,6 +203,9 @@ const App: React.FC = () => {
   } | null>(null);
   const [noteInputValue, setNoteInputValue] = useState('');
   const contextMenuRef = useRef<HTMLDivElement>(null);
+
+  // Worktree map for grouping tabs by original repository
+  const [worktreeMap, setWorktreeMap] = useState<Map<string, { repoPath: string }>>(new Map());
 
   // Close context menu when clicking outside
   const closeContextMenu = useCallback(() => {
@@ -460,6 +465,9 @@ const App: React.FC = () => {
   const [showWelcomeWizard, setShowWelcomeWizard] = useState(false);
   const [shouldShowWizardWhenReady, setShouldShowWizardWhenReady] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
+
+  // CLI setup modal state
+  const [showCliSetupModal, setShowCliSetupModal] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<ChatInputHandle>(null);
@@ -762,6 +770,25 @@ const App: React.FC = () => {
     checkWelcomeWizard();
   }, []);
 
+  // Check CLI status on startup
+  useEffect(() => {
+    const checkCliSetup = async () => {
+      try {
+        const status = await window.electronAPI.copilot.checkCliStatus();
+
+        // Only show setup modal if CLI is not installed or not authenticated
+        // Skip in packaged apps where CLI is bundled (only check auth)
+        if (!status.cliInstalled || !status.authenticated) {
+          setShowCliSetupModal(true);
+        }
+      } catch (error) {
+        console.error('Failed to check CLI status:', error);
+      }
+    };
+
+    checkCliSetup();
+  }, []);
+
   // Show wizard once data is loaded and we should show it
   useEffect(() => {
     if (shouldShowWizardWhenReady && dataLoaded) {
@@ -870,6 +897,7 @@ const App: React.FC = () => {
         fileViewMode: t.fileViewMode,
         yoloMode: t.yoloMode,
         activeAgentName: t.activeAgentName,
+        sourceIssue: t.sourceIssue,
       }));
       window.electronAPI.copilot.saveOpenSessions(openSessions);
     }
@@ -946,6 +974,13 @@ const App: React.FC = () => {
       scrollToBottom(true);
     }
   }, [activeTab?.messages, activeTab?.id]);
+
+  // Keep scroll at bottom when tool calls/subagents change (if user was already at bottom)
+  useEffect(() => {
+    if (isAtBottomRef.current) {
+      scrollToBottom();
+    }
+  }, [activeTab?.activeTools, activeTab?.activeSubagents]);
 
   // Resize handlers for side panels
   const handleResizeMouseDown = useCallback(
@@ -1107,6 +1142,26 @@ const App: React.FC = () => {
     };
     loadInstructions();
   }, [activeTab?.cwd]);
+
+  // Fetch worktree data to map worktree paths to original repo paths
+  useEffect(() => {
+    const fetchWorktrees = async () => {
+      try {
+        if (!window.electronAPI?.worktree?.listSessions) return;
+        const result = await window.electronAPI.worktree.listSessions();
+        if (result?.sessions) {
+          const map = new Map<string, { repoPath: string }>();
+          result.sessions.forEach((wt: { worktreePath: string; repoPath: string }) => {
+            map.set(wt.worktreePath, { repoPath: wt.repoPath });
+          });
+          setWorktreeMap(map);
+        }
+      } catch (err) {
+        console.error('Failed to fetch worktree list:', err);
+      }
+    };
+    fetchWorktrees();
+  }, [tabs.length]); // Re-fetch when tabs change
 
   const handleOpenEnvironment = useCallback(
     (tab: 'instructions' | 'skills' | 'agents', event?: React.MouseEvent, itemPath?: string) => {
@@ -1270,6 +1325,7 @@ const App: React.FC = () => {
               reviewNote: s.reviewNote,
               yoloMode: s.yoloMode,
               activeAgentName: s.activeAgentName,
+              sourceIssue: s.sourceIssue,
             };
           });
 
@@ -1348,6 +1404,7 @@ const App: React.FC = () => {
             lisaConfig,
             yoloMode: s.yoloMode,
             activeAgentName: s.activeAgentName,
+            sourceIssue: s.sourceIssue,
           },
         ];
       });
@@ -1923,7 +1980,7 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       if (sessionId === activeTabIdRef.current) {
         setTabs((currentTabs) => {
           const tab = currentTabs.find((t) => t.id === sessionId);
-          if (tab && tab.pendingConfirmations.length === 0) {
+          if (tab && (tab.pendingConfirmations?.length ?? 0) === 0) {
             chatInputRef.current?.focus();
           }
           return currentTabs;
@@ -2363,7 +2420,7 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
     // If there are pending confirmations, automatically deny them when sending a new message
     // Note: Only the first confirmation is denied (confirmations are processed sequentially)
     // This matches the behavior of handleConfirmation which also processes one at a time
-    if (activeTab.pendingConfirmations.length > 0) {
+    if ((activeTab.pendingConfirmations?.length ?? 0) > 0) {
       const pendingConfirmation = activeTab.pendingConfirmations[0];
 
       // Deny the pending confirmation
@@ -3320,7 +3377,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
   const handleWorktreeSessionCreated = async (
     worktreePath: string,
     branch: string,
-    autoStart?: {
+    issueData?: {
       issueInfo: {
         url: string;
         title: string;
@@ -3331,6 +3388,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       ralphMaxIterations?: number;
       useLisaSimpson?: boolean;
       yoloMode?: boolean;
+      shouldAutoStart?: boolean;
     }
   ) => {
     try {
@@ -3357,10 +3415,15 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         await window.electronAPI.copilot.addAlwaysAllowed(result.sessionId, cmd);
       }
 
-      // Enable yolo mode if requested
-      if (autoStart?.yoloMode) {
+      // Enable yolo mode if requested (only when shouldAutoStart)
+      if (issueData?.shouldAutoStart && issueData?.yoloMode) {
         await window.electronAPI.copilot.setYoloMode(result.sessionId, true);
       }
+
+      // Parse source issue URL if provided (always, not just for autoStart)
+      const sourceIssue = issueData?.issueInfo?.url
+        ? parseGitHubIssueUrl(issueData.issueInfo.url)
+        : undefined;
 
       const newTab: TabState = {
         id: result.sessionId,
@@ -3380,23 +3443,24 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         currentIntent: null,
         currentIntentTimestamp: null,
         gitBranchRefresh: 0,
-        yoloMode: autoStart?.yoloMode || false,
+        yoloMode: (issueData?.shouldAutoStart && issueData?.yoloMode) || false,
         activeAgentName: undefined,
+        sourceIssue: sourceIssue ?? undefined,
       };
       setTabs((prev) => [...prev, newTab]);
       setActiveTabId(result.sessionId);
       setStatus('connected');
 
-      // If autoStart is enabled, send the initial prompt with issue context
-      if (autoStart) {
-        const issueContext = autoStart.issueInfo.body
-          ? `## Issue Description\n\n${autoStart.issueInfo.body}`
+      // If shouldAutoStart is enabled, send the initial prompt with issue context
+      if (issueData?.shouldAutoStart) {
+        const issueContext = issueData.issueInfo.body
+          ? `## Issue Description\n\n${issueData.issueInfo.body}`
           : '';
 
         // Format comments if available
         let commentsContext = '';
-        if (autoStart.issueInfo.comments && autoStart.issueInfo.comments.length > 0) {
-          const formattedComments = autoStart.issueInfo.comments
+        if (issueData.issueInfo.comments && issueData.issueInfo.comments.length > 0) {
+          const formattedComments = issueData.issueInfo.comments
             .map((comment) => `### Comment by @${comment.user.login}\n\n${comment.body}`)
             .join('\n\n');
           commentsContext = `\n\n## Issue Comments\n\n${formattedComments}`;
@@ -3404,8 +3468,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
         const initialPrompt = `Please implement the following GitHub issue:
 
-**Issue URL:** ${autoStart.issueInfo.url}
-**Title:** ${autoStart.issueInfo.title}
+**Issue URL:** ${issueData.issueInfo.url}
+**Title:** ${issueData.issueInfo.title}
 
 ${issueContext}${commentsContext}
 
@@ -3416,7 +3480,7 @@ Start by exploring the codebase to understand the current implementation, then m
         let ralphConfig: RalphConfig | undefined = undefined;
         let lisaConfig: LisaConfig | undefined = undefined;
 
-        if (autoStart.useLisaSimpson) {
+        if (issueData.useLisaSimpson) {
           // Lisa Simpson mode - start with Plan phase
           promptToSend = buildLisaPhasePrompt(
             'plan',
@@ -3440,7 +3504,7 @@ Start by exploring the codebase to understand the current implementation, then m
             phaseHistory: [{ phase: 'plan', iteration: 1, timestamp: Date.now() }],
             evidenceFolderPath: `${worktreePath}/evidence`,
           };
-        } else if (autoStart.useRalphWiggum) {
+        } else if (issueData.useRalphWiggum) {
           // Ralph Wiggum mode
           promptToSend = `${initialPrompt}
 
@@ -3461,7 +3525,7 @@ When you have finished the task, please verify:
 Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETION_SIGNAL}`;
           ralphConfig = {
             originalPrompt: initialPrompt,
-            maxIterations: autoStart.ralphMaxIterations || 20,
+            maxIterations: issueData.ralphMaxIterations || 20,
             currentIteration: 1,
             active: true,
           };
@@ -4138,7 +4202,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   } ${draggedTabId === tab.id ? 'opacity-50' : ''} ${dragOverTabId === tab.id ? 'border-t-2 border-t-copilot-accent' : ''}`}
                 >
                   {/* Status indicator */}
-                  {tab.pendingConfirmations.length > 0 ? (
+                  {(tab.pendingConfirmations?.length ?? 0) > 0 ? (
                     <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-accent animate-pulse" />
                   ) : tab.isProcessing ? (
                     <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-warning animate-pulse" />
@@ -4302,7 +4366,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 </div>
                 {showEditedFiles && activeTab && (
                   <div className="max-h-48 overflow-y-auto">
-                    {activeTab.editedFiles.length === 0 ? (
+                    {(activeTab.editedFiles?.length ?? 0) === 0 ? (
                       <div className="px-4 py-3 text-xs text-copilot-text-muted">
                         No files edited
                       </div>
@@ -4692,8 +4756,9 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               >
                 Sessions
               </span>
-              {tabs.filter((t) => t.hasUnreadCompletion || t.pendingConfirmations.length > 0)
-                .length > 0 && (
+              {tabs.filter(
+                (t) => t.hasUnreadCompletion || (t.pendingConfirmations?.length ?? 0) > 0
+              ).length > 0 && (
                 <span className="w-2 h-2 rounded-full bg-copilot-accent animate-pulse" />
               )}
             </button>
@@ -4742,145 +4807,254 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
               {/* Open Tabs */}
               <div className="flex-1 overflow-y-auto" data-tour="sidebar-tabs">
-                {tabs.map((tab) => (
-                  <div
-                    key={tab.id}
-                    draggable={!tab.isRenaming}
-                    onDragStart={(e) => handleTabDragStart(e, tab.id)}
-                    onDragOver={(e) => handleTabDragOver(e, tab.id)}
-                    onDragLeave={handleTabDragLeave}
-                    onDrop={(e) => handleTabDrop(e, tab.id)}
-                    onDragEnd={handleTabDragEnd}
-                    onClick={() => handleSwitchTab(tab.id)}
-                    onContextMenu={(e) => handleTabContextMenu(e, tab.id)}
-                    className={`group w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors text-left cursor-pointer ${
-                      tab.id === activeTabId
-                        ? 'bg-copilot-surface text-copilot-text border-l-2 border-l-copilot-accent'
-                        : 'text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface border-l-2 border-l-transparent'
-                    } ${draggedTabId === tab.id ? 'opacity-50' : ''} ${dragOverTabId === tab.id ? 'border-t-2 border-t-copilot-accent' : ''}`}
-                  >
-                    {/* Status indicator - priority: pending > processing > marked > unread > idle */}
-                    {tab.pendingConfirmations.length > 0 ? (
-                      <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-accent animate-pulse" />
-                    ) : tab.isProcessing ? (
-                      <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-warning animate-pulse" />
-                    ) : tab.markedForReview ? (
-                      <span
-                        className="shrink-0 w-2 h-2 rounded-full bg-cyan-500"
-                        title="Marked for review"
-                      />
-                    ) : tab.hasUnreadCompletion ? (
-                      <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-success" />
-                    ) : (
-                      <span className="shrink-0 w-2 h-2 rounded-full bg-transparent" />
-                    )}
-                    {tab.isRenaming ? (
-                      <input
-                        autoFocus
-                        value={tab.renameDraft ?? tab.name}
-                        onChange={(e) =>
-                          setTabs((prev) =>
-                            prev.map((t) =>
-                              t.id === tab.id ? { ...t, renameDraft: e.target.value } : t
-                            )
-                          )
-                        }
-                        onClick={(e) => e.stopPropagation()}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === 'Escape') {
-                            e.preventDefault();
-                            e.stopPropagation();
-                          }
-                        }}
-                        onKeyUp={async (e) => {
-                          if (e.key === 'Escape') {
-                            e.stopPropagation();
-                            setTabs((prev) =>
-                              prev.map((t) =>
-                                t.id === tab.id
-                                  ? {
-                                      ...t,
-                                      isRenaming: false,
-                                      renameDraft: undefined,
-                                    }
-                                  : t
-                              )
-                            );
-                            return;
-                          }
-                          if (e.key === 'Enter') {
-                            e.stopPropagation();
-                            const nextName = (tab.renameDraft ?? tab.name).trim();
-                            const finalName = nextName || tab.name;
-                            setTabs((prev) =>
-                              prev.map((t) =>
-                                t.id === tab.id
-                                  ? {
-                                      ...t,
-                                      name: finalName,
-                                      isRenaming: false,
-                                      renameDraft: undefined,
-                                      needsTitle: false,
-                                    }
-                                  : t
-                              )
-                            );
-                            try {
-                              await window.electronAPI.copilot.renameSession(tab.id, finalName);
-                            } catch (err) {
-                              console.error('Failed to rename session:', err);
-                            }
-                          }
-                        }}
-                        onBlur={async () => {
-                          const nextName = (tab.renameDraft ?? tab.name).trim();
-                          const finalName = nextName || tab.name;
-                          setTabs((prev) =>
-                            prev.map((t) =>
-                              t.id === tab.id
-                                ? {
-                                    ...t,
-                                    name: finalName,
-                                    isRenaming: false,
-                                    renameDraft: undefined,
-                                    needsTitle: false,
+                {(() => {
+                  // Helper to get folder path for a tab (for grouping)
+                  const getTabFolder = (tab: TabState): string => {
+                    if (tab.cwd) {
+                      // Check if this is a worktree session
+                      const worktreeInfo = worktreeMap.get(tab.cwd);
+                      if (worktreeInfo) {
+                        // Use the original repo path for worktrees
+                        return worktreeInfo.repoPath;
+                      }
+
+                      // Fallback: Check if path looks like a worktree (unregistered/old worktree)
+                      // Pattern: .copilot-sessions/<repo-name>--<branch-name>
+                      const worktreePattern = /[/\\]\.copilot-sessions[/\\]([^/\\]+)$/i;
+                      const match = tab.cwd.match(worktreePattern);
+                      if (match) {
+                        // Extract repo name from worktree folder name (format: repo--branch)
+                        const worktreeFolder = match[1];
+                        const repoName = worktreeFolder.split('--')[0]; // Get part before --
+                        // Return a placeholder path using the repo name
+                        // This groups all worktrees from the same repo together
+                        return `worktree:${repoName}`;
+                      }
+
+                      // Use cwd for regular sessions
+                      return tab.cwd;
+                    }
+                    return ''; // No folder
+                  };
+
+                  // Helper to shorten path for display
+                  const shortenPath = (path: string): string => {
+                    if (!path) return 'Other';
+                    // Replace Unix home directory with ~
+                    const homeDir = '/Users/';
+                    if (path.startsWith(homeDir)) {
+                      const afterUsers = path.slice(homeDir.length);
+                      const slashIndex = afterUsers.indexOf('/');
+                      if (slashIndex !== -1) {
+                        return '~' + afterUsers.slice(slashIndex);
+                      }
+                    }
+                    // Replace Windows home directory with ~
+                    const windowsHomePattern = /^[A-Z]:\\Users\\/i;
+                    if (windowsHomePattern.test(path)) {
+                      const afterUsers = path.replace(windowsHomePattern, '');
+                      const slashIndex = afterUsers.indexOf('\\');
+                      if (slashIndex !== -1) {
+                        return '~' + afterUsers.slice(slashIndex).replace(/\\/g, '/');
+                      }
+                    }
+                    return path;
+                  };
+
+                  // Helper to extract just the folder name from a path
+                  const getFolderName = (path: string): string => {
+                    if (!path) return 'Other';
+                    // Get the last component of the path
+                    const normalized = path.replace(/\\/g, '/'); // Normalize to forward slashes
+                    const parts = normalized.split('/').filter((p) => p); // Remove empty parts
+                    return parts[parts.length - 1] || 'Other';
+                  };
+
+                  // Group tabs by folder
+                  const tabsByFolder = new Map<string, TabState[]>();
+                  for (const tab of tabs) {
+                    const folder = getTabFolder(tab);
+                    if (!tabsByFolder.has(folder)) {
+                      tabsByFolder.set(folder, []);
+                    }
+                    tabsByFolder.get(folder)!.push(tab);
+                  }
+
+                  // Convert to array and keep stable order (by first tab's position in tabs array)
+                  const folderGroups = Array.from(tabsByFolder.entries())
+                    .map(([folder, folderTabs]) => ({
+                      folder,
+                      displayName: getFolderName(folder), // Just the folder name for display
+                      fullPath: shortenPath(folder), // Full path for tooltip
+                      tabs: folderTabs,
+                      // Keep stable order based on the first occurrence
+                      sortKey: tabs.indexOf(folderTabs[0]),
+                    }))
+                    .sort((a, b) => a.sortKey - b.sortKey);
+
+                  // Render grouped tabs
+                  return folderGroups.map(({ folder, displayName, fullPath, tabs: folderTabs }) => (
+                    <div key={folder || 'no-folder'}>
+                      {/* Folder header - only show if there's more than one folder */}
+                      {tabsByFolder.size > 1 && (
+                        <div className="px-3 py-2 border-t border-copilot-border bg-copilot-bg sticky top-0 z-10">
+                          <div
+                            className="text-[10px] text-copilot-text-muted uppercase tracking-wide"
+                            title={fullPath}
+                          >
+                            {displayName}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Tabs in this folder */}
+                      {folderTabs.map((tab) => (
+                        <div
+                          key={tab.id}
+                          draggable={!tab.isRenaming}
+                          onDragStart={(e) => handleTabDragStart(e, tab.id)}
+                          onDragOver={(e) => handleTabDragOver(e, tab.id)}
+                          onDragLeave={handleTabDragLeave}
+                          onDrop={(e) => handleTabDrop(e, tab.id)}
+                          onDragEnd={handleTabDragEnd}
+                          onClick={() => handleSwitchTab(tab.id)}
+                          onContextMenu={(e) => handleTabContextMenu(e, tab.id)}
+                          className={`group w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors text-left cursor-pointer ${
+                            tab.id === activeTabId
+                              ? 'bg-copilot-surface text-copilot-text border-l-2 border-l-copilot-accent'
+                              : 'text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface border-l-2 border-l-transparent'
+                          } ${draggedTabId === tab.id ? 'opacity-50' : ''} ${dragOverTabId === tab.id ? 'border-t-2 border-t-copilot-accent' : ''}`}
+                        >
+                          {/* Status indicator - priority: pending > processing > marked > unread > idle */}
+                          {(tab.pendingConfirmations?.length ?? 0) > 0 ? (
+                            <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-accent animate-pulse" />
+                          ) : tab.isProcessing ? (
+                            <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-warning animate-pulse" />
+                          ) : tab.markedForReview ? (
+                            <span
+                              className="shrink-0 w-2 h-2 rounded-full bg-cyan-500"
+                              title="Marked for review"
+                            />
+                          ) : tab.hasUnreadCompletion ? (
+                            <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-success" />
+                          ) : (
+                            <span className="shrink-0 w-2 h-2 rounded-full bg-transparent" />
+                          )}
+                          {tab.isRenaming ? (
+                            <input
+                              autoFocus
+                              value={tab.renameDraft ?? tab.name}
+                              onChange={(e) =>
+                                setTabs((prev) =>
+                                  prev.map((t) =>
+                                    t.id === tab.id ? { ...t, renameDraft: e.target.value } : t
+                                  )
+                                )
+                              }
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === 'Escape') {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                }
+                              }}
+                              onKeyUp={async (e) => {
+                                if (e.key === 'Escape') {
+                                  e.stopPropagation();
+                                  setTabs((prev) =>
+                                    prev.map((t) =>
+                                      t.id === tab.id
+                                        ? {
+                                            ...t,
+                                            isRenaming: false,
+                                            renameDraft: undefined,
+                                          }
+                                        : t
+                                    )
+                                  );
+                                  return;
+                                }
+                                if (e.key === 'Enter') {
+                                  e.stopPropagation();
+                                  const nextName = (tab.renameDraft ?? tab.name).trim();
+                                  const finalName = nextName || tab.name;
+                                  setTabs((prev) =>
+                                    prev.map((t) =>
+                                      t.id === tab.id
+                                        ? {
+                                            ...t,
+                                            name: finalName,
+                                            isRenaming: false,
+                                            renameDraft: undefined,
+                                            needsTitle: false,
+                                          }
+                                        : t
+                                    )
+                                  );
+                                  try {
+                                    await window.electronAPI.copilot.renameSession(
+                                      tab.id,
+                                      finalName
+                                    );
+                                  } catch (err) {
+                                    console.error('Failed to rename session:', err);
                                   }
-                                : t
-                            )
-                          );
-                          try {
-                            await window.electronAPI.copilot.renameSession(tab.id, finalName);
-                          } catch (err) {
-                            console.error('Failed to rename session:', err);
-                          }
-                        }}
-                        className="flex-1 min-w-0 bg-copilot-bg border border-copilot-border rounded px-1 py-0.5 text-xs text-copilot-text outline-none focus:border-copilot-accent"
-                      />
-                    ) : (
-                      <span
-                        className="flex-1 truncate"
-                        onDoubleClick={(e) => {
-                          e.stopPropagation();
-                          setTabs((prev) =>
-                            prev.map((t) =>
-                              t.id === tab.id ? { ...t, isRenaming: true, renameDraft: t.name } : t
-                            )
-                          );
-                        }}
-                        title="Double-click to rename"
-                      >
-                        {tab.name}
-                      </span>
-                    )}
-                    <button
-                      onClick={(e) => handleCloseTab(tab.id, e)}
-                      className="shrink-0 p-0.5 rounded hover:bg-copilot-border opacity-0 group-hover:opacity-100 transition-opacity"
-                      title="Close tab"
-                    >
-                      <CloseIcon size={10} />
-                    </button>
-                  </div>
-                ))}
+                                }
+                              }}
+                              onBlur={async () => {
+                                const nextName = (tab.renameDraft ?? tab.name).trim();
+                                const finalName = nextName || tab.name;
+                                setTabs((prev) =>
+                                  prev.map((t) =>
+                                    t.id === tab.id
+                                      ? {
+                                          ...t,
+                                          name: finalName,
+                                          isRenaming: false,
+                                          renameDraft: undefined,
+                                          needsTitle: false,
+                                        }
+                                      : t
+                                  )
+                                );
+                                try {
+                                  await window.electronAPI.copilot.renameSession(tab.id, finalName);
+                                } catch (err) {
+                                  console.error('Failed to rename session:', err);
+                                }
+                              }}
+                              className="flex-1 min-w-0 bg-copilot-bg border border-copilot-border rounded px-1 py-0.5 text-xs text-copilot-text outline-none focus:border-copilot-accent"
+                            />
+                          ) : (
+                            <span
+                              className="flex-1 truncate"
+                              onDoubleClick={(e) => {
+                                e.stopPropagation();
+                                setTabs((prev) =>
+                                  prev.map((t) =>
+                                    t.id === tab.id
+                                      ? { ...t, isRenaming: true, renameDraft: t.name }
+                                      : t
+                                  )
+                                );
+                              }}
+                              title="Double-click to rename"
+                            >
+                              {tab.name}
+                            </span>
+                          )}
+                          <button
+                            onClick={(e) => handleCloseTab(tab.id, e)}
+                            className="shrink-0 p-0.5 rounded hover:bg-copilot-border opacity-0 group-hover:opacity-100 transition-opacity"
+                            title="Close tab"
+                          >
+                            <CloseIcon size={10} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ));
+                })()}
               </div>
 
               {/* Bottom section - aligned with input area */}
@@ -4956,7 +5130,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   } else {
                     setTerminalOpenSessions((prev) => new Set(prev).add(activeTab.id));
                     setTerminalInitializedSessions((prev) => new Set(prev).add(activeTab.id));
-                    trackEvent(TelemetryEvents.FEATURE_TERMINAL_OPENED);
                   }
                 }}
                 className={`shrink-0 flex items-center gap-2 px-4 py-2 text-xs border-b border-copilot-border ${
@@ -5080,15 +5253,16 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   <div className="flex flex-col items-start">
                     <div className="bg-copilot-surface text-copilot-text rounded-lg px-4 py-2.5">
                       {/* Show live tools and subagents in the thinking bubble */}
-                      {activeTab?.activeTools && activeTab.activeTools.length > 0 && (
+                      {activeTab?.activeTools && (activeTab.activeTools?.length ?? 0) > 0 && (
                         <ToolActivitySection tools={activeTab.activeTools} isLive={true} />
                       )}
-                      {activeTab?.activeSubagents && activeTab.activeSubagents.length > 0 && (
-                        <SubagentActivitySection
-                          subagents={activeTab.activeSubagents}
-                          isLive={true}
-                        />
-                      )}
+                      {activeTab?.activeSubagents &&
+                        (activeTab.activeSubagents?.length ?? 0) > 0 && (
+                          <SubagentActivitySection
+                            subagents={activeTab.activeSubagents}
+                            isLive={true}
+                          />
+                        )}
                       <div className="flex items-center gap-2 text-sm">
                         <Spinner size="sm" />
                         <span className="text-copilot-text-muted">
@@ -5153,7 +5327,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
             {activeTab?.pendingConfirmations?.[0] &&
               (() => {
                 const pendingConfirmation = activeTab.pendingConfirmations[0];
-                const queueLength = activeTab.pendingConfirmations.length;
+                const queueLength = activeTab.pendingConfirmations?.length ?? 0;
                 return (
                   <div
                     className={`shrink-0 mx-3 mb-2 p-4 bg-copilot-surface rounded-lg border ${pendingConfirmation.isDestructive ? 'border-copilot-error' : 'border-copilot-warning'}`}
@@ -5991,7 +6165,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     </div>
                     {showEditedFiles && activeTab && (
                       <div className="max-h-48 overflow-y-auto">
-                        {activeTab.editedFiles.length === 0 ? (
+                        {(activeTab.editedFiles?.length ?? 0) === 0 ? (
                           <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
                             No files edited
                           </div>
@@ -6369,7 +6543,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 </div>
                 {!activeTab?.yoloMode && showAllowedCommands && activeTab && (
                   <div className="max-h-48 overflow-y-auto">
-                    {activeTab.alwaysAllowed.length === 0 ? (
+                    {(activeTab.alwaysAllowed?.length ?? 0) === 0 ? (
                       <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
                         No session commands
                       </div>
@@ -6880,6 +7054,9 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
             }
           }}
         />
+
+        {/* CLI Setup Modal */}
+        <CliSetupModal isOpen={showCliSetupModal} onComplete={() => setShowCliSetupModal(false)} />
 
         {/* Session Context Menu (right-click on tab) */}
         {contextMenu && (

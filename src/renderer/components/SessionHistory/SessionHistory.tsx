@@ -16,6 +16,7 @@ interface DisplaySession extends PreviousSession {
 // Full worktree data including lastAccessedAt for time categorization
 interface WorktreeData {
   id: string;
+  repoPath: string;
   branch: string;
   worktreePath: string;
   status: 'active' | 'idle' | 'orphaned';
@@ -112,7 +113,80 @@ const shortenPath = (path: string | undefined) => {
       return '~' + afterUsers.slice(slashIndex);
     }
   }
+  // For Windows paths
+  const windowsHomePattern = /^[A-Z]:\\Users\\/i;
+  if (windowsHomePattern.test(path)) {
+    const afterUsers = path.replace(windowsHomePattern, '');
+    const slashIndex = afterUsers.indexOf('\\');
+    if (slashIndex !== -1) {
+      return '~' + afterUsers.slice(slashIndex).replace(/\\/g, '/');
+    }
+  }
   return path;
+};
+
+// Helper to get the source folder for a session (for grouping)
+const getSessionSourceFolder = (session: DisplaySession): string | null => {
+  // For worktree sessions, use the repoPath (the original repository)
+  if (session.worktree?.repoPath) {
+    return session.worktree.repoPath;
+  }
+  // For regular sessions, use their cwd
+  if (session.cwd) {
+    return session.cwd;
+  }
+  return null;
+};
+
+// Helper to categorize sessions by folder/repository
+const categorizeByFolder = (sessions: DisplaySession[]) => {
+  const folderMap = new Map<string, DisplaySession[]>();
+  const noFolder: DisplaySession[] = [];
+
+  for (const session of sessions) {
+    const folder = getSessionSourceFolder(session);
+    if (folder) {
+      if (!folderMap.has(folder)) {
+        folderMap.set(folder, []);
+      }
+      folderMap.get(folder)!.push(session);
+    } else {
+      noFolder.push(session);
+    }
+  }
+
+  // Convert to array and sort sessions within each folder by time (newest first)
+  const categories = Array.from(folderMap.entries())
+    .map(([folder, sessions]) => {
+      const sorted = sessions.sort(
+        (a, b) => new Date(b.modifiedTime).getTime() - new Date(a.modifiedTime).getTime()
+      );
+      return {
+        label: shortenPath(folder) || folder,
+        fullPath: folder,
+        sessions: sorted,
+      };
+    })
+    .sort((a, b) => {
+      // Sort folders by most recent session activity
+      const aLatest = Math.max(...a.sessions.map((s) => new Date(s.modifiedTime).getTime()));
+      const bLatest = Math.max(...b.sessions.map((s) => new Date(s.modifiedTime).getTime()));
+      return bLatest - aLatest;
+    });
+
+  // Add "Other" category for sessions without a folder (if any)
+  if (noFolder.length > 0) {
+    noFolder.sort(
+      (a, b) => new Date(b.modifiedTime).getTime() - new Date(a.modifiedTime).getTime()
+    );
+    categories.push({
+      label: 'Other',
+      fullPath: '',
+      sessions: noFolder,
+    });
+  }
+
+  return categories;
 };
 
 export const SessionHistory: React.FC<SessionHistoryProps> = ({
@@ -157,6 +231,7 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
             result.sessions.forEach(
               (wt: {
                 id: string;
+                repoPath: string;
                 branch: string;
                 worktreePath: string;
                 status: 'active' | 'idle' | 'orphaned';
@@ -166,6 +241,7 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
               }) => {
                 map.set(wt.worktreePath, {
                   id: wt.id,
+                  repoPath: wt.repoPath,
                   branch: wt.branch,
                   worktreePath: wt.worktreePath,
                   status: wt.status,
@@ -209,6 +285,7 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
       const worktree = worktreeData
         ? {
             id: worktreeData.id,
+            repoPath: worktreeData.repoPath,
             branch: worktreeData.branch,
             worktreePath: worktreeData.worktreePath,
             status: worktreeData.status,
@@ -256,6 +333,7 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
           isActive: false,
           worktree: {
             id: worktreeData.id,
+            repoPath: worktreeData.repoPath,
             branch: worktreeData.branch,
             worktreePath: worktreeData.worktreePath,
             status: worktreeData.status,
@@ -303,9 +381,9 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
     return allSessions.filter((s) => s.worktree).length;
   }, [allSessions]);
 
-  // Categorize filtered sessions
+  // Categorize filtered sessions by folder
   const categorizedSessions = useMemo(() => {
-    return categorizeByTime(filteredSessions);
+    return categorizeByFolder(filteredSessions);
   }, [filteredSessions]);
 
   const handleSessionClick = (session: DisplaySession) => {
@@ -380,6 +458,7 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
             refreshResult.sessions.forEach(
               (wt: {
                 id: string;
+                repoPath: string;
                 branch: string;
                 worktreePath: string;
                 status: 'active' | 'idle' | 'orphaned';
@@ -389,6 +468,7 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
               }) => {
                 map.set(wt.worktreePath, {
                   id: wt.id,
+                  repoPath: wt.repoPath,
                   branch: wt.branch,
                   worktreePath: wt.worktreePath,
                   status: wt.status,

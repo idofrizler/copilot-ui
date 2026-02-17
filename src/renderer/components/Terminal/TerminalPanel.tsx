@@ -160,7 +160,8 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
         setBufferLineCount(0);
         // Resize PTY to match terminal
         const dims = fitAddon.proposeDimensions();
-        if (dims) {
+        // Validate dimensions before sending to PTY - invalid dimensions crash node-pty
+        if (dims && dims.cols > 0 && dims.rows > 0) {
           window.electronAPI.pty.resize(sessionId, dims.cols, dims.rows);
         }
       } else {
@@ -209,7 +210,8 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
       if (fitAddonRef.current) {
         fitAddonRef.current.fit();
         const dims = fitAddonRef.current.proposeDimensions();
-        if (dims && isConnected) {
+        // Validate dimensions before sending to PTY - invalid dimensions crash node-pty
+        if (dims && isConnected && dims.cols > 0 && dims.rows > 0) {
           window.electronAPI.pty.resize(sessionIdRef.current, dims.cols, dims.rows);
         }
       }
@@ -296,7 +298,8 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
       setBufferLineCount(0);
       if (fitAddonRef.current) {
         const dims = fitAddonRef.current.proposeDimensions();
-        if (dims) {
+        // Validate dimensions before sending to PTY - invalid dimensions crash node-pty
+        if (dims && dims.cols > 0 && dims.rows > 0) {
           window.electronAPI.pty.resize(sessionIdRef.current, dims.cols, dims.rows);
         }
       }
@@ -327,7 +330,8 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
         if (fitAddonRef.current) {
           fitAddonRef.current.fit();
           const dims = fitAddonRef.current.proposeDimensions();
-          if (dims && isConnected) {
+          // Validate dimensions before sending to PTY - invalid dimensions crash node-pty
+          if (dims && isConnected && dims.cols > 0 && dims.rows > 0) {
             window.electronAPI.pty.resize(sessionIdRef.current, dims.cols, dims.rows);
           }
         }
