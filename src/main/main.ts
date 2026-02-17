@@ -1187,9 +1187,22 @@ const MODEL_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
 // Returns verified models, using cache if valid
 function getVerifiedModels(): ModelInfo[] {
+  // Check in-memory cache first
   if (verifiedModelsCache && Date.now() - verifiedModelsCache.timestamp < MODEL_CACHE_TTL) {
     return verifiedModelsCache.models;
   }
+
+  // Check persistent storage (electron-store)
+  try {
+    const storedCache = store.get('verifiedModelsCache') as VerifiedModelsCache | undefined;
+    if (storedCache && Date.now() - storedCache.timestamp < MODEL_CACHE_TTL) {
+      verifiedModelsCache = storedCache; // Hydrate in-memory cache
+      return storedCache.models;
+    }
+  } catch (err) {
+    console.warn('Failed to load stored models cache:', err);
+  }
+
   // If no cache, return baseline + fallback models (API models load async)
   return [...BASELINE_MODELS, ...FALLBACK_MODELS];
 }
@@ -1240,14 +1253,36 @@ async function verifyAvailableModels(client: CopilotClient): Promise<ModelInfo[]
     // Re-sort after adding fallbacks
     models.sort((a, b) => a.multiplier - b.multiplier);
 
+    // Cache both in-memory and persistent storage
     verifiedModelsCache = { models, timestamp: Date.now() };
+    try {
+      store.set('verifiedModelsCache', verifiedModelsCache);
+    } catch (err) {
+      console.warn('Failed to persist models cache:', err);
+    }
+
     console.log(
       `Model list complete: ${models.length} models (${apiModels.length} from API, ${models.length - apiModels.length} fallback)`
     );
     return models;
   } catch (error) {
     console.error('Failed to fetch models from API:', error);
-    // On error, use baseline + fallback models
+
+    // Try to use previously cached models from storage (even if expired)
+    try {
+      const storedCache = store.get('verifiedModelsCache') as VerifiedModelsCache | undefined;
+      if (storedCache && storedCache.models.length > 0) {
+        console.log(
+          `Using stored models cache from ${new Date(storedCache.timestamp).toLocaleString()} (${storedCache.models.length} models)`
+        );
+        verifiedModelsCache = storedCache;
+        return storedCache.models;
+      }
+    } catch (err) {
+      console.warn('Failed to load stored models cache as fallback:', err);
+    }
+
+    // Last resort: use baseline + fallback models
     const fallbackList = [...BASELINE_MODELS, ...FALLBACK_MODELS];
     verifiedModelsCache = { models: fallbackList, timestamp: Date.now() };
     return fallbackList;
