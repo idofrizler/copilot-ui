@@ -1185,6 +1185,9 @@ interface VerifiedModelsCache {
 let verifiedModelsCache: VerifiedModelsCache | null = null;
 const MODEL_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
+// Track ongoing model verification to avoid race conditions
+let modelsVerificationPromise: Promise<ModelInfo[]> | null = null;
+
 // Returns verified models, using cache if valid
 function getVerifiedModels(): ModelInfo[] {
   // Check in-memory cache first
@@ -2214,7 +2217,9 @@ async function initCopilot(): Promise<void> {
 
     // Verify available models in background (non-blocking)
     if (defaultClient) {
-      verifyAvailableModels(defaultClient)
+      // Store the promise globally so getModels() can wait for it
+      modelsVerificationPromise = verifyAvailableModels(defaultClient);
+      modelsVerificationPromise
         .then((verifiedModels) => {
           if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('copilot:modelsVerified', { models: verifiedModels });
@@ -2222,6 +2227,10 @@ async function initCopilot(): Promise<void> {
         })
         .catch((err) => {
           console.error('Model verification failed:', err);
+        })
+        .finally(() => {
+          // Clear the promise after completion (success or failure)
+          modelsVerificationPromise = null;
         });
     }
 
@@ -3055,6 +3064,16 @@ ipcMain.handle(
 );
 
 ipcMain.handle('copilot:getModels', async () => {
+  // If model verification is in progress, wait for it to complete
+  if (modelsVerificationPromise) {
+    try {
+      await modelsVerificationPromise;
+    } catch (err) {
+      // Verification failed, but we'll return cached/fallback models below
+      console.warn('Model verification failed while waiting:', err);
+    }
+  }
+
   const currentModel = store.get('model') as string;
   return { models: getVerifiedModels(), current: currentModel };
 });
