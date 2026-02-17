@@ -74,7 +74,8 @@ function applyThemeToDocument(theme: Theme): void {
  */
 function cssColorToHex(color: string): string {
   // Already hex
-  if (color.startsWith('#')) return color.length === 4 || color.length === 7 ? color : color.slice(0, 7);
+  if (color.startsWith('#'))
+    return color.length === 4 || color.length === 7 ? color : color.slice(0, 7);
 
   // Parse rgb/rgba
   const match = color.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
