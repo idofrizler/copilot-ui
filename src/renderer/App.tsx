@@ -58,6 +58,7 @@ import {
   MessageItem,
   ChatInput,
   type ChatInputHandle,
+  CliSetupModal,
 } from './components';
 import { GitBranchWidget, CommitModal, useCommitModal } from './features/git';
 import { CreateWorktreeSession } from './features/sessions';
@@ -462,6 +463,9 @@ const App: React.FC = () => {
   const [shouldShowWizardWhenReady, setShouldShowWizardWhenReady] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
 
+  // CLI setup modal state
+  const [showCliSetupModal, setShowCliSetupModal] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<ChatInputHandle>(null);
   const activeTabIdRef = useRef<string | null>(null);
@@ -761,6 +765,25 @@ const App: React.FC = () => {
     };
 
     checkWelcomeWizard();
+  }, []);
+
+  // Check CLI status on startup
+  useEffect(() => {
+    const checkCliSetup = async () => {
+      try {
+        const status = await window.electronAPI.copilot.checkCliStatus();
+
+        // Only show setup modal if CLI is not installed or not authenticated
+        // Skip in packaged apps where CLI is bundled (only check auth)
+        if (!status.cliInstalled || !status.authenticated) {
+          setShowCliSetupModal(true);
+        }
+      } catch (error) {
+        console.error('Failed to check CLI status:', error);
+      }
+    };
+
+    checkCliSetup();
   }, []);
 
   // Show wizard once data is loaded and we should show it
@@ -6886,6 +6909,9 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
             }
           }}
         />
+
+        {/* CLI Setup Modal */}
+        <CliSetupModal isOpen={showCliSetupModal} onComplete={() => setShowCliSetupModal(false)} />
 
         {/* Session Context Menu (right-click on tab) */}
         {contextMenu && (

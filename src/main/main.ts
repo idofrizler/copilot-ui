@@ -20,7 +20,7 @@ import {
   statSync,
   unlinkSync,
 } from 'fs';
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { createServer, Server } from 'http';
@@ -505,6 +505,58 @@ async function getClientForCwd(cwd: string): Promise<CopilotClient> {
     return await clientPromise;
   } finally {
     inFlightCopilotClients.delete(cwd);
+  }
+}
+
+// Check CLI installation and authentication status
+async function checkCliStatus(): Promise<{
+  cliInstalled: boolean;
+  authenticated: boolean;
+  npmAvailable: boolean;
+  error?: string;
+}> {
+  try {
+    // Check if CLI binary exists
+    const cliPath = getCliPath();
+    const cliInstalled = existsSync(cliPath);
+
+    // Check if npm is available (for potential installation)
+    let npmAvailable = false;
+    try {
+      await execAsync('npm --version', { env: getAugmentedEnv() });
+      npmAvailable = true;
+    } catch {
+      npmAvailable = false;
+    }
+
+    // If CLI not installed, can't check auth
+    if (!cliInstalled) {
+      return { cliInstalled: false, authenticated: false, npmAvailable };
+    }
+
+    // Check authentication status by looking for copilot CLI config
+    let authenticated = false;
+    try {
+      const configDir = join(process.env.HOME || process.env.USERPROFILE || '', '.copilot');
+      const configPath = join(configDir, 'config.json');
+      if (existsSync(configPath)) {
+        const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+        // The copilot CLI stores last_logged_in_user after successful login
+        authenticated = !!config.last_logged_in_user?.login;
+      }
+    } catch (error) {
+      log.warn('Failed to check copilot auth status:', error);
+    }
+
+    return { cliInstalled, authenticated, npmAvailable };
+  } catch (error) {
+    log.error('Error checking CLI status:', error);
+    return {
+      cliInstalled: false,
+      authenticated: false,
+      npmAvailable: false,
+      error: String(error),
+    };
   }
 }
 
@@ -4619,6 +4671,108 @@ ipcMain.handle('copilot:resumePreviousSession', async (_event, sessionId: string
 
   console.log(`Resumed previous session ${sessionId} in ${sessionCwd}`);
   return { sessionId, model: sessionModel, cwd: sessionCwd, alreadyOpen: false };
+});
+
+// CLI Setup & Authentication
+ipcMain.handle('copilot:checkCliStatus', async () => {
+  return await checkCliStatus();
+});
+
+ipcMain.handle('copilot:installCli', async () => {
+  try {
+    // Check if npm is available
+    const { npmAvailable } = await checkCliStatus();
+    if (!npmAvailable) {
+      return { success: false, error: 'npm is not available' };
+    }
+
+    // Return success - caller will run the command in terminal
+    // (We don't actually run it here, the UI will use the terminal)
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: String(error) };
+  }
+});
+
+let authLoginInProgress = false;
+
+ipcMain.handle('copilot:authLogin', async () => {
+  if (authLoginInProgress) {
+    return { success: false, error: 'Authentication already in progress' };
+  }
+
+  authLoginInProgress = true;
+  try {
+    const cliPath = getCliPath();
+    if (!existsSync(cliPath)) {
+      return { success: false, error: 'Copilot CLI not found' };
+    }
+
+    return new Promise<{ success: boolean; error?: string; url?: string; code?: string }>(
+      (resolve) => {
+        const child = spawn(cliPath, ['login'], {
+          env: getAugmentedEnv(),
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+
+        let stdout = '';
+        let stderr = '';
+        let deviceUrl = '';
+        let deviceCode = '';
+        let deviceFlowSent = false;
+
+        const parseDeviceFlow = (data: string) => {
+          // Parse: "visit https://github.com/login/device and enter code XXXX-XXXX"
+          const urlMatch = data.match(/(https:\/\/github\.com\/login\/device)/);
+          const codeMatch = data.match(/enter code\s+([A-Z0-9]{4}-[A-Z0-9]{4})/);
+          if (urlMatch) deviceUrl = urlMatch[1];
+          if (codeMatch) deviceCode = codeMatch[1];
+
+          // Send device flow info to renderer once
+          if (deviceUrl && deviceCode && mainWindow && !deviceFlowSent) {
+            deviceFlowSent = true;
+            mainWindow.webContents.send('copilot:authDeviceFlow', {
+              url: deviceUrl,
+              code: deviceCode,
+            });
+          }
+        };
+
+        child.stdout?.on('data', (data: Buffer) => {
+          const text = data.toString();
+          stdout += text;
+          parseDeviceFlow(stdout);
+        });
+
+        child.stderr?.on('data', (data: Buffer) => {
+          const text = data.toString();
+          stderr += text;
+          parseDeviceFlow(stderr);
+        });
+
+        child.on('close', (exitCode) => {
+          authLoginInProgress = false;
+          if (exitCode === 0) {
+            resolve({ success: true, url: deviceUrl, code: deviceCode });
+          } else {
+            resolve({
+              success: false,
+              error: stderr || stdout || `Login failed with exit code ${exitCode}`,
+            });
+          }
+        });
+
+        child.on('error', (err) => {
+          authLoginInProgress = false;
+          child.kill();
+          resolve({ success: false, error: String(err) });
+        });
+      }
+    );
+  } catch (error) {
+    authLoginInProgress = false;
+    return { success: false, error: String(error) };
+  }
 });
 
 // MCP Server Management
