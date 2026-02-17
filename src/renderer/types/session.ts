@@ -191,6 +191,14 @@ export interface DraftInput {
   terminalAttachment: { output: string; lineCount: number } | null;
 }
 
+// Source issue information (when session was created from a GitHub issue)
+export interface SourceIssue {
+  url: string; // Full GitHub issue URL
+  number: number; // Issue number (extracted from URL)
+  owner: string; // Repository owner
+  repo: string; // Repository name
+}
+
 // Tab/Session state
 export interface TabState {
   id: string;
@@ -223,4 +231,5 @@ export interface TabState {
   markedForReview?: boolean; // Whether session is marked for follow-up review
   reviewNote?: string; // Optional user note displayed at bottom of conversation
   yoloMode?: boolean; // Auto-approve all permission requests without prompting
+  sourceIssue?: SourceIssue; // GitHub issue this session was created from (for PR linking)
 }

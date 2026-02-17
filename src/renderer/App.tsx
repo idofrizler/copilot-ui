@@ -102,6 +102,7 @@ import { LONG_OUTPUT_LINE_THRESHOLD } from './utils/cliOutputCompression';
 import { isAsciiDiagram, extractTextContent } from './utils/isAsciiDiagram';
 import { isCliCommand } from './utils/isCliCommand';
 import { groupAgents } from './utils/agentPicker';
+import { parseGitHubIssueUrl } from './utils/parseGitHubIssueUrl';
 import { useClickOutside, useResponsive, useVoiceSpeech } from './hooks';
 import buildInfo from './build-info.json';
 import { TerminalProvider } from './context/TerminalContext';
@@ -870,6 +871,7 @@ const App: React.FC = () => {
         fileViewMode: t.fileViewMode,
         yoloMode: t.yoloMode,
         activeAgentName: t.activeAgentName,
+        sourceIssue: t.sourceIssue,
       }));
       window.electronAPI.copilot.saveOpenSessions(openSessions);
     }
@@ -1270,6 +1272,7 @@ const App: React.FC = () => {
               reviewNote: s.reviewNote,
               yoloMode: s.yoloMode,
               activeAgentName: s.activeAgentName,
+              sourceIssue: s.sourceIssue,
             };
           });
 
@@ -1348,6 +1351,7 @@ const App: React.FC = () => {
             lisaConfig,
             yoloMode: s.yoloMode,
             activeAgentName: s.activeAgentName,
+            sourceIssue: s.sourceIssue,
           },
         ];
       });
@@ -3316,7 +3320,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
   const handleWorktreeSessionCreated = async (
     worktreePath: string,
     branch: string,
-    autoStart?: {
+    issueData?: {
       issueInfo: {
         url: string;
         title: string;
@@ -3327,6 +3331,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       ralphMaxIterations?: number;
       useLisaSimpson?: boolean;
       yoloMode?: boolean;
+      shouldAutoStart?: boolean;
     }
   ) => {
     try {
@@ -3353,10 +3358,15 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         await window.electronAPI.copilot.addAlwaysAllowed(result.sessionId, cmd);
       }
 
-      // Enable yolo mode if requested
-      if (autoStart?.yoloMode) {
+      // Enable yolo mode if requested (only when shouldAutoStart)
+      if (issueData?.shouldAutoStart && issueData?.yoloMode) {
         await window.electronAPI.copilot.setYoloMode(result.sessionId, true);
       }
+
+      // Parse source issue URL if provided (always, not just for autoStart)
+      const sourceIssue = issueData?.issueInfo?.url
+        ? parseGitHubIssueUrl(issueData.issueInfo.url)
+        : undefined;
 
       const newTab: TabState = {
         id: result.sessionId,
@@ -3376,23 +3386,24 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         currentIntent: null,
         currentIntentTimestamp: null,
         gitBranchRefresh: 0,
-        yoloMode: autoStart?.yoloMode || false,
+        yoloMode: (issueData?.shouldAutoStart && issueData?.yoloMode) || false,
         activeAgentName: undefined,
+        sourceIssue: sourceIssue ?? undefined,
       };
       setTabs((prev) => [...prev, newTab]);
       setActiveTabId(result.sessionId);
       setStatus('connected');
 
-      // If autoStart is enabled, send the initial prompt with issue context
-      if (autoStart) {
-        const issueContext = autoStart.issueInfo.body
-          ? `## Issue Description\n\n${autoStart.issueInfo.body}`
+      // If shouldAutoStart is enabled, send the initial prompt with issue context
+      if (issueData?.shouldAutoStart) {
+        const issueContext = issueData.issueInfo.body
+          ? `## Issue Description\n\n${issueData.issueInfo.body}`
           : '';
 
         // Format comments if available
         let commentsContext = '';
-        if (autoStart.issueInfo.comments && autoStart.issueInfo.comments.length > 0) {
-          const formattedComments = autoStart.issueInfo.comments
+        if (issueData.issueInfo.comments && issueData.issueInfo.comments.length > 0) {
+          const formattedComments = issueData.issueInfo.comments
             .map((comment) => `### Comment by @${comment.user.login}\n\n${comment.body}`)
             .join('\n\n');
           commentsContext = `\n\n## Issue Comments\n\n${formattedComments}`;
@@ -3400,8 +3411,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
         const initialPrompt = `Please implement the following GitHub issue:
 
-**Issue URL:** ${autoStart.issueInfo.url}
-**Title:** ${autoStart.issueInfo.title}
+**Issue URL:** ${issueData.issueInfo.url}
+**Title:** ${issueData.issueInfo.title}
 
 ${issueContext}${commentsContext}
 
@@ -3412,7 +3423,7 @@ Start by exploring the codebase to understand the current implementation, then m
         let ralphConfig: RalphConfig | undefined = undefined;
         let lisaConfig: LisaConfig | undefined = undefined;
 
-        if (autoStart.useLisaSimpson) {
+        if (issueData.useLisaSimpson) {
           // Lisa Simpson mode - start with Plan phase
           promptToSend = buildLisaPhasePrompt(
             'plan',
@@ -3436,7 +3447,7 @@ Start by exploring the codebase to understand the current implementation, then m
             phaseHistory: [{ phase: 'plan', iteration: 1, timestamp: Date.now() }],
             evidenceFolderPath: `${worktreePath}/evidence`,
           };
-        } else if (autoStart.useRalphWiggum) {
+        } else if (issueData.useRalphWiggum) {
           // Ralph Wiggum mode
           promptToSend = `${initialPrompt}
 
@@ -3457,7 +3468,7 @@ When you have finished the task, please verify:
 Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETION_SIGNAL}`;
           ralphConfig = {
             originalPrompt: initialPrompt,
-            maxIterations: autoStart.ralphMaxIterations || 20,
+            maxIterations: issueData.ralphMaxIterations || 20,
             currentIteration: 1,
             active: true,
           };
@@ -4952,7 +4963,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   } else {
                     setTerminalOpenSessions((prev) => new Set(prev).add(activeTab.id));
                     setTerminalInitializedSessions((prev) => new Set(prev).add(activeTab.id));
-                    trackEvent(TelemetryEvents.FEATURE_TERMINAL_OPENED);
                   }
                 }}
                 className={`shrink-0 flex items-center gap-2 px-4 py-2 text-xs border-b border-copilot-border ${

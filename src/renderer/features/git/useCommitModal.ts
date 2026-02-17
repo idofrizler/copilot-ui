@@ -268,7 +268,8 @@ export function useCommitModal(): UseCommitModalReturn {
             commitMessage.split('\n')[0] || undefined,
             undefined, // draft
             effectiveTargetBranch,
-            activeTab.untrackedFiles || []
+            activeTab.untrackedFiles || [],
+            activeTab.sourceIssue // Pass source issue to link PR
           );
           if (prResult.success && prResult.prUrl) {
             window.open(prResult.prUrl, '_blank');
