@@ -4,6 +4,7 @@
  */
 import { test, expect, _electron as electron, ElectronApplication, Page } from '@playwright/test';
 import path from 'path';
+import { scrollIntoViewAndClick, scrollIntoViewAndWait } from './helpers/viewport';
 
 let electronApp: ElectronApplication;
 let window: Page;
@@ -22,6 +23,9 @@ test.beforeAll(async () => {
 
   // Wait for the first window
   window = await electronApp.firstWindow();
+
+  // Set desktop viewport size (tests should run in desktop mode, not mobile)
+  await window.setViewportSize({ width: 1280, height: 800 });
 
   // Wait for app to be ready
   await window.waitForLoadState('domcontentloaded');
@@ -93,11 +97,12 @@ test.describe('Voice Settings in Settings Modal', () => {
   test('should show voice status indicator', async () => {
     // Verify Voice Status is shown
     const voiceStatus = window.getByText('Voice Status');
-    await expect(voiceStatus).toBeVisible();
+    await scrollIntoViewAndWait(voiceStatus, { timeout: 10000 });
+    await expect(voiceStatus).toBeVisible({ timeout: 5000 });
 
     // Verify status text (model not yet initialized)
     const statusText = window.getByText('Click mic button to initialize');
-    await expect(statusText).toBeVisible();
+    await expect(statusText).toBeVisible({ timeout: 5000 });
 
     await window.screenshot({ path: `${EVIDENCE_DIR}/05-voice-status-indicator.png` });
   });
@@ -105,11 +110,12 @@ test.describe('Voice Settings in Settings Modal', () => {
   test('should show voice commands reference', async () => {
     // Verify Voice Commands section exists
     const voiceCommands = window.getByText('Voice Commands');
-    await expect(voiceCommands).toBeVisible();
+    await scrollIntoViewAndWait(voiceCommands, { timeout: 10000 });
+    await expect(voiceCommands).toBeVisible({ timeout: 5000 });
 
     // Verify wake words are listed
     const wakeWords = window.getByText(/Wake Words/);
-    await expect(wakeWords).toBeVisible();
+    await expect(wakeWords).toBeVisible({ timeout: 5000 });
 
     // Scroll to show all commands
     await window.screenshot({ path: `${EVIDENCE_DIR}/06-voice-commands-reference.png` });
@@ -119,7 +125,7 @@ test.describe('Voice Settings in Settings Modal', () => {
     // First ensure we're on the Voice section of settings
     const voiceTab = window.getByText('Voice', { exact: true });
     if (await voiceTab.isVisible()) {
-      await voiceTab.click();
+      await scrollIntoViewAndClick(voiceTab);
       await window.waitForTimeout(300);
     }
 
@@ -131,19 +137,19 @@ test.describe('Voice Settings in Settings Modal', () => {
     // First toggle is Always Listening
     const alwaysListeningToggle = toggleButtons.first();
 
-    // Click to enable
-    await alwaysListeningToggle.click({ timeout: 5000 });
+    // Scroll into view and click to enable
+    await scrollIntoViewAndClick(alwaysListeningToggle, { timeout: 10000 });
     await window.waitForTimeout(300);
     await window.screenshot({ path: `${EVIDENCE_DIR}/07-always-listening-enabled.png` });
 
     // Note: Push to Talk should now show as disabled
     const pttDescription = window.getByText('Disabled when Always Listening is on');
-    await expect(pttDescription).toBeVisible();
+    await expect(pttDescription).toBeVisible({ timeout: 5000 });
 
     await window.screenshot({ path: `${EVIDENCE_DIR}/08-push-to-talk-disabled.png` });
 
     // Toggle off
-    await alwaysListeningToggle.click();
+    await scrollIntoViewAndClick(alwaysListeningToggle, { timeout: 10000 });
     await window.waitForTimeout(300);
     await window.screenshot({ path: `${EVIDENCE_DIR}/09-always-listening-disabled.png` });
   });
@@ -156,13 +162,13 @@ test.describe('Voice Settings in Settings Modal', () => {
     // Second toggle is Push to Talk
     const pttToggle = toggleButtons.nth(1);
 
-    // Click to enable
-    await pttToggle.click({ timeout: 5000 });
+    // Scroll into view and click to enable
+    await scrollIntoViewAndClick(pttToggle, { timeout: 10000 });
     await window.waitForTimeout(300);
     await window.screenshot({ path: `${EVIDENCE_DIR}/10-push-to-talk-enabled.png` });
 
     // Toggle off
-    await pttToggle.click();
+    await scrollIntoViewAndClick(pttToggle, { timeout: 10000 });
     await window.waitForTimeout(300);
   });
 
@@ -171,13 +177,13 @@ test.describe('Voice Settings in Settings Modal', () => {
     const voiceOutputSection = window.locator('h4:has-text("Voice Output")').locator('..');
     const ttsToggle = voiceOutputSection.locator('button.rounded-full');
 
-    // Click to toggle (turns off since it defaults to on)
-    await ttsToggle.click({ timeout: 5000 });
+    // Scroll into view and click to toggle (turns off since it defaults to on)
+    await scrollIntoViewAndClick(ttsToggle, { timeout: 10000 });
     await window.waitForTimeout(300);
     await window.screenshot({ path: `${EVIDENCE_DIR}/11-tts-toggled.png` });
 
     // Toggle back
-    await ttsToggle.click();
+    await scrollIntoViewAndClick(ttsToggle, { timeout: 10000 });
     await window.waitForTimeout(300);
   });
 
@@ -185,7 +191,7 @@ test.describe('Voice Settings in Settings Modal', () => {
     // Close the modal using the X button or close button
     const modal = window.locator('[data-testid="settings-modal"]');
     const closeButton = modal.locator('button').first();
-    await closeButton.click({ timeout: 5000 });
+    await scrollIntoViewAndClick(closeButton, { timeout: 10000 });
     await window.waitForTimeout(500);
 
     await window.screenshot({ path: `${EVIDENCE_DIR}/12-settings-closed.png` });

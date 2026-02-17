@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -122,6 +122,9 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   const [selectedFile, setSelectedFile] = useState<string>(initialFilePath);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
 
+  // Track current request to prevent race conditions when selectedFile changes rapidly
+  const loadRequestRef = useRef<number>(0);
+
   // Determine if this is a full overlay (multiple files) or single file preview
   const isFullOverlay = forceFullOverlay || editedFiles.length > 0;
   const isMarkdownView = contentMode === 'markdown';
@@ -153,6 +156,9 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   const loadFileContent = useCallback(async () => {
     if (!selectedFile) return;
 
+    // Increment request ID to track this specific request
+    const currentRequestId = ++loadRequestRef.current;
+
     setLoading(true);
     try {
       if (isMarkdownView) {
@@ -161,6 +167,8 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
             ? `${cwd}/${selectedFile}`
             : selectedFile;
         const result = await window.electronAPI.file.readContent(resolvedPath);
+        // Only update state if this is still the current request
+        if (loadRequestRef.current !== currentRequestId) return;
         setFileContent(result);
         setFileDiff(null);
         return;
@@ -169,6 +177,8 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
       if (isGitRepo) {
         if (!cwd) return;
         const result = await window.electronAPI.git.getDiff(cwd, [selectedFile]);
+        // Only update state if this is still the current request
+        if (loadRequestRef.current !== currentRequestId) return;
 
         if (result.success && result.diff) {
           const diffLines = result.diff.split('\n');
@@ -198,10 +208,12 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
         } else {
           // No diff available (e.g., untracked new file) - fall back to file content
           const absolutePath =
-            !filePath.startsWith('/') && !filePath.match(/^[a-zA-Z]:/)
-              ? `${cwd}/${filePath}`
-              : filePath;
+            !selectedFile.startsWith('/') && !selectedFile.match(/^[a-zA-Z]:/)
+              ? `${cwd}/${selectedFile}`
+              : selectedFile;
           const contentResult = await window.electronAPI.file.readContent(absolutePath);
+          // Only update state if this is still the current request
+          if (loadRequestRef.current !== currentRequestId) return;
           if (contentResult.success) {
             setFileContent(contentResult);
             setFileDiff({
@@ -220,10 +232,14 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
         }
       } else {
         const result = await window.electronAPI.file.readContent(selectedFile);
+        // Only update state if this is still the current request
+        if (loadRequestRef.current !== currentRequestId) return;
         setFileContent(result);
         setFileDiff(null);
       }
     } catch (error) {
+      // Only update state if this is still the current request
+      if (loadRequestRef.current !== currentRequestId) return;
       if (isGitRepo && !isMarkdownView) {
         setFileDiff({
           success: false,
@@ -236,7 +252,10 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
         });
       }
     } finally {
-      setLoading(false);
+      // Only update loading state if this is still the current request
+      if (loadRequestRef.current === currentRequestId) {
+        setLoading(false);
+      }
     }
   }, [selectedFile, cwd, isGitRepo, isMarkdownView]);
 

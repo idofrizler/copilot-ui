@@ -17,10 +17,12 @@ A native desktop GUI for GitHub Copilot, built on the [Copilot SDK](https://gith
 
 Download the latest release from the **[Releases page](https://github.com/CooperAgent/cooper/releases/latest)**:
 
-| Platform                  | File                                 | Notes                |
-| ------------------------- | ------------------------------------ | -------------------- |
-| **macOS** (Apple Silicon) | `Cooper-<version>-mac-arm64.dmg`     | Signed and notarized |
-| **Windows** (x64)         | `Cooper-<version>-win-x64-Setup.exe` | Installer            |
+| Platform                  | File                                  | Notes                |
+| ------------------------- | ------------------------------------- | -------------------- |
+| **macOS** (Apple Silicon) | `Cooper-<version>-mac-arm64.dmg`      | Signed and notarized |
+| **Windows** (x64)         | `Cooper-<version>-win-x64-Setup.exe`  | Installer            |
+| **Linux** (x64)           | `Cooper-<version>-linux-x64.AppImage` | Experimental         |
+| **Linux** (Debian/Ubuntu) | `Cooper-<version>-linux-x64.deb`      | Experimental         |
 
 > **Note:** Cooper is an open-source project, so release executables are not officially code-signed. Your OS may show a warning on first launch. If you prefer, you can [build from source](#build-from-source) below.
 
@@ -39,6 +41,14 @@ git clone https://github.com/CooperAgent/cooper.git && cd cooper && npm install 
 
 ```powershell
 git clone https://github.com/CooperAgent/cooper.git; cd cooper; pwsh -NoProfile -File .\scripts\setup-windows.ps1; npm run dist:win
+```
+
+**Linux:**
+
+```bash
+git clone https://github.com/CooperAgent/cooper.git && cd cooper
+sudo ./scripts/install-linux-deps.sh  # auto-detects distro
+npm install && npm run dist:linux
 ```
 
 </details>

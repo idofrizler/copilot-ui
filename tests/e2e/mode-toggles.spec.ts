@@ -3,6 +3,7 @@
  */
 import { test, _electron as electron, ElectronApplication, Page } from '@playwright/test';
 import * as path from 'path';
+import { scrollIntoViewAndClick } from './helpers/viewport';
 
 let electronApp: ElectronApplication;
 let page: Page;
@@ -25,8 +26,8 @@ test.describe('Ralph/Lisa Mode Screenshots', () => {
 
   test('Capture Ralph and Lisa mode toggles', async () => {
     // Click the expand chevron near input to show mode options
-    const chevron = page.locator('button svg').first();
-    await chevron.click({ force: true });
+    const chevron = page.locator('button svg').first().locator('..');
+    await scrollIntoViewAndClick(chevron, { timeout: 15000 });
     await page.waitForTimeout(1000);
 
     // Screenshot showing expanded input area with Ralph/Lisa
@@ -36,8 +37,8 @@ test.describe('Ralph/Lisa Mode Screenshots', () => {
 
     // Try clicking Ralph button
     const ralphButton = page.locator('button').filter({ hasText: 'Ralph' }).first();
-    if (await ralphButton.isVisible({ timeout: 2000 })) {
-      await ralphButton.click({ force: true });
+    if (await ralphButton.isVisible({ timeout: 5000 })) {
+      await scrollIntoViewAndClick(ralphButton);
       await page.waitForTimeout(500);
       await page.screenshot({
         path: 'evidence/screenshots/09-ralph-mode-enabled.png',
@@ -46,8 +47,8 @@ test.describe('Ralph/Lisa Mode Screenshots', () => {
 
     // Try clicking Lisa button
     const lisaButton = page.locator('button').filter({ hasText: 'Lisa' }).first();
-    if (await lisaButton.isVisible({ timeout: 2000 })) {
-      await lisaButton.click({ force: true });
+    if (await lisaButton.isVisible({ timeout: 5000 })) {
+      await scrollIntoViewAndClick(lisaButton);
       await page.waitForTimeout(500);
       await page.screenshot({
         path: 'evidence/screenshots/10-lisa-mode-enabled.png',

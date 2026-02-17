@@ -19,6 +19,9 @@ test.beforeAll(async () => {
   // Wait for the first window
   window = await electronApp.firstWindow();
 
+  // Set desktop viewport size (tests should run in desktop mode, not mobile)
+  await window.setViewportSize({ width: 1280, height: 800 });
+
   // Wait for app to be ready
   await window.waitForLoadState('domcontentloaded');
   // Give extra time for React to render
