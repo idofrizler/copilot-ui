@@ -1946,7 +1946,7 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       if (sessionId === activeTabIdRef.current) {
         setTabs((currentTabs) => {
           const tab = currentTabs.find((t) => t.id === sessionId);
-          if (tab && tab.pendingConfirmations.length === 0) {
+          if (tab && (tab.pendingConfirmations?.length ?? 0) === 0) {
             chatInputRef.current?.focus();
           }
           return currentTabs;
@@ -2386,7 +2386,7 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
     // If there are pending confirmations, automatically deny them when sending a new message
     // Note: Only the first confirmation is denied (confirmations are processed sequentially)
     // This matches the behavior of handleConfirmation which also processes one at a time
-    if (activeTab.pendingConfirmations.length > 0) {
+    if ((activeTab.pendingConfirmations?.length ?? 0) > 0) {
       const pendingConfirmation = activeTab.pendingConfirmations[0];
 
       // Deny the pending confirmation
@@ -4168,7 +4168,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   } ${draggedTabId === tab.id ? 'opacity-50' : ''} ${dragOverTabId === tab.id ? 'border-t-2 border-t-copilot-accent' : ''}`}
                 >
                   {/* Status indicator */}
-                  {tab.pendingConfirmations.length > 0 ? (
+                  {(tab.pendingConfirmations?.length ?? 0) > 0 ? (
                     <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-accent animate-pulse" />
                   ) : tab.isProcessing ? (
                     <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-warning animate-pulse" />
@@ -4332,7 +4332,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 </div>
                 {showEditedFiles && activeTab && (
                   <div className="max-h-48 overflow-y-auto">
-                    {activeTab.editedFiles.length === 0 ? (
+                    {(activeTab.editedFiles?.length ?? 0) === 0 ? (
                       <div className="px-4 py-3 text-xs text-copilot-text-muted">
                         No files edited
                       </div>
@@ -4722,7 +4722,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               >
                 Sessions
               </span>
-              {tabs.filter((t) => t.hasUnreadCompletion || t.pendingConfirmations.length > 0)
+              {tabs.filter((t) => t.hasUnreadCompletion || (t.pendingConfirmations?.length ?? 0) > 0)
                 .length > 0 && (
                 <span className="w-2 h-2 rounded-full bg-copilot-accent animate-pulse" />
               )}
@@ -4790,7 +4790,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     } ${draggedTabId === tab.id ? 'opacity-50' : ''} ${dragOverTabId === tab.id ? 'border-t-2 border-t-copilot-accent' : ''}`}
                   >
                     {/* Status indicator - priority: pending > processing > marked > unread > idle */}
-                    {tab.pendingConfirmations.length > 0 ? (
+                    {(tab.pendingConfirmations?.length ?? 0) > 0 ? (
                       <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-accent animate-pulse" />
                     ) : tab.isProcessing ? (
                       <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-warning animate-pulse" />
@@ -5109,10 +5109,10 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   <div className="flex flex-col items-start">
                     <div className="bg-copilot-surface text-copilot-text rounded-lg px-4 py-2.5">
                       {/* Show live tools and subagents in the thinking bubble */}
-                      {activeTab?.activeTools && activeTab.activeTools.length > 0 && (
+                      {activeTab?.activeTools && (activeTab.activeTools?.length ?? 0) > 0 && (
                         <ToolActivitySection tools={activeTab.activeTools} isLive={true} />
                       )}
-                      {activeTab?.activeSubagents && activeTab.activeSubagents.length > 0 && (
+                      {activeTab?.activeSubagents && (activeTab.activeSubagents?.length ?? 0) > 0 && (
                         <SubagentActivitySection
                           subagents={activeTab.activeSubagents}
                           isLive={true}
@@ -5182,7 +5182,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
             {activeTab?.pendingConfirmations?.[0] &&
               (() => {
                 const pendingConfirmation = activeTab.pendingConfirmations[0];
-                const queueLength = activeTab.pendingConfirmations.length;
+                const queueLength = activeTab.pendingConfirmations?.length ?? 0;
                 return (
                   <div
                     className={`shrink-0 mx-3 mb-2 p-4 bg-copilot-surface rounded-lg border ${pendingConfirmation.isDestructive ? 'border-copilot-error' : 'border-copilot-warning'}`}
@@ -6020,7 +6020,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     </div>
                     {showEditedFiles && activeTab && (
                       <div className="max-h-48 overflow-y-auto">
-                        {activeTab.editedFiles.length === 0 ? (
+                        {(activeTab.editedFiles?.length ?? 0) === 0 ? (
                           <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
                             No files edited
                           </div>
@@ -6398,7 +6398,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 </div>
                 {!activeTab?.yoloMode && showAllowedCommands && activeTab && (
                   <div className="max-h-48 overflow-y-auto">
-                    {activeTab.alwaysAllowed.length === 0 ? (
+                    {(activeTab.alwaysAllowed?.length ?? 0) === 0 ? (
                       <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
                         No session commands
                       </div>
