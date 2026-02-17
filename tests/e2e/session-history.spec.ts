@@ -1,5 +1,11 @@
 import { test, expect, _electron as electron, ElectronApplication, Page } from '@playwright/test';
 import path from 'path';
+import {
+  scrollIntoViewAndClick,
+  waitForModal,
+  closeModal,
+  ensureSidebarExpanded,
+} from './helpers/viewport';
 
 let electronApp: ElectronApplication;
 let window: Page;
@@ -31,6 +37,9 @@ test.beforeAll(async () => {
   // Wait for the first window
   window = await electronApp.firstWindow();
 
+  // Set desktop viewport size (tests should run in desktop mode, not mobile)
+  await window.setViewportSize({ width: 1280, height: 800 });
+
   // Wait for app to be ready
   await window.waitForLoadState('domcontentloaded');
 
@@ -48,20 +57,22 @@ async function openSessionHistoryModal() {
   const isVisible = await modalTitle.isVisible().catch(() => false);
 
   if (!isVisible) {
-    const historyButton = window.locator('button', { hasText: 'Session History' });
-    await historyButton.click();
-    await window.waitForTimeout(500);
+    // Ensure sidebar is expanded first
+    await ensureSidebarExpanded(window);
+
+    // Use .last() to get the desktop sidebar button (not the mobile drawer button)
+    // Button 0 is in the mobile drawer (x=-280, offscreen)
+    // Button 1 is in the desktop sidebar (x=0, visible)
+    const historyButton = window.locator('button:has-text("Session History")').last();
+
+    await scrollIntoViewAndClick(historyButton, { timeout: 15000 });
+    await waitForModal(window, 'Session History', { timeout: 20000 });
   }
 }
 
 // Helper to close the modal
 async function closeSessionHistoryModal() {
-  const closeButton = window.locator('[aria-label="Close modal"]');
-  const isVisible = await closeButton.isVisible().catch(() => false);
-  if (isVisible) {
-    await closeButton.click();
-    await window.waitForTimeout(300);
-  }
+  await closeModal(window, { timeout: 10000 });
 }
 
 // Helper to get session count from footer (works with any data)
@@ -89,6 +100,9 @@ async function getSessionCount(): Promise<{ total: number; filtered?: number }> 
 
 test.describe('Session History - Basic UI', () => {
   test('should have Session History button in sidebar', async () => {
+    // Ensure sidebar is expanded
+    await ensureSidebarExpanded(window);
+
     const historyButton = window.locator('button', { hasText: 'Session History' });
     await expect(historyButton).toBeVisible({ timeout: 10000 });
 
@@ -127,7 +141,7 @@ test.describe('Session History - Basic UI', () => {
     await openSessionHistoryModal();
 
     const closeButton = window.locator('[aria-label="Close modal"]');
-    await closeButton.click();
+    await scrollIntoViewAndClick(closeButton);
     await window.waitForTimeout(300);
 
     const modalTitle = window.locator('h3', { hasText: 'Session History' });
@@ -287,7 +301,7 @@ test.describe('Session History - Session Resumption', () => {
     });
 
     await expect(sessionButton).toBeVisible({ timeout: 15000 });
-    await sessionButton.click({ timeout: 15000 });
+    await scrollIntoViewAndClick(sessionButton, { timeout: 15000 });
 
     // Wait for action to complete
     await window.waitForTimeout(3000);

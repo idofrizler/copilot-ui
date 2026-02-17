@@ -1,5 +1,6 @@
 import { test, expect, _electron as electron, ElectronApplication, Page } from '@playwright/test';
 import path from 'path';
+import { scrollIntoViewAndClick, scrollIntoViewAndWait } from './helpers/viewport';
 
 let electronApp: ElectronApplication;
 let window: Page;
@@ -29,7 +30,18 @@ test.beforeAll(async () => {
   });
 
   window = await electronApp.firstWindow();
+
+  // Set desktop viewport size (tests should run in desktop mode, not mobile)
+  await window.setViewportSize({ width: 1280, height: 800 });
   await window.waitForLoadState('domcontentloaded');
+
+  // Create a session by sending a message (required for top bar to appear)
+  await window.waitForTimeout(2000);
+  const chatInput = window.locator('textarea[placeholder*="Ask Cooper"]');
+  await chatInput.fill('test');
+  await chatInput.press('Enter');
+  await window.waitForTimeout(2000); // Wait for session and top bar to render
+
   agentModel = await window.evaluate(async () => {
     const api = (window as any).electronAPI;
     if (!api?.agents?.getAll || !api?.copilot?.getCwd) return null;
@@ -55,14 +67,14 @@ test.describe('Custom Agent Selection', () => {
     const initialModel = await modelButton.textContent();
 
     const agentButton = window.locator('button[title="Select agent"]');
-    await agentButton.click();
+    await scrollIntoViewAndClick(agentButton, { timeout: 15000 });
 
     const agentOption = window
       .locator('div[role="button"]')
       .filter({ hasText: 'limerick-composer' })
       .first();
     await expect(agentOption).toBeVisible({ timeout: 10000 });
-    await agentOption.click();
+    await scrollIntoViewAndClick(agentOption);
 
     await expect(agentButton).toContainText('limerick-composer', { timeout: 10000 });
     const expectedModel = agentModel ? toModelLabel(agentModel) : null;
@@ -72,10 +84,10 @@ test.describe('Custom Agent Selection', () => {
     await expect(modelButton).toContainText(expectedModel!, { timeout: 10000 });
 
     if (initialModel) {
-      await modelButton.click();
+      await scrollIntoViewAndClick(modelButton);
       const restoreOption = window.getByText(initialModel.trim(), { exact: true });
       await expect(restoreOption).toBeVisible({ timeout: 10000 });
-      await restoreOption.click({ force: true });
+      await scrollIntoViewAndClick(restoreOption);
       await expect(modelButton).toContainText(initialModel.trim(), { timeout: 10000 });
     }
   });

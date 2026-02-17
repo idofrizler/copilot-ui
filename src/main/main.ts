@@ -165,6 +165,15 @@ async function readMcpConfig(): Promise<MCPConfigFile> {
     }
     const content = await readFile(configPath, 'utf-8');
     const parsed = JSON.parse(content) as MCPConfigFile;
+
+    // Default tools to ["*"] for servers that don't specify it (matches copilot-cli behavior)
+    for (const serverName in parsed.mcpServers) {
+      const server = parsed.mcpServers[serverName];
+      if (!server.tools) {
+        server.tools = ['*'];
+      }
+    }
+
     return parsed;
   } catch (error) {
     console.error('Failed to read MCP config:', error);
@@ -2136,6 +2145,7 @@ function createWindow(): void {
         symbolColor: '#e6edf3',
         height: 38,
       },
+      roundedCorners: false, // Sharp corners on Windows (standard for Windows apps)
     }),
     hasShadow: true,
     webPreferences: {
@@ -2722,6 +2732,9 @@ ipcMain.handle(
           `[${data.sessionId}] Creating new session with model ${data.model} (empty session)`
         );
 
+        // Capture yoloMode before destroying old session
+        const preserveYoloMode = sessionState.yoloMode;
+
         // Destroy the old session
         await sessionState.session.destroy();
         sessions.delete(data.sessionId);
@@ -2729,6 +2742,9 @@ ipcMain.handle(
         // Create a brand new session with the desired model
         const newSessionId = await createNewSession(data.model, cwd);
         const newSessionState = sessions.get(newSessionId)!;
+
+        // Preserve yoloMode in the new session
+        newSessionState.yoloMode = preserveYoloMode;
 
         log.info(
           `[${newSessionId}] New session created for model switch: ${previousModel} → ${data.model}`
@@ -2790,6 +2806,7 @@ ipcMain.handle(
         alwaysAllowed: new Set(sessionState.alwaysAllowed),
         allowedPaths: new Set(sessionState.allowedPaths),
         isProcessing: false,
+        yoloMode: sessionState.yoloMode,
       });
       activeSessionId = resumedSessionId;
 
@@ -2840,12 +2857,19 @@ ipcMain.handle(
     if (!data.hasMessages) {
       console.log(`Creating new session with agent ${data.agentName || 'none'} (empty session)`);
 
+      // Capture yoloMode before destroying old session
+      const preserveYoloMode = sessionState.yoloMode;
+
       // Destroy the old session
       await sessionState.session.destroy();
       sessions.delete(data.sessionId);
 
       // Create a brand new session with the same model
       const newSessionId = await createNewSession(model, cwd);
+      const newSessionState = sessions.get(newSessionId)!;
+
+      // Preserve yoloMode in the new session
+      newSessionState.yoloMode = preserveYoloMode;
 
       return {
         sessionId: newSessionId,
@@ -2903,6 +2927,7 @@ ipcMain.handle(
       alwaysAllowed: new Set(sessionState.alwaysAllowed),
       allowedPaths: new Set(sessionState.allowedPaths),
       isProcessing: false,
+      yoloMode: sessionState.yoloMode,
     });
     activeSessionId = resumedSessionId;
 
