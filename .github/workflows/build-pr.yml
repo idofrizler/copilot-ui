@@ -150,7 +150,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: fedora:latest
-    
+
     steps:
       - uses: actions/checkout@v4
 
@@ -183,5 +183,3 @@ jobs:
           path: release/*.AppImage
           if-no-files-found: error
           retention-days: 3
-
-
