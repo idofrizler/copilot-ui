@@ -1210,6 +1210,10 @@ const App: React.FC = () => {
   useEffect(() => {
     const unsubscribeReady = window.electronAPI.copilot.onReady(async (data) => {
       setStatus('connected');
+      console.log(
+        `[onReady] Received ${data.models.length} models:`,
+        data.models.map((m) => m.id)
+      );
       setAvailableModels(data.models);
 
       // Set previous sessions immediately (without worktree enrichment for fast startup)
@@ -1488,6 +1492,10 @@ const App: React.FC = () => {
     window.electronAPI.copilot
       .getModels()
       .then((data) => {
+        console.log(
+          `[getModels] Received ${data.models.length} models:`,
+          data.models.map((m) => m.id)
+        );
         if (data.models && data.models.length > 0) {
           setAvailableModels(data.models);
           setStatus('connected');
@@ -2304,6 +2312,10 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
 
     // Listen for verified models update (async verification after startup)
     const unsubscribeModelsVerified = window.electronAPI.copilot.onModelsVerified((data) => {
+      console.log(
+        `[onModelsVerified] Received ${data.models.length} models:`,
+        data.models.map((m) => m.id)
+      );
       setAvailableModels(data.models);
     });
 

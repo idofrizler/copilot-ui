@@ -1147,78 +1147,50 @@ interface ModelInfo {
   id: string;
   name: string;
   multiplier: number;
-  source?: 'api' | 'fallback'; // 'api' = from listModels(), 'fallback' = hardcoded (not in API yet)
 }
 
-// Baseline models for initial render before API loads
-// These provide immediate UI while waiting for the API response
-const BASELINE_MODELS: ModelInfo[] = [
-  { id: 'gpt-4.1', name: 'GPT-4.1', multiplier: 0, source: 'api' },
-  { id: 'gpt-5-mini', name: 'GPT-5 mini', multiplier: 0, source: 'api' },
-  { id: 'claude-haiku-4.5', name: 'Claude Haiku 4.5', multiplier: 0.33, source: 'api' },
-  { id: 'gpt-5.1-codex-mini', name: 'GPT-5.1-Codex-Mini', multiplier: 0.33, source: 'api' },
-  { id: 'claude-sonnet-4.5', name: 'Claude Sonnet 4.5', multiplier: 1, source: 'api' },
-  { id: 'claude-sonnet-4', name: 'Claude Sonnet 4', multiplier: 1, source: 'api' },
-  { id: 'gpt-5.2-codex', name: 'GPT-5.2-Codex', multiplier: 1, source: 'api' },
-  { id: 'gpt-5.1-codex-max', name: 'GPT-5.1-Codex-Max', multiplier: 1, source: 'api' },
-  { id: 'gpt-5.1-codex', name: 'GPT-5.1-Codex', multiplier: 1, source: 'api' },
-  { id: 'gpt-5.2', name: 'GPT-5.2', multiplier: 1, source: 'api' },
-  { id: 'gpt-5.1', name: 'GPT-5.1', multiplier: 1, source: 'api' },
-  { id: 'gpt-5', name: 'GPT-5', multiplier: 1, source: 'api' },
-  { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro (Preview)', multiplier: 1, source: 'api' },
-  { id: 'claude-opus-4.5', name: 'Claude Opus 4.5', multiplier: 3, source: 'api' },
-];
-
-// Fallback models that work but aren't returned by listModels() API yet
-// These should be removed once the API returns them
-// Note: multiplier is estimated, actual cost may differ
-const FALLBACK_MODELS: ModelInfo[] = [
-  { id: 'claude-opus-4.6', name: 'Claude Opus 4.6', multiplier: 3, source: 'fallback' },
-  { id: 'claude-opus-4.6-fast', name: 'Claude Opus 4.6 (fast)', multiplier: 3, source: 'fallback' },
-];
-
-// Cache for verified models (models confirmed available for current user)
-interface VerifiedModelsCache {
+// Cache for models from API (persisted to survive restarts)
+interface ModelsCache {
   models: ModelInfo[];
   timestamp: number;
 }
-let verifiedModelsCache: VerifiedModelsCache | null = null;
-const MODEL_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+let modelsCache: ModelsCache | null = null;
+const MODEL_CACHE_TTL = 5 * 60 * 1000; // 5 minutes (short cache for API list)
 
-// Track ongoing model verification to avoid race conditions
-let modelsVerificationPromise: Promise<ModelInfo[]> | null = null;
-
-// Returns verified models, using cache if valid
-function getVerifiedModels(): ModelInfo[] {
+// Returns cached models if valid, otherwise empty array
+function getCachedModels(): ModelInfo[] {
   // Check in-memory cache first
-  if (verifiedModelsCache && Date.now() - verifiedModelsCache.timestamp < MODEL_CACHE_TTL) {
-    return verifiedModelsCache.models;
+  if (modelsCache && Date.now() - modelsCache.timestamp < MODEL_CACHE_TTL) {
+    return modelsCache.models;
   }
 
   // Check persistent storage (electron-store)
   try {
-    const storedCache = store.get('verifiedModelsCache') as VerifiedModelsCache | undefined;
+    const storedCache = store.get('modelsCache') as ModelsCache | undefined;
     if (storedCache && Date.now() - storedCache.timestamp < MODEL_CACHE_TTL) {
-      verifiedModelsCache = storedCache; // Hydrate in-memory cache
+      modelsCache = storedCache; // Hydrate in-memory cache
       return storedCache.models;
     }
   } catch (err) {
     console.warn('Failed to load stored models cache:', err);
   }
 
-  // If no cache, return baseline + fallback models (API models load async)
-  return [...BASELINE_MODELS, ...FALLBACK_MODELS];
+  // No valid cache
+  return [];
 }
 
-// Fetch models from API and merge with fallback models
-// API models are source of truth; fallback models added if not already in API response
-async function verifyAvailableModels(client: CopilotClient): Promise<ModelInfo[]> {
-  console.log('Fetching models from API...');
+// Fetch models from Copilot SDK API (single source of truth)
+async function fetchModelsFromAPI(client: CopilotClient): Promise<ModelInfo[]> {
+  console.log('Fetching models from Copilot SDK...');
 
   try {
     const apiModels = await client.listModels();
+    console.log(`SDK returned ${apiModels.length} models`);
 
-    console.log(`API returned ${apiModels.length} models`);
+    if (apiModels.length === 0) {
+      console.warn('SDK returned empty model list');
+      return [];
+    }
 
     // Convert API response to ModelInfo, sorted by multiplier (low to high)
     const models: ModelInfo[] = apiModels
@@ -1230,65 +1202,47 @@ async function verifyAvailableModels(client: CopilotClient): Promise<ModelInfo[]
           id: m.id,
           name: m.name || m.id,
           multiplier,
-          source: 'api' as const,
         };
       })
-      .sort((a, b) => a.multiplier - b.multiplier);
-
-    // Add baseline models that aren't in API response
-    const apiIds = new Set(models.map((m) => m.id));
-    for (const baseline of BASELINE_MODELS) {
-      if (!apiIds.has(baseline.id)) {
-        console.log(`Adding baseline model: ${baseline.id} (not in API response)`);
-        models.push(baseline);
-        apiIds.add(baseline.id);
-      }
-    }
-
-    // Add fallback models that aren't in API response
-    for (const fallback of FALLBACK_MODELS) {
-      if (!apiIds.has(fallback.id)) {
-        console.log(`Adding fallback model: ${fallback.id} (not in API response)`);
-        models.push(fallback);
-      }
-    }
-
-    // Re-sort after adding fallbacks
-    models.sort((a, b) => a.multiplier - b.multiplier);
+      .sort((a, b) => {
+        // First sort by multiplier (cost tier)
+        if (a.multiplier !== b.multiplier) {
+          return a.multiplier - b.multiplier;
+        }
+        // Within same cost tier, sort alphabetically by name
+        return a.name.localeCompare(b.name);
+      });
 
     // Cache both in-memory and persistent storage
-    verifiedModelsCache = { models, timestamp: Date.now() };
+    modelsCache = { models, timestamp: Date.now() };
     try {
-      store.set('verifiedModelsCache', verifiedModelsCache);
+      store.set('modelsCache', modelsCache);
     } catch (err) {
       console.warn('Failed to persist models cache:', err);
     }
 
-    console.log(
-      `Model list complete: ${models.length} models (${apiModels.length} from API, ${models.length - apiModels.length} fallback)`
-    );
+    console.log(`Model list loaded: ${models.length} models from SDK`);
     return models;
   } catch (error) {
-    console.error('Failed to fetch models from API:', error);
+    console.error('Failed to fetch models from SDK:', error);
 
-    // Try to use previously cached models from storage (even if expired)
+    // Try to use previously cached models from storage (even if expired - better than nothing)
     try {
-      const storedCache = store.get('verifiedModelsCache') as VerifiedModelsCache | undefined;
+      const storedCache = store.get('modelsCache') as ModelsCache | undefined;
       if (storedCache && storedCache.models.length > 0) {
         console.log(
-          `Using stored models cache from ${new Date(storedCache.timestamp).toLocaleString()} (${storedCache.models.length} models)`
+          `Using stale models cache from ${new Date(storedCache.timestamp).toLocaleString()} (${storedCache.models.length} models)`
         );
-        verifiedModelsCache = storedCache;
+        modelsCache = storedCache;
         return storedCache.models;
       }
     } catch (err) {
-      console.warn('Failed to load stored models cache as fallback:', err);
+      console.warn('Failed to load stored models cache:', err);
     }
 
-    // Last resort: use baseline + fallback models
-    const fallbackList = [...BASELINE_MODELS, ...FALLBACK_MODELS];
-    verifiedModelsCache = { models: fallbackList, timestamp: Date.now() };
-    return fallbackList;
+    // No cache available - return empty array
+    console.error('No cached models available, returning empty list');
+    return [];
   }
 }
 
@@ -2206,7 +2160,7 @@ async function initCopilot(): Promise<void> {
       mainWindow.webContents.send('copilot:ready', {
         sessions: pendingSessions,
         previousSessions,
-        models: getVerifiedModels(),
+        models: getCachedModels(),
       });
 
       // Notify about sessions that were already resumed early (window wasn't ready when they completed)
@@ -2215,22 +2169,16 @@ async function initCopilot(): Promise<void> {
       }
     }
 
-    // Verify available models in background (non-blocking)
+    // Fetch models from SDK in background (non-blocking)
     if (defaultClient) {
-      // Store the promise globally so getModels() can wait for it
-      modelsVerificationPromise = verifyAvailableModels(defaultClient);
-      modelsVerificationPromise
-        .then((verifiedModels) => {
+      fetchModelsFromAPI(defaultClient)
+        .then((models) => {
           if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('copilot:modelsVerified', { models: verifiedModels });
+            mainWindow.webContents.send('copilot:modelsVerified', { models });
           }
         })
         .catch((err) => {
-          console.error('Model verification failed:', err);
-        })
-        .finally(() => {
-          // Clear the promise after completion (success or failure)
-          modelsVerificationPromise = null;
+          console.error('Model fetch failed:', err);
         });
     }
 
@@ -2841,7 +2789,7 @@ ipcMain.handle(
         sessionState.model = data.model;
         return { sessionId: data.sessionId, model: data.model, cwd: sessionState.cwd };
       }
-      const validModels = getVerifiedModels().map((m) => m.id);
+      const validModels = getCachedModels().map((m) => m.id);
       if (!validModels.includes(data.model)) {
         throw new Error(`Invalid model: ${data.model}`);
       }
@@ -3064,18 +3012,8 @@ ipcMain.handle(
 );
 
 ipcMain.handle('copilot:getModels', async () => {
-  // If model verification is in progress, wait for it to complete
-  if (modelsVerificationPromise) {
-    try {
-      await modelsVerificationPromise;
-    } catch (err) {
-      // Verification failed, but we'll return cached/fallback models below
-      console.warn('Model verification failed while waiting:', err);
-    }
-  }
-
   const currentModel = store.get('model') as string;
-  return { models: getVerifiedModels(), current: currentModel };
+  return { models: getCachedModels(), current: currentModel };
 });
 
 // Get model capabilities including vision support
@@ -5138,8 +5076,11 @@ if (!gotTheLock) {
     // This saves several seconds since session resumption involves network calls
     earlyResumptionPromise = startEarlySessionResumption();
 
+    const cachedModels = getCachedModels();
     console.log(
-      `Initial models: ${BASELINE_MODELS.length} baseline + ${FALLBACK_MODELS.length} fallback`
+      cachedModels.length > 0
+        ? `Loaded ${cachedModels.length} models from cache`
+        : 'No cached models, will fetch from SDK'
     );
 
     // Set up custom application menu
