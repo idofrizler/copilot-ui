@@ -2310,14 +2310,7 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       );
     });
 
-    // Listen for verified models update (async verification after startup)
-    const unsubscribeModelsVerified = window.electronAPI.copilot.onModelsVerified((data) => {
-      console.log(
-        `[onModelsVerified] Received ${data.models.length} models:`,
-        data.models.map((m) => m.id)
-      );
-      setAvailableModels(data.models);
-    });
+    // Models are now fetched on-demand when user opens model selector
 
     // Listen for context usage info updates
     const unsubscribeUsageInfo = window.electronAPI.copilot.onUsageInfo((data) => {
@@ -2410,7 +2403,6 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       unsubscribePermission();
       unsubscribeError();
       unsubscribeSessionResumed();
-      unsubscribeModelsVerified();
       unsubscribeUsageInfo();
       unsubscribeCompactionStart();
       unsubscribeCompactionComplete();
@@ -5606,9 +5598,22 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     {/* Models Selector */}
                     <div className="relative" data-tour="model-selector">
                       <button
-                        onClick={() =>
-                          setOpenTopBarSelector(openTopBarSelector === 'models' ? null : 'models')
-                        }
+                        onClick={async () => {
+                          const newState = openTopBarSelector === 'models' ? null : 'models';
+                          setOpenTopBarSelector(newState);
+
+                          // Fetch fresh models when opening the selector
+                          if (newState === 'models') {
+                            try {
+                              const result = await window.electronAPI.copilot.getModels();
+                              if (result.models.length > 0) {
+                                setAvailableModels(result.models);
+                              }
+                            } catch (err) {
+                              console.error('Failed to fetch models:', err);
+                            }
+                          }
+                        }}
                         className={`flex items-center gap-1.5 px-3 h-[39px] text-xs transition-colors rounded-bl-lg ${
                           openTopBarSelector === 'models'
                             ? 'text-copilot-accent bg-copilot-surface-hover'

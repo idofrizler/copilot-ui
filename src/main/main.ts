@@ -894,6 +894,11 @@ const inFlightPermissions = new Map<string, Promise<PermissionRequestResult>>();
 
 let defaultClient: CopilotClient | null = null;
 
+// Helper to get the default client
+function getDefaultClient(): CopilotClient | null {
+  return defaultClient;
+}
+
 // Early client initialization promise - starts before window load completes
 // This saves ~500ms by running client.start() in parallel with window rendering
 let earlyClientPromise: Promise<CopilotClient> | null = null;
@@ -1155,7 +1160,7 @@ interface ModelsCache {
   timestamp: number;
 }
 let modelsCache: ModelsCache | null = null;
-const MODEL_CACHE_TTL = 5 * 60 * 1000; // 5 minutes (short cache for API list)
+const MODEL_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours (models don't change frequently)
 
 // Returns cached models if valid, otherwise empty array
 function getCachedModels(): ModelInfo[] {
@@ -1186,6 +1191,18 @@ async function fetchModelsFromAPI(client: CopilotClient): Promise<ModelInfo[]> {
   try {
     const apiModels = await client.listModels();
     console.log(`SDK returned ${apiModels.length} models`);
+
+    // Log all model IDs for debugging
+    console.log('Model IDs from SDK:', apiModels.map((m) => m.id).join(', '));
+
+    // Log any models with disabled policy state
+    const disabledModels = apiModels.filter((m) => m.policy?.state === 'disabled');
+    if (disabledModels.length > 0) {
+      console.log(
+        `Warning: ${disabledModels.length} models have disabled policy:`,
+        disabledModels.map((m) => m.id).join(', ')
+      );
+    }
 
     if (apiModels.length === 0) {
       console.warn('SDK returned empty model list');
@@ -2160,7 +2177,7 @@ async function initCopilot(): Promise<void> {
       mainWindow.webContents.send('copilot:ready', {
         sessions: pendingSessions,
         previousSessions,
-        models: getCachedModels(),
+        models: getCachedModels(), // Send cached models if available, empty otherwise
       });
 
       // Notify about sessions that were already resumed early (window wasn't ready when they completed)
@@ -2169,18 +2186,7 @@ async function initCopilot(): Promise<void> {
       }
     }
 
-    // Fetch models from SDK in background (non-blocking)
-    if (defaultClient) {
-      fetchModelsFromAPI(defaultClient)
-        .then((models) => {
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('copilot:modelsVerified', { models });
-          }
-        })
-        .catch((err) => {
-          console.error('Model fetch failed:', err);
-        });
-    }
+    // Models will be fetched on-demand when user opens model selector (via copilot:getModels IPC)
 
     // Start keep-alive timer to prevent session timeouts
     startKeepAlive();
@@ -3012,18 +3018,28 @@ ipcMain.handle(
 );
 
 ipcMain.handle('copilot:getModels', async () => {
-  // If model verification is in progress, wait for it to complete
-  if (modelsVerificationPromise) {
-    try {
-      await modelsVerificationPromise;
-    } catch (err) {
-      // Verification failed, but we'll return cached/fallback models below
-      console.warn('Model verification failed while waiting:', err);
-    }
+  const currentModel = store.get('model') as string;
+  const cachedModels = getCachedModels();
+
+  // If cache is valid, return it immediately
+  if (cachedModels.length > 0) {
+    return { models: cachedModels, current: currentModel };
   }
 
-  const currentModel = store.get('model') as string;
-  return { models: getCachedModels(), current: currentModel };
+  // No valid cache - fetch fresh from API
+  const client = getDefaultClient();
+  if (!client) {
+    console.warn('No Copilot client available for fetching models');
+    return { models: [], current: currentModel };
+  }
+
+  try {
+    const models = await fetchModelsFromAPI(client);
+    return { models, current: currentModel };
+  } catch (err) {
+    console.error('Failed to fetch models on-demand:', err);
+    return { models: [], current: currentModel };
+  }
 });
 
 // Get model capabilities including vision support
