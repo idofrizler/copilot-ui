@@ -1172,25 +1172,38 @@ function getCachedModels(): ModelInfo[] {
     Date.now() - modelsCache.timestamp < MODEL_CACHE_TTL &&
     modelsCache.version === MODEL_CACHE_VERSION
   ) {
+    console.log(`Returning ${modelsCache.models.length} models from in-memory cache`);
     return modelsCache.models;
   }
 
   // Check persistent storage (electron-store)
   try {
     const storedCache = store.get('modelsCache') as ModelsCache | undefined;
-    if (
-      storedCache &&
-      Date.now() - storedCache.timestamp < MODEL_CACHE_TTL &&
-      storedCache.version === MODEL_CACHE_VERSION
-    ) {
-      modelsCache = storedCache; // Hydrate in-memory cache
-      return storedCache.models;
+    if (storedCache) {
+      const age = Date.now() - storedCache.timestamp;
+      const isExpired = age >= MODEL_CACHE_TTL;
+      const wrongVersion = storedCache.version !== MODEL_CACHE_VERSION;
+
+      console.log(
+        `Stored cache: ${storedCache.models?.length || 0} models, ` +
+          `age: ${Math.round(age / 1000 / 60)} min, ` +
+          `version: ${storedCache.version} (expected ${MODEL_CACHE_VERSION}), ` +
+          `expired: ${isExpired}, wrongVersion: ${wrongVersion}`
+      );
+
+      if (!isExpired && !wrongVersion) {
+        modelsCache = storedCache; // Hydrate in-memory cache
+        return storedCache.models;
+      }
+    } else {
+      console.log('No stored models cache found');
     }
   } catch (err) {
     console.warn('Failed to load stored models cache:', err);
   }
 
   // No valid cache
+  console.log('Returning empty models array (no valid cache)');
   return [];
 }
 
@@ -3028,15 +3041,18 @@ ipcMain.handle(
 );
 
 ipcMain.handle('copilot:getModels', async () => {
+  console.log('[copilot:getModels] IPC handler called');
   const currentModel = store.get('model') as string;
   const cachedModels = getCachedModels();
 
   // If cache is valid, return it immediately
   if (cachedModels.length > 0) {
+    console.log(`[copilot:getModels] Returning ${cachedModels.length} cached models`);
     return { models: cachedModels, current: currentModel };
   }
 
   // No valid cache - fetch fresh from API
+  console.log('[copilot:getModels] No cache, fetching from API...');
   const client = getDefaultClient();
   if (!client) {
     console.warn('No Copilot client available for fetching models');
@@ -3045,6 +3061,7 @@ ipcMain.handle('copilot:getModels', async () => {
 
   try {
     const models = await fetchModelsFromAPI(client);
+    console.log(`[copilot:getModels] Fetched ${models.length} models from API`);
     return { models, current: currentModel };
   } catch (err) {
     console.error('Failed to fetch models on-demand:', err);
