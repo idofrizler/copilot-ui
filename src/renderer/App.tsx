@@ -883,25 +883,24 @@ const App: React.FC = () => {
 
   // Save open sessions with models and cwd whenever tabs change
   useEffect(() => {
-    if (tabs.length > 0) {
-      const openSessions = tabs.map((t) => ({
-        sessionId: t.id,
-        model: t.model,
-        cwd: t.cwd,
-        name: t.name,
-        editedFiles: t.editedFiles,
-        alwaysAllowed: t.alwaysAllowed,
-        markedForReview: t.markedForReview,
-        reviewNote: t.reviewNote,
-        untrackedFiles: t.untrackedFiles,
-        fileViewMode: t.fileViewMode,
-        yoloMode: t.yoloMode,
-        activeAgentName: t.activeAgentName,
-        sourceIssue: t.sourceIssue,
-      }));
-      window.electronAPI.copilot.saveOpenSessions(openSessions);
-    }
-  }, [tabs]);
+    if (!dataLoaded || tabs.length === 0) return;
+    const openSessions = tabs.map((t) => ({
+      sessionId: t.id,
+      model: t.model,
+      cwd: t.cwd,
+      name: t.name,
+      editedFiles: t.editedFiles,
+      alwaysAllowed: t.alwaysAllowed,
+      markedForReview: t.markedForReview,
+      reviewNote: t.reviewNote,
+      untrackedFiles: t.untrackedFiles,
+      fileViewMode: t.fileViewMode,
+      yoloMode: t.yoloMode,
+      activeAgentName: t.activeAgentName,
+      sourceIssue: t.sourceIssue,
+    }));
+    window.electronAPI.copilot.saveOpenSessions(openSessions);
+  }, [tabs, dataLoaded]);
 
   // Save message attachments whenever tabs/messages change
   useEffect(() => {
@@ -1285,6 +1284,7 @@ const App: React.FC = () => {
           };
           setTabs([newTab]);
           setActiveTabId(result.sessionId);
+          setDataLoaded(true);
         } catch (error) {
           console.error('Failed to create initial session:', error);
           setStatus('error');
@@ -1419,73 +1419,39 @@ const App: React.FC = () => {
       // Only set active tab if none is set yet (don't switch tabs when loading in background)
       setActiveTabId((currentActive) => currentActive || s.sessionId);
 
-      // Only fetch messages if they weren't pre-loaded
-      if (preloadedMessages.length === 0) {
-        // Load messages now that the session is actually resumed and ready
-        Promise.all([
-          window.electronAPI.copilot.getMessages(s.sessionId),
-          window.electronAPI.copilot.loadMessageAttachments(s.sessionId),
-        ])
-          .then(([messages, attachmentsResult]) => {
-            if (messages.length > 0) {
-              const attachmentMap = new Map(
-                attachmentsResult.attachments.map((a) => [a.messageIndex, a])
-              );
-              setTabs((prev) =>
-                prev.map((tab) =>
-                  tab.id === s.sessionId
-                    ? {
-                        ...tab,
-                        messages: messages.map((m, i) => {
-                          const att = attachmentMap.get(i);
-                          return {
-                            id: `hist-${i}`,
-                            ...m,
-                            isStreaming: false,
-                            imageAttachments: att?.imageAttachments,
-                            fileAttachments: att?.fileAttachments,
-                          };
-                        }),
-                        needsTitle: false,
-                      }
-                    : tab
-                )
-              );
-            }
-          })
-          .catch((err) => console.error(`Failed to load history for ${s.sessionId}:`, err));
-      } else {
-        // Still load attachments for pre-loaded messages
-        window.electronAPI.copilot
-          .loadMessageAttachments(s.sessionId)
-          .then((attachmentsResult) => {
-            if (attachmentsResult.attachments.length > 0) {
-              const attachmentMap = new Map(
-                attachmentsResult.attachments.map((a) => [a.messageIndex, a])
-              );
-              setTabs((prev) =>
-                prev.map((tab) =>
-                  tab.id === s.sessionId
-                    ? {
-                        ...tab,
-                        messages: tab.messages.map((m, i) => {
-                          const att = attachmentMap.get(i);
-                          return att
-                            ? {
-                                ...m,
-                                imageAttachments: att.imageAttachments,
-                                fileAttachments: att.fileAttachments,
-                              }
-                            : m;
-                        }),
-                      }
-                    : tab
-                )
-              );
-            }
-          })
-          .catch((err) => console.error(`Failed to load attachments for ${s.sessionId}:`, err));
-      }
+      // Always load canonical history after resumption to avoid stale/partial preloaded history.
+      Promise.all([
+        window.electronAPI.copilot.getMessages(s.sessionId),
+        window.electronAPI.copilot.loadMessageAttachments(s.sessionId),
+      ])
+        .then(([messages, attachmentsResult]) => {
+          if (messages.length > 0) {
+            const attachmentMap = new Map(
+              attachmentsResult.attachments.map((a) => [a.messageIndex, a])
+            );
+            setTabs((prev) =>
+              prev.map((tab) =>
+                tab.id === s.sessionId
+                  ? {
+                      ...tab,
+                      messages: messages.map((m, i) => {
+                        const att = attachmentMap.get(i);
+                        return {
+                          id: `hist-${i}`,
+                          ...m,
+                          isStreaming: false,
+                          imageAttachments: att?.imageAttachments,
+                          fileAttachments: att?.fileAttachments,
+                        };
+                      }),
+                      needsTitle: false,
+                    }
+                  : tab
+              )
+            );
+          }
+        })
+        .catch((err) => console.error(`Failed to load history for ${s.sessionId}:`, err));
     });
 
     // Also fetch models in case ready event was missed (baseline list only)
