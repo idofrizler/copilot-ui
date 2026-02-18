@@ -5,6 +5,29 @@ All notable changes to Cooper will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 1.0.2
+
+This release includes all changes currently on `staging` since `main` (`1.0.1`), based on commit and diff review.
+
+### Added
+
+- **Linux packages** — Added AppImage, `.deb`, and `.rpm` build outputs for Linux distribution support.
+- **CLI setup checks** — Added Copilot CLI install/auth status checks and IPC wiring to support setup guidance in-app.
+- **Source issue linking** — PR workflows now persist and display source issue links in session data.
+- **Session path controls** — Added XDG/COPILOT session path support and dev-session isolation controls.
+
+### Changed
+
+- **Model fetching and cache behavior** — Improved on-demand model fetching, persistent verified-model cache, cache versioning, and diagnostic logging in main process.
+- **Chat/session UX** — Added/expanded auto-scroll behavior, scroll-to-bottom affordances, grouped tabs by repo, and richer edited-files summaries.
+- **Dependencies and binaries** — Updated `@github/copilot-sdk` and bundled Copilot binaries.
+
+### Fixed
+
+- Model verification race conditions and missing baseline model fallback in API responses.
+- UI stability issues including undefined `pendingConfirmations` / `editedFiles`, file preview loading races, and session YOLO mode persistence.
+- Interaction issues including Ctrl/Cmd+W hard-close behavior, keypress latency in large sessions, and MCP tool display/default edge cases.
+
 ## 1.0.1
 
 ### Added
