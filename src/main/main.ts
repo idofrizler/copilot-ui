@@ -1158,21 +1158,31 @@ interface ModelInfo {
 interface ModelsCache {
   models: ModelInfo[];
   timestamp: number;
+  version: number; // Cache version for invalidation
 }
 let modelsCache: ModelsCache | null = null;
 const MODEL_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours (models don't change frequently)
+const MODEL_CACHE_VERSION = 2; // Increment when model schema or fetch logic changes
 
 // Returns cached models if valid, otherwise empty array
 function getCachedModels(): ModelInfo[] {
   // Check in-memory cache first
-  if (modelsCache && Date.now() - modelsCache.timestamp < MODEL_CACHE_TTL) {
+  if (
+    modelsCache &&
+    Date.now() - modelsCache.timestamp < MODEL_CACHE_TTL &&
+    modelsCache.version === MODEL_CACHE_VERSION
+  ) {
     return modelsCache.models;
   }
 
   // Check persistent storage (electron-store)
   try {
     const storedCache = store.get('modelsCache') as ModelsCache | undefined;
-    if (storedCache && Date.now() - storedCache.timestamp < MODEL_CACHE_TTL) {
+    if (
+      storedCache &&
+      Date.now() - storedCache.timestamp < MODEL_CACHE_TTL &&
+      storedCache.version === MODEL_CACHE_VERSION
+    ) {
       modelsCache = storedCache; // Hydrate in-memory cache
       return storedCache.models;
     }
@@ -1231,7 +1241,7 @@ async function fetchModelsFromAPI(client: CopilotClient): Promise<ModelInfo[]> {
       });
 
     // Cache both in-memory and persistent storage
-    modelsCache = { models, timestamp: Date.now() };
+    modelsCache = { models, timestamp: Date.now(), version: MODEL_CACHE_VERSION };
     try {
       store.set('modelsCache', modelsCache);
     } catch (err) {
