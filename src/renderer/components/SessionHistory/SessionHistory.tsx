@@ -381,9 +381,9 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
     return allSessions.filter((s) => s.worktree).length;
   }, [allSessions]);
 
-  // Categorize filtered sessions by folder
+  // Categorize filtered sessions by time period
   const categorizedSessions = useMemo(() => {
-    return categorizeByFolder(filteredSessions);
+    return categorizeByTime(filteredSessions);
   }, [filteredSessions]);
 
   const handleSessionClick = (session: DisplaySession) => {
