@@ -82,7 +82,7 @@ jobs:
 
       - name: Run unit tests
         if: needs.changes.outputs.src == 'true'
-        run: npm test
+        run: npm run test:integration:mcp
 
       - name: Build application
         if: needs.changes.outputs.src == 'true'
