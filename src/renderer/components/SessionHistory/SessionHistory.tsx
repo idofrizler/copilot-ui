@@ -303,10 +303,40 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
     });
 
     // Filter out any previous sessions that are now active (shouldn't happen but just in case)
+    // Enrich previous sessions with worktree data from worktreeMap (matched by cwd)
     const activeIds = new Set(activeSessions.map((t) => t.id));
-    const filteredPrevious: DisplaySession[] = sessions
+    const enrichedPrevious: DisplaySession[] = sessions
       .filter((s) => !activeIds.has(s.sessionId))
-      .map((s) => ({ ...s, isActive: false }));
+      .map((s) => {
+        const worktreeData = s.cwd ? worktreeMap.get(s.cwd) : undefined;
+        const worktree = worktreeData
+          ? {
+              id: worktreeData.id,
+              repoPath: worktreeData.repoPath,
+              branch: worktreeData.branch,
+              worktreePath: worktreeData.worktreePath,
+              status: worktreeData.status,
+              diskUsage: worktreeData.diskUsage,
+            }
+          : s.worktree;
+        return { ...s, isActive: false, worktree };
+      });
+
+    // Deduplicate: for sessions sharing the same worktree, keep only the most recent
+    const bestWorktreeSession = new Map<string, DisplaySession>();
+    for (const session of enrichedPrevious) {
+      const wtPath = session.worktree?.worktreePath;
+      if (!wtPath) continue;
+      const existing = bestWorktreeSession.get(wtPath);
+      if (!existing || new Date(session.modifiedTime) > new Date(existing.modifiedTime)) {
+        bestWorktreeSession.set(wtPath, session);
+      }
+    }
+    const filteredPrevious = enrichedPrevious.filter((session) => {
+      const wtPath = session.worktree?.worktreePath;
+      if (!wtPath) return true;
+      return bestWorktreeSession.get(wtPath)?.sessionId === session.sessionId;
+    });
 
     // Collect worktree paths that are already represented
     const coveredWorktreePaths = new Set<string>();
