@@ -155,21 +155,25 @@ export const CreateWorktreeSession: React.FC<CreateWorktreeSessionProps> = ({
       });
 
       if (result.success && result.session) {
-        const autoStartInfo =
-          autoStart && issueTitle
-            ? {
-                issueInfo: {
-                  url: issueUrl.trim(),
-                  title: issueTitle,
-                  body: issueBody,
-                  comments: issueComments,
-                },
-                useRalphWiggum,
-                ralphMaxIterations,
-                useLisaSimpson,
-                yoloMode,
-              }
-            : undefined;
+        // Always include issueInfo if we have it, regardless of autoStart
+        const hasIssue = !!issueTitle && !!issueUrl.trim();
+        const autoStartInfo = hasIssue
+          ? {
+              issueInfo: {
+                url: issueUrl.trim(),
+                title: issueTitle,
+                body: issueBody,
+                comments: issueComments,
+              },
+              // Only include agent options if autoStart is enabled
+              useRalphWiggum: autoStart ? useRalphWiggum : undefined,
+              ralphMaxIterations: autoStart ? ralphMaxIterations : undefined,
+              useLisaSimpson: autoStart ? useLisaSimpson : undefined,
+              yoloMode: autoStart ? yoloMode : undefined,
+              // Flag to indicate if agent should auto-start
+              shouldAutoStart: autoStart,
+            }
+          : undefined;
         onSessionCreated(result.session.worktreePath, result.session.branch, autoStartInfo);
         onClose();
       } else {

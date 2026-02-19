@@ -92,25 +92,8 @@ class WhisperModelManager {
       return join(envModel, '..');
     }
 
-    const isDev = !app.isPackaged;
-    if (isDev) {
-      return join(__dirname, '../../public/whisper-model');
-    }
-
-    // In production, check app.asar.unpacked first
-    if (process.resourcesPath) {
-      const unpackedDir = join(
-        process.resourcesPath,
-        'app.asar.unpacked',
-        'public',
-        'whisper-model'
-      );
-      if (existsSync(unpackedDir)) {
-        console.log('[WhisperModelManager] Found model dir at:', unpackedDir);
-        return unpackedDir;
-      }
-    }
-
+    // Always use userData for consistent model location across dev and production
+    // This allows sharing models between dev instances and production builds
     return join(app.getPath('userData'), 'whisper-model');
   }
 
@@ -123,20 +106,8 @@ class WhisperModelManager {
       return join(envBinary, '..');
     }
 
-    const isDev = !app.isPackaged;
-    if (isDev) {
-      return join(__dirname, '../../public/whisper-cpp');
-    }
-
-    // In production, check app.asar.unpacked first (binaries must be unpacked from asar)
-    if (process.resourcesPath) {
-      const unpackedDir = join(process.resourcesPath, 'app.asar.unpacked', 'public', 'whisper-cpp');
-      if (existsSync(unpackedDir)) {
-        console.log('[WhisperModelManager] Found binary dir at:', unpackedDir);
-        return unpackedDir;
-      }
-    }
-
+    // Always use userData for consistent binary location across dev and production
+    // This allows sharing binaries between dev instances and production builds
     return join(app.getPath('userData'), 'whisper-cpp');
   }
 

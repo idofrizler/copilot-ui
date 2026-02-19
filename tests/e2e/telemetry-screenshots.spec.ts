@@ -3,6 +3,7 @@
  */
 import { test, _electron as electron, ElectronApplication, Page } from '@playwright/test';
 import * as path from 'path';
+import { scrollIntoViewAndClick } from './helpers/viewport';
 
 let electronApp: ElectronApplication;
 let page: Page;
@@ -45,8 +46,8 @@ test.describe('Telemetry Feature Screenshots', () => {
       .filter({ has: page.locator('svg') })
       .first();
     if (await expandButton.isVisible()) {
-      await expandButton.click();
-      await page.waitForTimeout(500);
+      await scrollIntoViewAndClick(expandButton, { timeout: 15000 });
+      await page.waitForTimeout(1000);
     }
     await page.screenshot({
       path: 'evidence/screenshots/04-mode-selection-area.png',

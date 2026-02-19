@@ -1,1 +1,1 @@
-export { MicButton } from './MicButton'
+export { MicButton } from './MicButton';

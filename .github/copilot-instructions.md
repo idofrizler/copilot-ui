@@ -19,11 +19,11 @@ Guiding principles:
 
 Electron three-process model:
 
-| Layer | Path | Role |
-|-------|------|------|
-| **Main process** | `src/main/` | Electron backend — Copilot SDK communication, IPC handlers, PTY terminals, file system, voice, git worktrees |
-| **Preload** | `src/preload/` | Secure IPC bridge exposing `electronAPI` with namespaced methods (`copilot.*`, `git.*`, `voice.*`, `system.*`, `mcp.*`) |
-| **Renderer** | `src/renderer/` | React UI — components, hooks, context, themes, utilities |
+| Layer            | Path            | Role                                                                                                                    |
+| ---------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| **Main process** | `src/main/`     | Electron backend — Copilot SDK communication, IPC handlers, PTY terminals, file system, voice, git worktrees            |
+| **Preload**      | `src/preload/`  | Secure IPC bridge exposing `electronAPI` with namespaced methods (`copilot.*`, `git.*`, `voice.*`, `system.*`, `mcp.*`) |
+| **Renderer**     | `src/renderer/` | React UI — components, hooks, context, themes, utilities                                                                |
 
 Communication between renderer and main always goes through preload IPC — never direct Node.js access from the renderer.
 

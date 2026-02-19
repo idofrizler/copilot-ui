@@ -2,6 +2,7 @@
 export * from './AccordionSelect';
 export * from './Button';
 export * from './ChoiceSelector';
+export * from './CliSetupModal';
 export * from './CodeBlock';
 export * from './Dropdown';
 export * from './EnvironmentModal';
@@ -21,3 +22,6 @@ export * from './Terminal';
 export * from './SettingsModal';
 export * from './TitleBar';
 export * from './Spinner';
+export * from './MessageItem';
+export * from './ChatInput';
+export type { ChatInputHandle } from './ChatInput';

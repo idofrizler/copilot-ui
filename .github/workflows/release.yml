@@ -93,6 +93,8 @@ jobs:
             platform: mac
           - os: windows-latest
             platform: win
+          - os: ubuntu-latest
+            platform: linux
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -133,6 +135,21 @@ jobs:
 
       - name: Install native dependency binaries (macOS)
         if: runner.os == 'macOS'
+        run: |
+          node node_modules/ffmpeg-static/install.js
+          node node_modules/vosk-koffi/scripts/postinstall.js
+
+      # --- Linux setup ---
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo ./scripts/install-linux-deps.sh
+
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: npm ci --ignore-scripts && npx patch-package && npm run rebuild-pty
+
+      - name: Install native dependency binaries (Linux)
+        if: runner.os == 'Linux'
         run: |
           node node_modules/ffmpeg-static/install.js
           node node_modules/vosk-koffi/scripts/postinstall.js
@@ -184,6 +201,10 @@ jobs:
           AZURE_CODE_SIGNING_ACCOUNT: ${{ secrets.AZURE_CODE_SIGNING_ACCOUNT }}
           AZURE_CERT_PROFILE: ${{ secrets.AZURE_CERT_PROFILE }}
 
+      - name: Build distributables (Linux)
+        if: runner.os == 'Linux'
+        run: npx electron-builder --linux --publish never
+
       - name: Upload DMG (macOS)
         if: runner.os == 'macOS'
         uses: actions/upload-artifact@v4
@@ -202,6 +223,23 @@ jobs:
           if-no-files-found: error
           retention-days: 5
 
+      - name: Upload AppImage (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cooper-AppImage
+          path: release/*.AppImage
+          if-no-files-found: error
+          retention-days: 5
+
+      - name: Upload deb (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cooper-deb
+          path: release/*.deb
+          if-no-files-found: error
+          retention-days: 5
 
   # ---------------------------------------------------------------------------
   # Job 3: Create GitHub Release with artifacts

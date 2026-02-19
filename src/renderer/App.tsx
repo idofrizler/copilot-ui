@@ -55,6 +55,10 @@ import {
   VolumeMuteIcon,
   TitleBar,
   EyeIcon,
+  MessageItem,
+  ChatInput,
+  type ChatInputHandle,
+  CliSetupModal,
 } from './components';
 import { GitBranchWidget, CommitModal, useCommitModal } from './features/git';
 import { CreateWorktreeSession } from './features/sessions';
@@ -99,6 +103,7 @@ import { LONG_OUTPUT_LINE_THRESHOLD } from './utils/cliOutputCompression';
 import { isAsciiDiagram, extractTextContent } from './utils/isAsciiDiagram';
 import { isCliCommand } from './utils/isCliCommand';
 import { groupAgents } from './utils/agentPicker';
+import { parseGitHubIssueUrl } from './utils/parseGitHubIssueUrl';
 import { useClickOutside, useResponsive, useVoiceSpeech } from './hooks';
 import buildInfo from './build-info.json';
 import { TerminalProvider } from './context/TerminalContext';
@@ -145,7 +150,6 @@ const SKILL_TYPE_LABELS: Record<Skill['type'], string> = {
 const SKILL_TYPE_ORDER: Skill['type'][] = ['personal', 'project'];
 const App: React.FC = () => {
   const [status, setStatus] = useState<Status>('connecting');
-  const [inputValue, setInputValue] = useState('');
   const [tabs, setTabs] = useState<TabState[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   // Drag-and-drop state for session reordering
@@ -199,6 +203,9 @@ const App: React.FC = () => {
   } | null>(null);
   const [noteInputValue, setNoteInputValue] = useState('');
   const contextMenuRef = useRef<HTMLDivElement>(null);
+
+  // Worktree map for grouping tabs by original repository
+  const [worktreeMap, setWorktreeMap] = useState<Map<string, { repoPath: string }>>(new Map());
 
   // Close context menu when clicking outside
   const closeContextMenu = useCallback(() => {
@@ -402,19 +409,11 @@ const App: React.FC = () => {
     lastCommandStart?: number;
   } | null>(null);
 
-  // Image attachment state
-  const [imageAttachments, setImageAttachments] = useState<ImageAttachment[]>([]);
+  // Image attachment state (model capabilities for vision warning)
   const [modelCapabilities, setModelCapabilities] = useState<Record<string, ModelCapabilities>>({});
-  const [isDraggingImage, setIsDraggingImage] = useState(false);
-  const imageInputRef = useRef<HTMLInputElement>(null);
 
   // Image lightbox state (for viewing enlarged images)
   const [lightboxImage, setLightboxImage] = useState<{ src: string; alt: string } | null>(null);
-
-  // File attachment state
-  const [fileAttachments, setFileAttachments] = useState<FileAttachment[]>([]);
-  const [isDraggingFile, setIsDraggingFile] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Track user-attached file paths per session for auto-approval
   const userAttachedPathsRef = useRef<Map<string, Set<string>>>(new Map());
@@ -467,9 +466,15 @@ const App: React.FC = () => {
   const [shouldShowWizardWhenReady, setShouldShowWizardWhenReady] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
 
+  // CLI setup modal state
+  const [showCliSetupModal, setShowCliSetupModal] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const chatInputRef = useRef<ChatInputHandle>(null);
   const activeTabIdRef = useRef<string | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const isAtBottomRef = useRef<boolean>(true);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
 
   // Voice speech hook for STT/TTS
   const voiceSpeech = useVoiceSpeech();
@@ -493,6 +498,21 @@ const App: React.FC = () => {
         setZoomFactor(result.zoomFactor);
       }
     });
+  }, []);
+
+  // Prevent page refresh shortcuts (causes limbo state)
+  // Handles: Ctrl+R (Win/Linux), Cmd+R (Mac), F5 (Win), Ctrl+Shift+R, Cmd+Shift+R
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'r') {
+        e.preventDefault();
+      }
+      if (e.key === 'F5') {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
   }, []);
 
   useEffect(() => {
@@ -750,6 +770,25 @@ const App: React.FC = () => {
     checkWelcomeWizard();
   }, []);
 
+  // Check CLI status on startup
+  useEffect(() => {
+    const checkCliSetup = async () => {
+      try {
+        const status = await window.electronAPI.copilot.checkCliStatus();
+
+        // Only show setup modal if CLI is not installed or not authenticated
+        // Skip in packaged apps where CLI is bundled (only check auth)
+        if (!status.cliInstalled || !status.authenticated) {
+          setShowCliSetupModal(true);
+        }
+      } catch (error) {
+        console.error('Failed to check CLI status:', error);
+      }
+    };
+
+    checkCliSetup();
+  }, []);
+
   // Show wizard once data is loaded and we should show it
   useEffect(() => {
     if (shouldShowWizardWhenReady && dataLoaded) {
@@ -776,7 +815,7 @@ const App: React.FC = () => {
   // Focus input when active tab changes
   useEffect(() => {
     if (activeTabId) {
-      inputRef.current?.focus();
+      chatInputRef.current?.focus();
     }
   }, [activeTabId]);
 
@@ -812,9 +851,9 @@ const App: React.FC = () => {
             ? {
                 ...tab,
                 draftInput: {
-                  text: inputValue,
-                  imageAttachments: [...imageAttachments],
-                  fileAttachments: [...fileAttachments],
+                  text: chatInputRef.current?.getValue() || '',
+                  imageAttachments: [...(chatInputRef.current?.getImageAttachments() || [])],
+                  fileAttachments: [...(chatInputRef.current?.getFileAttachments() || [])],
                   terminalAttachment: terminalAttachment ? { ...terminalAttachment } : null,
                 },
               }
@@ -828,15 +867,15 @@ const App: React.FC = () => {
       const newActiveTab = tabs.find((t) => t.id === activeTabId);
       const draft = newActiveTab?.draftInput;
       if (draft) {
-        setInputValue(draft.text);
-        setImageAttachments(draft.imageAttachments);
-        setFileAttachments(draft.fileAttachments);
+        chatInputRef.current?.setValue(draft.text);
+        chatInputRef.current?.setImageAttachments(draft.imageAttachments);
+        chatInputRef.current?.setFileAttachments(draft.fileAttachments);
         setTerminalAttachment(draft.terminalAttachment);
       } else {
         // No draft saved for this tab - clear inputs
-        setInputValue('');
-        setImageAttachments([]);
-        setFileAttachments([]);
+        chatInputRef.current?.setValue('');
+        chatInputRef.current?.setImageAttachments([]);
+        chatInputRef.current?.setFileAttachments([]);
         setTerminalAttachment(null);
       }
     }
@@ -844,24 +883,24 @@ const App: React.FC = () => {
 
   // Save open sessions with models and cwd whenever tabs change
   useEffect(() => {
-    if (tabs.length > 0) {
-      const openSessions = tabs.map((t) => ({
-        sessionId: t.id,
-        model: t.model,
-        cwd: t.cwd,
-        name: t.name,
-        editedFiles: t.editedFiles,
-        alwaysAllowed: t.alwaysAllowed,
-        markedForReview: t.markedForReview,
-        reviewNote: t.reviewNote,
-        untrackedFiles: t.untrackedFiles,
-        fileViewMode: t.fileViewMode,
-        yoloMode: t.yoloMode,
-        activeAgentName: t.activeAgentName,
-      }));
-      window.electronAPI.copilot.saveOpenSessions(openSessions);
-    }
-  }, [tabs]);
+    if (!dataLoaded || tabs.length === 0) return;
+    const openSessions = tabs.map((t) => ({
+      sessionId: t.id,
+      model: t.model,
+      cwd: t.cwd,
+      name: t.name,
+      editedFiles: t.editedFiles,
+      alwaysAllowed: t.alwaysAllowed,
+      markedForReview: t.markedForReview,
+      reviewNote: t.reviewNote,
+      untrackedFiles: t.untrackedFiles,
+      fileViewMode: t.fileViewMode,
+      yoloMode: t.yoloMode,
+      activeAgentName: t.activeAgentName,
+      sourceIssue: t.sourceIssue,
+    }));
+    window.electronAPI.copilot.saveOpenSessions(openSessions);
+  }, [tabs, dataLoaded]);
 
   // Save message attachments whenever tabs/messages change
   useEffect(() => {
@@ -885,7 +924,23 @@ const App: React.FC = () => {
   }, [tabs]);
 
   const scrollToBottom = (instant?: boolean) => {
-    messagesEndRef.current?.scrollIntoView({ behavior: instant ? 'instant' : 'smooth' });
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+    }
+  };
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    // Consider 'at bottom' if within 50px of bottom
+    const atBottom = scrollHeight - scrollTop - clientHeight < 50;
+    isAtBottomRef.current = atBottom;
+    setShowScrollToBottom(!atBottom);
+  };
+
+  const handleScrollToBottomClick = () => {
+    scrollToBottom();
+    isAtBottomRef.current = true;
+    setShowScrollToBottom(false);
   };
 
   // Track previous message count and session ID for scroll logic
@@ -903,16 +958,31 @@ const App: React.FC = () => {
     prevSessionIdForScrollRef.current = currentSessionId;
 
     // Only scroll to bottom when:
-    // 1. New messages are added to the SAME session (message count increased)
-    // 2. NOT when switching sessions (session ID changed)
+    // 1. User is at the bottom (or switching sessions)
+    // 2. New messages are added to the SAME session (message count increased)
+    // 3. NOT when switching sessions (session ID changed)
     if (currentSessionId === prevSessionId && currentMessageCount > prevMessageCount) {
-      scrollToBottom();
+      // Only auto-scroll if user is already at bottom
+      if (isAtBottomRef.current) {
+        scrollToBottom();
+      }
     } else if (currentSessionId !== prevSessionId && currentMessageCount > 0) {
-      // When switching sessions, instantly scroll to bottom (no animation)
-      // This preserves the "show end of conversation" behavior without the annoying animated scroll
+      // When switching sessions, instantly scroll to bottom and reset tracking
+      isAtBottomRef.current = true;
+      setShowScrollToBottom(false);
       scrollToBottom(true);
     }
   }, [activeTab?.messages, activeTab?.id]);
+
+  // Keep scroll at bottom when tool calls/subagents change (if user was already at bottom)
+  useEffect(() => {
+    if (isAtBottomRef.current) {
+      // Defer scroll until after DOM has updated
+      requestAnimationFrame(() => {
+        scrollToBottom();
+      });
+    }
+  }, [activeTab?.activeTools, activeTab?.activeSubagents]);
 
   // Resize handlers for side panels
   const handleResizeMouseDown = useCallback(
@@ -1014,17 +1084,6 @@ const App: React.FC = () => {
     }
   }, [isMobileOrTablet]);
 
-  // Reset textarea height when input is cleared, grow when content is set programmatically
-  useEffect(() => {
-    if (!inputRef.current) return;
-    if (!inputValue) {
-      inputRef.current.style.height = 'auto';
-    } else {
-      inputRef.current.style.height = 'auto';
-      inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 200) + 'px';
-    }
-  }, [inputValue]);
-
   // Load MCP servers on startup
   useEffect(() => {
     const loadMcpConfig = async () => {
@@ -1086,6 +1145,26 @@ const App: React.FC = () => {
     loadInstructions();
   }, [activeTab?.cwd]);
 
+  // Fetch worktree data to map worktree paths to original repo paths
+  useEffect(() => {
+    const fetchWorktrees = async () => {
+      try {
+        if (!window.electronAPI?.worktree?.listSessions) return;
+        const result = await window.electronAPI.worktree.listSessions();
+        if (result?.sessions) {
+          const map = new Map<string, { repoPath: string }>();
+          result.sessions.forEach((wt: { worktreePath: string; repoPath: string }) => {
+            map.set(wt.worktreePath, { repoPath: wt.repoPath });
+          });
+          setWorktreeMap(map);
+        }
+      } catch (err) {
+        console.error('Failed to fetch worktree list:', err);
+      }
+    };
+    fetchWorktrees();
+  }, [tabs.length]); // Re-fetch when tabs change
+
   const handleOpenEnvironment = useCallback(
     (tab: 'instructions' | 'skills' | 'agents', event?: React.MouseEvent, itemPath?: string) => {
       event?.stopPropagation();
@@ -1130,6 +1209,10 @@ const App: React.FC = () => {
   useEffect(() => {
     const unsubscribeReady = window.electronAPI.copilot.onReady(async (data) => {
       setStatus('connected');
+      console.log(
+        `[onReady] Received ${data.models.length} models:`,
+        data.models.map((m) => m.id)
+      );
       setAvailableModels(data.models);
 
       // Set previous sessions immediately (without worktree enrichment for fast startup)
@@ -1201,6 +1284,7 @@ const App: React.FC = () => {
           };
           setTabs([newTab]);
           setActiveTabId(result.sessionId);
+          setDataLoaded(true);
         } catch (error) {
           console.error('Failed to create initial session:', error);
           setStatus('error');
@@ -1248,6 +1332,7 @@ const App: React.FC = () => {
               reviewNote: s.reviewNote,
               yoloMode: s.yoloMode,
               activeAgentName: s.activeAgentName,
+              sourceIssue: s.sourceIssue,
             };
           });
 
@@ -1326,6 +1411,7 @@ const App: React.FC = () => {
             lisaConfig,
             yoloMode: s.yoloMode,
             activeAgentName: s.activeAgentName,
+            sourceIssue: s.sourceIssue,
           },
         ];
       });
@@ -1333,79 +1419,49 @@ const App: React.FC = () => {
       // Only set active tab if none is set yet (don't switch tabs when loading in background)
       setActiveTabId((currentActive) => currentActive || s.sessionId);
 
-      // Only fetch messages if they weren't pre-loaded
-      if (preloadedMessages.length === 0) {
-        // Load messages now that the session is actually resumed and ready
-        Promise.all([
-          window.electronAPI.copilot.getMessages(s.sessionId),
-          window.electronAPI.copilot.loadMessageAttachments(s.sessionId),
-        ])
-          .then(([messages, attachmentsResult]) => {
-            if (messages.length > 0) {
-              const attachmentMap = new Map(
-                attachmentsResult.attachments.map((a) => [a.messageIndex, a])
-              );
-              setTabs((prev) =>
-                prev.map((tab) =>
-                  tab.id === s.sessionId
-                    ? {
-                        ...tab,
-                        messages: messages.map((m, i) => {
-                          const att = attachmentMap.get(i);
-                          return {
-                            id: `hist-${i}`,
-                            ...m,
-                            isStreaming: false,
-                            imageAttachments: att?.imageAttachments,
-                            fileAttachments: att?.fileAttachments,
-                          };
-                        }),
-                        needsTitle: false,
-                      }
-                    : tab
-                )
-              );
-            }
-          })
-          .catch((err) => console.error(`Failed to load history for ${s.sessionId}:`, err));
-      } else {
-        // Still load attachments for pre-loaded messages
-        window.electronAPI.copilot
-          .loadMessageAttachments(s.sessionId)
-          .then((attachmentsResult) => {
-            if (attachmentsResult.attachments.length > 0) {
-              const attachmentMap = new Map(
-                attachmentsResult.attachments.map((a) => [a.messageIndex, a])
-              );
-              setTabs((prev) =>
-                prev.map((tab) =>
-                  tab.id === s.sessionId
-                    ? {
-                        ...tab,
-                        messages: tab.messages.map((m, i) => {
-                          const att = attachmentMap.get(i);
-                          return att
-                            ? {
-                                ...m,
-                                imageAttachments: att.imageAttachments,
-                                fileAttachments: att.fileAttachments,
-                              }
-                            : m;
-                        }),
-                      }
-                    : tab
-                )
-              );
-            }
-          })
-          .catch((err) => console.error(`Failed to load attachments for ${s.sessionId}:`, err));
-      }
+      // Always load canonical history after resumption to avoid stale/partial preloaded history.
+      Promise.all([
+        window.electronAPI.copilot.getMessages(s.sessionId),
+        window.electronAPI.copilot.loadMessageAttachments(s.sessionId),
+      ])
+        .then(([messages, attachmentsResult]) => {
+          if (messages.length > 0) {
+            const attachmentMap = new Map(
+              attachmentsResult.attachments.map((a) => [a.messageIndex, a])
+            );
+            setTabs((prev) =>
+              prev.map((tab) =>
+                tab.id === s.sessionId
+                  ? {
+                      ...tab,
+                      messages: messages.map((m, i) => {
+                        const att = attachmentMap.get(i);
+                        return {
+                          id: `hist-${i}`,
+                          ...m,
+                          isStreaming: false,
+                          imageAttachments: att?.imageAttachments,
+                          fileAttachments: att?.fileAttachments,
+                        };
+                      }),
+                      needsTitle: false,
+                    }
+                  : tab
+              )
+            );
+          }
+        })
+        .catch((err) => console.error(`Failed to load history for ${s.sessionId}:`, err));
     });
 
     // Also fetch models in case ready event was missed (baseline list only)
     window.electronAPI.copilot
       .getModels()
       .then((data) => {
+        console.log(
+          `[getModels] Received ${data.models.length} models:`,
+          data.models.map((m) => m.id)
+        );
         if (data.models && data.models.length > 0) {
           setAvailableModels(data.models);
           setStatus('connected');
@@ -1671,6 +1727,10 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
           );
           const currentPhase = tab.lisaConfig.currentPhase;
           const currentVisitCount = tab.lisaConfig.phaseIterations[currentPhase] || 1;
+          const lastAssistantMsg = [...tab.messages]
+            .reverse()
+            .find((msg) => msg.role === 'assistant');
+          const lastContent = lastAssistantMsg?.content || '';
 
           // New phase flow: plan → plan-review → execute → code-review → validate → final-review → COMPLETE
           const getNextPhase = (phase: LisaPhase): LisaPhase | null => {
@@ -1897,8 +1957,8 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       if (sessionId === activeTabIdRef.current) {
         setTabs((currentTabs) => {
           const tab = currentTabs.find((t) => t.id === sessionId);
-          if (tab && tab.pendingConfirmations.length === 0) {
-            inputRef.current?.focus();
+          if (tab && (tab.pendingConfirmations?.length ?? 0) === 0) {
+            chatInputRef.current?.focus();
           }
           return currentTabs;
         });
@@ -2216,10 +2276,7 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       );
     });
 
-    // Listen for verified models update (async verification after startup)
-    const unsubscribeModelsVerified = window.electronAPI.copilot.onModelsVerified((data) => {
-      setAvailableModels(data.models);
-    });
+    // Models are now fetched on-demand when user opens model selector
 
     // Listen for context usage info updates
     const unsubscribeUsageInfo = window.electronAPI.copilot.onUsageInfo((data) => {
@@ -2312,7 +2369,6 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       unsubscribePermission();
       unsubscribeError();
       unsubscribeSessionResumed();
-      unsubscribeModelsVerified();
       unsubscribeUsageInfo();
       unsubscribeCompactionStart();
       unsubscribeCompactionComplete();
@@ -2321,6 +2377,10 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
   }, []);
 
   const handleSendMessage = useCallback(async () => {
+    const inputValue = chatInputRef.current?.getValue() || '';
+    const imageAttachments = chatInputRef.current?.getImageAttachments() || [];
+    const fileAttachments = chatInputRef.current?.getFileAttachments() || [];
+
     if (
       !inputValue.trim() &&
       !terminalAttachment &&
@@ -2333,7 +2393,7 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
     // If there are pending confirmations, automatically deny them when sending a new message
     // Note: Only the first confirmation is denied (confirmations are processed sequentially)
     // This matches the behavior of handleConfirmation which also processes one at a time
-    if (activeTab.pendingConfirmations.length > 0) {
+    if ((activeTab.pendingConfirmations?.length ?? 0) > 0) {
       const pendingConfirmation = activeTab.pendingConfirmations[0];
 
       // Deny the pending confirmation
@@ -2496,10 +2556,8 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       });
 
       // Clear input immediately
-      setInputValue('');
+      chatInputRef.current?.clearAll();
       setTerminalAttachment(null);
-      setImageAttachments([]);
-      setFileAttachments([]);
 
       // Send with enqueue mode to inject into agent's processing queue
       try {
@@ -2692,10 +2750,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       detectedChoices: undefined, // Clear any detected choices
       draftInput: undefined, // Clear draft after sending
     });
-    setInputValue('');
+    chatInputRef.current?.clearAll();
     setTerminalAttachment(null);
-    setImageAttachments([]);
-    setFileAttachments([]);
 
     // Reset Ralph UI state after sending
     if (ralphEnabled) {
@@ -2721,7 +2777,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       updateTab(tabId, { isProcessing: false, ralphConfig: undefined, lisaConfig: undefined });
     }
   }, [
-    inputValue,
     activeTab,
     updateTab,
     ralphEnabled,
@@ -2730,8 +2785,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     ralphClearContext,
     lisaEnabled,
     terminalAttachment,
-    imageAttachments,
-    fileAttachments,
   ]);
 
   // Keep ref in sync for voice auto-send
@@ -2752,7 +2805,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         // Store the terminal output as an attachment to be included in next message
         setTerminalAttachment({ output: trimmedOutput, lineCount });
         // Focus the input field
-        inputRef.current?.focus();
+        chatInputRef.current?.focus();
       }
     },
     []
@@ -2761,18 +2814,26 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
   const handleCopyCommitErrorToMessage = useCallback(
     (message: string) => {
       if (!message.trim()) return;
-      setInputValue((prev) => (prev.trim() ? `${prev}\n\n${message}` : message));
+      const currentValue = chatInputRef.current?.getValue() || '';
+      const newValue = currentValue.trim() ? `${currentValue}\n\n${message}` : message;
+      chatInputRef.current?.setValue(newValue);
       commitModal.closeCommitModal();
-      inputRef.current?.focus();
+      chatInputRef.current?.focus();
     },
     [commitModal]
   );
+
+  // Handle image click (for now, just a no-op - can be extended for image viewer modal)
+  const handleImageClick = useCallback((src: string, alt: string) => {
+    // Placeholder for future image viewer modal
+    console.log('Image clicked:', src, alt);
+  }, []);
 
   // Handle confirmation from shrink modal
   const handleShrinkModalConfirm = useCallback((output: string, lineCount: number) => {
     setTerminalAttachment({ output, lineCount });
     setPendingTerminalOutput(null);
-    inputRef.current?.focus();
+    chatInputRef.current?.focus();
   }, []);
 
   // Cancel a specific pending injection by index, or all if index not provided
@@ -2804,297 +2865,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     const caps = modelCapabilities[activeTab.model];
     return caps?.supportsVision ?? false;
   }, [activeTab, modelCapabilities]);
-
-  // Handle image file selection
-  const handleImageSelect = useCallback(async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-
-    const newAttachments: ImageAttachment[] = [];
-
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      if (!file.type.startsWith('image/')) {
-        continue;
-      }
-
-      // Read file as data URL for preview
-      const reader = new FileReader();
-      const dataUrl = await new Promise<string>((resolve) => {
-        reader.onload = (e) => resolve(e.target?.result as string);
-        reader.readAsDataURL(file);
-      });
-
-      // Save to temp file for SDK
-      const filename = `image-${Date.now()}-${i}${file.name.substring(file.name.lastIndexOf('.'))}`;
-      const result = await window.electronAPI.copilot.saveImageToTemp(dataUrl, filename);
-
-      if (result.success && result.path) {
-        newAttachments.push({
-          id: generateId(),
-          path: result.path,
-          previewUrl: dataUrl,
-          name: file.name,
-          size: file.size,
-          mimeType: file.type,
-        });
-      }
-    }
-
-    if (newAttachments.length > 0) {
-      setImageAttachments((prev) => [...prev, ...newAttachments]);
-      inputRef.current?.focus();
-    }
-  }, []);
-
-  // Handle removing an image attachment
-  const handleRemoveImage = useCallback((id: string) => {
-    setImageAttachments((prev) => prev.filter((img) => img.id !== id));
-  }, []);
-
-  // Handle file selection (non-image files)
-  const handleFileSelect = useCallback(async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-
-    const newAttachments: FileAttachment[] = [];
-
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      // Note: We allow all files including images - users can attach images as files if they prefer
-
-      // In Electron, File objects from file picker have a path property
-      // Use it directly to avoid copying and trust issues
-      const electronFile = file as File & { path?: string };
-      if (electronFile.path) {
-        newAttachments.push({
-          id: generateId(),
-          path: electronFile.path,
-          name: file.name,
-          size: file.size,
-          mimeType: file.type || 'application/octet-stream',
-        });
-        continue;
-      }
-
-      // Fallback: Read file as data URL and save to temp (for pasted/dropped files without path)
-      const reader = new FileReader();
-      const dataUrl = await new Promise<string>((resolve) => {
-        reader.onload = (e) => resolve(e.target?.result as string);
-        reader.readAsDataURL(file);
-      });
-
-      // Save to temp file for SDK
-      const ext = file.name.includes('.') ? file.name.substring(file.name.lastIndexOf('.')) : '';
-      const filename = `file-${Date.now()}-${i}${ext}`;
-      const mimeType = file.type || 'application/octet-stream';
-      const result = await window.electronAPI.copilot.saveFileToTemp(dataUrl, filename, mimeType);
-
-      if (result.success && result.path) {
-        newAttachments.push({
-          id: generateId(),
-          path: result.path,
-          name: file.name,
-          size: result.size || file.size,
-          mimeType: mimeType,
-        });
-      }
-    }
-
-    if (newAttachments.length > 0) {
-      setFileAttachments((prev) => [...prev, ...newAttachments]);
-      inputRef.current?.focus();
-    }
-  }, []);
-
-  // Handle removing a file attachment
-  const handleRemoveFile = useCallback((id: string) => {
-    setFileAttachments((prev) => prev.filter((f) => f.id !== id));
-  }, []);
-
-  // Handle paste event for images and files
-  const handlePaste = useCallback(
-    async (e: React.ClipboardEvent) => {
-      const items = e.clipboardData?.items;
-      if (!items) return;
-
-      const imageFiles: File[] = [];
-      const otherFiles: File[] = [];
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        if (item.kind === 'file') {
-          const file = item.getAsFile();
-          if (file) {
-            if (item.type.startsWith('image/')) {
-              imageFiles.push(file);
-            } else {
-              otherFiles.push(file);
-            }
-          }
-        }
-      }
-
-      if (imageFiles.length > 0 || otherFiles.length > 0) {
-        e.preventDefault();
-
-        if (imageFiles.length > 0) {
-          const dataTransfer = new DataTransfer();
-          imageFiles.forEach((f) => dataTransfer.items.add(f));
-          await handleImageSelect(dataTransfer.files);
-        }
-
-        if (otherFiles.length > 0) {
-          const dataTransfer = new DataTransfer();
-          otherFiles.forEach((f) => dataTransfer.items.add(f));
-          await handleFileSelect(dataTransfer.files);
-        }
-      }
-    },
-    [handleImageSelect, handleFileSelect]
-  );
-
-  // Handle drag events for images and files
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    const hasImages = Array.from(e.dataTransfer.items).some(
-      (item) => item.kind === 'file' && item.type.startsWith('image/')
-    );
-    const hasFiles = Array.from(e.dataTransfer.items).some(
-      (item) => item.kind === 'file' && !item.type.startsWith('image/')
-    );
-
-    if (hasImages) {
-      setIsDraggingImage(true);
-    }
-    if (hasFiles) {
-      setIsDraggingFile(true);
-    }
-  }, []);
-
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDraggingImage(false);
-    setIsDraggingFile(false);
-  }, []);
-
-  const handleDrop = useCallback(
-    async (e: React.DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setIsDraggingImage(false);
-      setIsDraggingFile(false);
-
-      // In Electron, we need to get file paths differently
-      const files = e.dataTransfer.files;
-
-      // Try to get files from dataTransfer.files first - separate images and other files
-      if (files.length > 0) {
-        const imageFiles: File[] = [];
-        const otherFiles: File[] = [];
-        for (let i = 0; i < files.length; i++) {
-          const file = files[i];
-          if (
-            file.type.startsWith('image/') ||
-            file.name.match(/\.(png|jpg|jpeg|gif|webp|bmp)$/i)
-          ) {
-            imageFiles.push(file);
-          } else {
-            otherFiles.push(file);
-          }
-        }
-        if (imageFiles.length > 0) {
-          const dataTransfer = new DataTransfer();
-          imageFiles.forEach((f) => dataTransfer.items.add(f));
-          await handleImageSelect(dataTransfer.files);
-        }
-        if (otherFiles.length > 0) {
-          const dataTransfer = new DataTransfer();
-          otherFiles.forEach((f) => dataTransfer.items.add(f));
-          await handleFileSelect(dataTransfer.files);
-        }
-        return;
-      }
-
-      // Try getting files from items
-      const items = e.dataTransfer.items;
-      if (items && items.length > 0) {
-        const imageFiles: File[] = [];
-        const otherFiles: File[] = [];
-        for (let i = 0; i < items.length; i++) {
-          const item = items[i];
-          if (item.kind === 'file') {
-            const file = item.getAsFile();
-            if (file) {
-              if (
-                file.type.startsWith('image/') ||
-                file.name.match(/\.(png|jpg|jpeg|gif|webp|bmp)$/i)
-              ) {
-                imageFiles.push(file);
-              } else {
-                otherFiles.push(file);
-              }
-            }
-          }
-        }
-        if (imageFiles.length > 0) {
-          const dataTransfer = new DataTransfer();
-          imageFiles.forEach((f) => dataTransfer.items.add(f));
-          await handleImageSelect(dataTransfer.files);
-        }
-        if (otherFiles.length > 0) {
-          const dataTransfer = new DataTransfer();
-          otherFiles.forEach((f) => dataTransfer.items.add(f));
-          await handleFileSelect(dataTransfer.files);
-        }
-        if (imageFiles.length > 0 || otherFiles.length > 0) {
-          return;
-        }
-      }
-
-      // Try getting file paths from URI list
-      const uriList = e.dataTransfer.getData('text/uri-list');
-      if (uriList) {
-        const urls = uriList.split('\n').filter((uri) => uri.trim());
-
-        // Handle http/https image URLs - fetch via main process (bypasses CSP)
-        const httpUrls = urls.filter(
-          (uri) => uri.startsWith('http://') || uri.startsWith('https://')
-        );
-        if (httpUrls.length > 0) {
-          const newAttachments: ImageAttachment[] = [];
-          for (const url of httpUrls) {
-            try {
-              const result = await window.electronAPI.copilot.fetchImageFromUrl(url);
-              if (result.success && result.path && result.dataUrl) {
-                newAttachments.push({
-                  id: generateId(),
-                  path: result.path,
-                  previewUrl: result.dataUrl,
-                  name: result.filename || 'image.png',
-                  size: result.size || 0,
-                  mimeType: result.mimeType || 'image/png',
-                });
-              }
-            } catch (err) {
-              console.error('Failed to fetch image from URL:', url, err);
-            }
-          }
-          if (newAttachments.length > 0) {
-            setImageAttachments((prev) => [...prev, ...newAttachments]);
-            inputRef.current?.focus();
-            return;
-          }
-        }
-
-        // Handle file:// URLs
-        const filePaths = urls
-          .filter((uri) => uri.startsWith('file://'))
-          .map((uri) => decodeURIComponent(uri.replace('file://', '')));
-      }
-    },
-    [handleImageSelect, handleFileSelect]
-  );
 
   const handleStop = useCallback(() => {
     if (!activeTab) return;
@@ -3562,6 +3332,42 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     }
   };
 
+  // Create a new session in a specific folder (no folder picker)
+  const handleNewTabInFolder = async (folderPath: string) => {
+    try {
+      setStatus('connecting');
+      const result = await window.electronAPI.copilot.createSession({
+        cwd: folderPath,
+      });
+      const newTab: TabState = {
+        id: result.sessionId,
+        name: generateTabName(),
+        messages: [],
+        model: result.model,
+        cwd: result.cwd,
+        isProcessing: false,
+        activeTools: [],
+        hasUnreadCompletion: false,
+        pendingConfirmations: [],
+        needsTitle: true,
+        alwaysAllowed: [],
+        editedFiles: [],
+        untrackedFiles: [],
+        fileViewMode: 'flat',
+        currentIntent: null,
+        currentIntentTimestamp: null,
+        gitBranchRefresh: 0,
+        activeAgentName: undefined,
+      };
+      setTabs((prev) => [...prev, newTab]);
+      setActiveTabId(result.sessionId);
+      setStatus('connected');
+    } catch (error) {
+      console.error('Failed to create new tab in folder:', error);
+      setStatus('connected');
+    }
+  };
+
   // Handle starting a new worktree session
   const handleNewWorktreeSession = async () => {
     try {
@@ -3580,7 +3386,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
   const handleWorktreeSessionCreated = async (
     worktreePath: string,
     branch: string,
-    autoStart?: {
+    issueData?: {
       issueInfo: {
         url: string;
         title: string;
@@ -3591,6 +3397,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
       ralphMaxIterations?: number;
       useLisaSimpson?: boolean;
       yoloMode?: boolean;
+      shouldAutoStart?: boolean;
     }
   ) => {
     try {
@@ -3617,10 +3424,15 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         await window.electronAPI.copilot.addAlwaysAllowed(result.sessionId, cmd);
       }
 
-      // Enable yolo mode if requested
-      if (autoStart?.yoloMode) {
+      // Enable yolo mode if requested (only when shouldAutoStart)
+      if (issueData?.shouldAutoStart && issueData?.yoloMode) {
         await window.electronAPI.copilot.setYoloMode(result.sessionId, true);
       }
+
+      // Parse source issue URL if provided (always, not just for autoStart)
+      const sourceIssue = issueData?.issueInfo?.url
+        ? parseGitHubIssueUrl(issueData.issueInfo.url)
+        : undefined;
 
       const newTab: TabState = {
         id: result.sessionId,
@@ -3640,23 +3452,24 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
         currentIntent: null,
         currentIntentTimestamp: null,
         gitBranchRefresh: 0,
-        yoloMode: autoStart?.yoloMode || false,
+        yoloMode: (issueData?.shouldAutoStart && issueData?.yoloMode) || false,
         activeAgentName: undefined,
+        sourceIssue: sourceIssue ?? undefined,
       };
       setTabs((prev) => [...prev, newTab]);
       setActiveTabId(result.sessionId);
       setStatus('connected');
 
-      // If autoStart is enabled, send the initial prompt with issue context
-      if (autoStart) {
-        const issueContext = autoStart.issueInfo.body
-          ? `## Issue Description\n\n${autoStart.issueInfo.body}`
+      // If shouldAutoStart is enabled, send the initial prompt with issue context
+      if (issueData?.shouldAutoStart) {
+        const issueContext = issueData.issueInfo.body
+          ? `## Issue Description\n\n${issueData.issueInfo.body}`
           : '';
 
         // Format comments if available
         let commentsContext = '';
-        if (autoStart.issueInfo.comments && autoStart.issueInfo.comments.length > 0) {
-          const formattedComments = autoStart.issueInfo.comments
+        if (issueData.issueInfo.comments && issueData.issueInfo.comments.length > 0) {
+          const formattedComments = issueData.issueInfo.comments
             .map((comment) => `### Comment by @${comment.user.login}\n\n${comment.body}`)
             .join('\n\n');
           commentsContext = `\n\n## Issue Comments\n\n${formattedComments}`;
@@ -3664,8 +3477,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
         const initialPrompt = `Please implement the following GitHub issue:
 
-**Issue URL:** ${autoStart.issueInfo.url}
-**Title:** ${autoStart.issueInfo.title}
+**Issue URL:** ${issueData.issueInfo.url}
+**Title:** ${issueData.issueInfo.title}
 
 ${issueContext}${commentsContext}
 
@@ -3676,7 +3489,7 @@ Start by exploring the codebase to understand the current implementation, then m
         let ralphConfig: RalphConfig | undefined = undefined;
         let lisaConfig: LisaConfig | undefined = undefined;
 
-        if (autoStart.useLisaSimpson) {
+        if (issueData.useLisaSimpson) {
           // Lisa Simpson mode - start with Plan phase
           promptToSend = buildLisaPhasePrompt(
             'plan',
@@ -3700,7 +3513,7 @@ Start by exploring the codebase to understand the current implementation, then m
             phaseHistory: [{ phase: 'plan', iteration: 1, timestamp: Date.now() }],
             evidenceFolderPath: `${worktreePath}/evidence`,
           };
-        } else if (autoStart.useRalphWiggum) {
+        } else if (issueData.useRalphWiggum) {
           // Ralph Wiggum mode
           promptToSend = `${initialPrompt}
 
@@ -3721,7 +3534,7 @@ When you have finished the task, please verify:
 Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETION_SIGNAL}`;
           ralphConfig = {
             originalPrompt: initialPrompt,
-            maxIterations: autoStart.ralphMaxIterations || 20,
+            maxIterations: issueData.ralphMaxIterations || 20,
             currentIteration: 1,
             active: true,
           };
@@ -4398,7 +4211,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   } ${draggedTabId === tab.id ? 'opacity-50' : ''} ${dragOverTabId === tab.id ? 'border-t-2 border-t-copilot-accent' : ''}`}
                 >
                   {/* Status indicator */}
-                  {tab.pendingConfirmations.length > 0 ? (
+                  {(tab.pendingConfirmations?.length ?? 0) > 0 ? (
                     <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-accent animate-pulse" />
                   ) : tab.isProcessing ? (
                     <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-warning animate-pulse" />
@@ -4513,18 +4326,117 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 <GitBranchWidget cwd={activeTab?.cwd} refreshKey={activeTab?.gitBranchRefresh} />
               </div>
 
-              {/* Edited Files Count */}
-              {cleanedEditedFiles.length > 0 && (
-                <div className="px-4 py-3 border-b border-copilot-border">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <FileIcon size={14} className="text-copilot-success" />
-                      <span className="text-sm text-copilot-text">Edited Files</span>
-                    </div>
-                    <span className="text-sm text-copilot-accent">{cleanedEditedFiles.length}</span>
-                  </div>
+              {/* Edited Files */}
+              <div className="border-b border-copilot-border">
+                <div className="flex items-center">
+                  <button
+                    onClick={handleToggleEditedFiles}
+                    className="flex-1 flex items-center gap-3 px-4 py-3 text-sm text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface transition-colors"
+                  >
+                    <ChevronRightIcon
+                      size={14}
+                      className={`transition-transform ${showEditedFiles ? 'rotate-90' : ''}`}
+                    />
+                    <span>Edited Files</span>
+                    {cleanedEditedFiles.length > 0 && (
+                      <span className="text-copilot-accent">
+                        ({cleanedEditedFiles.length - (activeTab?.untrackedFiles?.length || 0)})
+                      </span>
+                    )}
+                    {(activeTab?.untrackedFiles?.length || 0) > 0 && (
+                      <span
+                        className="text-copilot-text-muted text-xs"
+                        title="Untracked files (excluded from commit)"
+                      >
+                        +{activeTab?.untrackedFiles?.length} untracked
+                      </span>
+                    )}
+                    {showEditedFiles && !isGitRepo && (
+                      <span
+                        className="text-copilot-warning"
+                        title="Not in a Git repository. File list is based on manual tracking of files touched in this session."
+                      >
+                        <WarningIcon size={12} />
+                      </span>
+                    )}
+                  </button>
+                  {isGitRepo && (
+                    <IconButton
+                      icon={<CommitIcon size={14} />}
+                      onClick={() =>
+                        activeTab && commitModal.handleOpenCommitModal(activeTab, updateTab)
+                      }
+                      variant="accent"
+                      size="sm"
+                      title="Commit and push"
+                      className="mr-2"
+                    />
+                  )}
                 </div>
-              )}
+                {showEditedFiles && activeTab && (
+                  <div className="max-h-48 overflow-y-auto">
+                    {(activeTab.editedFiles?.length ?? 0) === 0 ? (
+                      <div className="px-4 py-3 text-xs text-copilot-text-muted">
+                        No files edited
+                      </div>
+                    ) : (
+                      // File list - clicking opens the preview modal
+                      cleanedEditedFiles.map((filePath) => {
+                        const isConflicted =
+                          isGitRepo &&
+                          commitModal.conflictedFiles.some(
+                            (cf) =>
+                              filePath.endsWith(cf) ||
+                              cf.endsWith(filePath.split(/[/\\]/).pop() || '')
+                          );
+                        const isUntracked = (activeTab.untrackedFiles || []).includes(filePath);
+                        return (
+                          <button
+                            key={filePath}
+                            onClick={() => {
+                              setFilePreviewPath(filePath);
+                              setRightDrawerOpen(false);
+                            }}
+                            className={`w-full flex items-center gap-2 px-4 py-2 text-xs hover:bg-copilot-surface text-left ${
+                              isUntracked
+                                ? 'text-copilot-text-muted/50'
+                                : isConflicted
+                                  ? 'text-copilot-error'
+                                  : 'text-copilot-text-muted'
+                            }`}
+                            title={
+                              isUntracked
+                                ? `${filePath} (untracked) - Click to preview`
+                                : isConflicted
+                                  ? `${filePath} (conflict) - Click to preview`
+                                  : `${filePath} - Click to preview`
+                            }
+                          >
+                            <FileIcon
+                              size={10}
+                              className={`shrink-0 ${
+                                isUntracked
+                                  ? 'text-copilot-text-muted/50'
+                                  : isConflicted
+                                    ? 'text-copilot-error'
+                                    : 'text-copilot-success'
+                              }`}
+                            />
+                            <span
+                              className={`truncate font-mono ${isUntracked ? 'line-through' : ''}`}
+                            >
+                              {filePath}
+                            </span>
+                            {isConflicted && (
+                              <WarningIcon size={10} className="ml-auto text-copilot-error" />
+                            )}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+              </div>
 
               {/* MCP Servers */}
               <div className="border-b border-copilot-border">
@@ -4853,8 +4765,9 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               >
                 Sessions
               </span>
-              {tabs.filter((t) => t.hasUnreadCompletion || t.pendingConfirmations.length > 0)
-                .length > 0 && (
+              {tabs.filter(
+                (t) => t.hasUnreadCompletion || (t.pendingConfirmations?.length ?? 0) > 0
+              ).length > 0 && (
                 <span className="w-2 h-2 rounded-full bg-copilot-accent animate-pulse" />
               )}
             </button>
@@ -4903,145 +4816,277 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
               {/* Open Tabs */}
               <div className="flex-1 overflow-y-auto" data-tour="sidebar-tabs">
-                {tabs.map((tab) => (
-                  <div
-                    key={tab.id}
-                    draggable={!tab.isRenaming}
-                    onDragStart={(e) => handleTabDragStart(e, tab.id)}
-                    onDragOver={(e) => handleTabDragOver(e, tab.id)}
-                    onDragLeave={handleTabDragLeave}
-                    onDrop={(e) => handleTabDrop(e, tab.id)}
-                    onDragEnd={handleTabDragEnd}
-                    onClick={() => handleSwitchTab(tab.id)}
-                    onContextMenu={(e) => handleTabContextMenu(e, tab.id)}
-                    className={`group w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors text-left cursor-pointer ${
-                      tab.id === activeTabId
-                        ? 'bg-copilot-surface text-copilot-text border-l-2 border-l-copilot-accent'
-                        : 'text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface border-l-2 border-l-transparent'
-                    } ${draggedTabId === tab.id ? 'opacity-50' : ''} ${dragOverTabId === tab.id ? 'border-t-2 border-t-copilot-accent' : ''}`}
-                  >
-                    {/* Status indicator - priority: pending > processing > marked > unread > idle */}
-                    {tab.pendingConfirmations.length > 0 ? (
-                      <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-accent animate-pulse" />
-                    ) : tab.isProcessing ? (
-                      <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-warning animate-pulse" />
-                    ) : tab.markedForReview ? (
-                      <span
-                        className="shrink-0 w-2 h-2 rounded-full bg-cyan-500"
-                        title="Marked for review"
-                      />
-                    ) : tab.hasUnreadCompletion ? (
-                      <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-success" />
-                    ) : (
-                      <span className="shrink-0 w-2 h-2 rounded-full bg-transparent" />
-                    )}
-                    {tab.isRenaming ? (
-                      <input
-                        autoFocus
-                        value={tab.renameDraft ?? tab.name}
-                        onChange={(e) =>
-                          setTabs((prev) =>
-                            prev.map((t) =>
-                              t.id === tab.id ? { ...t, renameDraft: e.target.value } : t
-                            )
-                          )
-                        }
-                        onClick={(e) => e.stopPropagation()}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === 'Escape') {
-                            e.preventDefault();
-                            e.stopPropagation();
-                          }
-                        }}
-                        onKeyUp={async (e) => {
-                          if (e.key === 'Escape') {
-                            e.stopPropagation();
-                            setTabs((prev) =>
-                              prev.map((t) =>
-                                t.id === tab.id
-                                  ? {
-                                      ...t,
-                                      isRenaming: false,
-                                      renameDraft: undefined,
-                                    }
-                                  : t
-                              )
-                            );
-                            return;
-                          }
-                          if (e.key === 'Enter') {
-                            e.stopPropagation();
-                            const nextName = (tab.renameDraft ?? tab.name).trim();
-                            const finalName = nextName || tab.name;
-                            setTabs((prev) =>
-                              prev.map((t) =>
-                                t.id === tab.id
-                                  ? {
-                                      ...t,
-                                      name: finalName,
-                                      isRenaming: false,
-                                      renameDraft: undefined,
-                                      needsTitle: false,
-                                    }
-                                  : t
-                              )
-                            );
-                            try {
-                              await window.electronAPI.copilot.renameSession(tab.id, finalName);
-                            } catch (err) {
-                              console.error('Failed to rename session:', err);
-                            }
-                          }
-                        }}
-                        onBlur={async () => {
-                          const nextName = (tab.renameDraft ?? tab.name).trim();
-                          const finalName = nextName || tab.name;
-                          setTabs((prev) =>
-                            prev.map((t) =>
-                              t.id === tab.id
-                                ? {
-                                    ...t,
-                                    name: finalName,
-                                    isRenaming: false,
-                                    renameDraft: undefined,
-                                    needsTitle: false,
+                {(() => {
+                  // Helper to get folder path for a tab (for grouping)
+                  const getTabFolder = (tab: TabState): string => {
+                    if (tab.cwd) {
+                      // Check if this is a worktree session
+                      const worktreeInfo = worktreeMap.get(tab.cwd);
+                      if (worktreeInfo) {
+                        // Use the original repo path for worktrees
+                        return worktreeInfo.repoPath;
+                      }
+
+                      // Fallback: Check if path looks like a worktree (unregistered/old worktree)
+                      // Pattern: .copilot-sessions/<repo-name>--<branch-name>
+                      const worktreePattern = /[/\\]\.copilot-sessions[/\\]([^/\\]+)$/i;
+                      const match = tab.cwd.match(worktreePattern);
+                      if (match) {
+                        // Extract repo name from worktree folder name (format: repo--branch)
+                        const worktreeFolder = match[1];
+                        const repoName = worktreeFolder.split('--')[0]; // Get part before --
+                        // Return a placeholder path using the repo name
+                        // This groups all worktrees from the same repo together
+                        return `worktree:${repoName}`;
+                      }
+
+                      // Use cwd for regular sessions
+                      return tab.cwd;
+                    }
+                    return ''; // No folder
+                  };
+
+                  // Helper to shorten path for display
+                  const shortenPath = (path: string): string => {
+                    if (!path) return 'Other';
+                    // Replace Unix home directory with ~
+                    const homeDir = '/Users/';
+                    if (path.startsWith(homeDir)) {
+                      const afterUsers = path.slice(homeDir.length);
+                      const slashIndex = afterUsers.indexOf('/');
+                      if (slashIndex !== -1) {
+                        return '~' + afterUsers.slice(slashIndex);
+                      }
+                    }
+                    // Replace Windows home directory with ~
+                    const windowsHomePattern = /^[A-Z]:\\Users\\/i;
+                    if (windowsHomePattern.test(path)) {
+                      const afterUsers = path.replace(windowsHomePattern, '');
+                      const slashIndex = afterUsers.indexOf('\\');
+                      if (slashIndex !== -1) {
+                        return '~' + afterUsers.slice(slashIndex).replace(/\\/g, '/');
+                      }
+                    }
+                    return path;
+                  };
+
+                  // Helper to extract just the folder name from a path
+                  const getFolderName = (path: string): string => {
+                    if (!path) return 'Other';
+                    // Get the last component of the path
+                    const normalized = path.replace(/\\/g, '/'); // Normalize to forward slashes
+                    const parts = normalized.split('/').filter((p) => p); // Remove empty parts
+                    return parts[parts.length - 1] || 'Other';
+                  };
+
+                  // Group tabs by folder
+                  const tabsByFolder = new Map<string, TabState[]>();
+                  for (const tab of tabs) {
+                    const folder = getTabFolder(tab);
+                    if (!tabsByFolder.has(folder)) {
+                      tabsByFolder.set(folder, []);
+                    }
+                    tabsByFolder.get(folder)!.push(tab);
+                  }
+
+                  // Convert to array and keep stable order (by first tab's position in tabs array)
+                  const folderGroups = Array.from(tabsByFolder.entries())
+                    .map(([folder, folderTabs]) => ({
+                      folder,
+                      displayName: getFolderName(folder), // Just the folder name for display
+                      fullPath: shortenPath(folder), // Full path for tooltip
+                      tabs: folderTabs,
+                      // Keep stable order based on the first occurrence
+                      sortKey: tabs.indexOf(folderTabs[0]),
+                    }))
+                    .sort((a, b) => a.sortKey - b.sortKey);
+
+                  // Render grouped tabs
+                  return folderGroups.map(({ folder, displayName, fullPath, tabs: folderTabs }) => (
+                    <div key={folder || 'no-folder'}>
+                      {/* Folder header */}
+                      <div className="px-3 py-2 border-t border-copilot-border bg-copilot-bg sticky top-0 z-10 flex items-center justify-between group/folder">
+                        <div
+                          className="text-[10px] text-copilot-text-muted uppercase tracking-wide"
+                          title={fullPath}
+                        >
+                          {displayName}
+                        </div>
+                        {folder && !folder.startsWith('worktree:') && (
+                          <div className="flex items-center gap-0.5 opacity-0 group-hover/folder:opacity-100 transition-opacity">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setWorktreeRepoPath(folder);
+                                setShowCreateWorktree(true);
+                              }}
+                              className="p-0.5 text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover rounded"
+                              title={`New worktree in ${displayName}`}
+                            >
+                              <GitBranchIcon size={12} strokeWidth={2} />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleNewTabInFolder(folder);
+                              }}
+                              className="p-0.5 text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover rounded"
+                              title={`New session in ${displayName}`}
+                            >
+                              <PlusIcon size={12} strokeWidth={2} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Tabs in this folder */}
+                      {folderTabs.map((tab) => (
+                        <div
+                          key={tab.id}
+                          draggable={!tab.isRenaming}
+                          onDragStart={(e) => handleTabDragStart(e, tab.id)}
+                          onDragOver={(e) => handleTabDragOver(e, tab.id)}
+                          onDragLeave={handleTabDragLeave}
+                          onDrop={(e) => handleTabDrop(e, tab.id)}
+                          onDragEnd={handleTabDragEnd}
+                          onClick={() => handleSwitchTab(tab.id)}
+                          onContextMenu={(e) => handleTabContextMenu(e, tab.id)}
+                          className={`group w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors text-left cursor-pointer ${
+                            tab.id === activeTabId
+                              ? 'bg-copilot-surface text-copilot-text border-l-2 border-l-copilot-accent'
+                              : 'text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface border-l-2 border-l-transparent'
+                          } ${draggedTabId === tab.id ? 'opacity-50' : ''} ${dragOverTabId === tab.id ? 'border-t-2 border-t-copilot-accent' : ''}`}
+                        >
+                          {/* Status indicator - priority: pending > processing > marked > unread > idle */}
+                          {(tab.pendingConfirmations?.length ?? 0) > 0 ? (
+                            <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-accent animate-pulse" />
+                          ) : tab.isProcessing ? (
+                            <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-warning animate-pulse" />
+                          ) : tab.markedForReview ? (
+                            <span
+                              className="shrink-0 w-2 h-2 rounded-full bg-cyan-500"
+                              title="Marked for review"
+                            />
+                          ) : tab.hasUnreadCompletion ? (
+                            <span className="shrink-0 w-2 h-2 rounded-full bg-copilot-success" />
+                          ) : (
+                            <span className="shrink-0 w-2 h-2 rounded-full bg-transparent" />
+                          )}
+                          {tab.isRenaming ? (
+                            <input
+                              autoFocus
+                              value={tab.renameDraft ?? tab.name}
+                              onChange={(e) =>
+                                setTabs((prev) =>
+                                  prev.map((t) =>
+                                    t.id === tab.id ? { ...t, renameDraft: e.target.value } : t
+                                  )
+                                )
+                              }
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === 'Escape') {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                }
+                              }}
+                              onKeyUp={async (e) => {
+                                if (e.key === 'Escape') {
+                                  e.stopPropagation();
+                                  setTabs((prev) =>
+                                    prev.map((t) =>
+                                      t.id === tab.id
+                                        ? {
+                                            ...t,
+                                            isRenaming: false,
+                                            renameDraft: undefined,
+                                          }
+                                        : t
+                                    )
+                                  );
+                                  return;
+                                }
+                                if (e.key === 'Enter') {
+                                  e.stopPropagation();
+                                  const nextName = (tab.renameDraft ?? tab.name).trim();
+                                  const finalName = nextName || tab.name;
+                                  setTabs((prev) =>
+                                    prev.map((t) =>
+                                      t.id === tab.id
+                                        ? {
+                                            ...t,
+                                            name: finalName,
+                                            isRenaming: false,
+                                            renameDraft: undefined,
+                                            needsTitle: false,
+                                          }
+                                        : t
+                                    )
+                                  );
+                                  try {
+                                    await window.electronAPI.copilot.renameSession(
+                                      tab.id,
+                                      finalName
+                                    );
+                                  } catch (err) {
+                                    console.error('Failed to rename session:', err);
                                   }
-                                : t
-                            )
-                          );
-                          try {
-                            await window.electronAPI.copilot.renameSession(tab.id, finalName);
-                          } catch (err) {
-                            console.error('Failed to rename session:', err);
-                          }
-                        }}
-                        className="flex-1 min-w-0 bg-copilot-bg border border-copilot-border rounded px-1 py-0.5 text-xs text-copilot-text outline-none focus:border-copilot-accent"
-                      />
-                    ) : (
-                      <span
-                        className="flex-1 truncate"
-                        onDoubleClick={(e) => {
-                          e.stopPropagation();
-                          setTabs((prev) =>
-                            prev.map((t) =>
-                              t.id === tab.id ? { ...t, isRenaming: true, renameDraft: t.name } : t
-                            )
-                          );
-                        }}
-                        title="Double-click to rename"
-                      >
-                        {tab.name}
-                      </span>
-                    )}
-                    <button
-                      onClick={(e) => handleCloseTab(tab.id, e)}
-                      className="shrink-0 p-0.5 rounded hover:bg-copilot-border opacity-0 group-hover:opacity-100 transition-opacity"
-                      title="Close tab"
-                    >
-                      <CloseIcon size={10} />
-                    </button>
-                  </div>
-                ))}
+                                }
+                              }}
+                              onBlur={async () => {
+                                const nextName = (tab.renameDraft ?? tab.name).trim();
+                                const finalName = nextName || tab.name;
+                                setTabs((prev) =>
+                                  prev.map((t) =>
+                                    t.id === tab.id
+                                      ? {
+                                          ...t,
+                                          name: finalName,
+                                          isRenaming: false,
+                                          renameDraft: undefined,
+                                          needsTitle: false,
+                                        }
+                                      : t
+                                  )
+                                );
+                                try {
+                                  await window.electronAPI.copilot.renameSession(tab.id, finalName);
+                                } catch (err) {
+                                  console.error('Failed to rename session:', err);
+                                }
+                              }}
+                              className="flex-1 min-w-0 bg-copilot-bg border border-copilot-border rounded px-1 py-0.5 text-xs text-copilot-text outline-none focus:border-copilot-accent"
+                            />
+                          ) : (
+                            <span
+                              className="flex-1 truncate"
+                              onDoubleClick={(e) => {
+                                e.stopPropagation();
+                                setTabs((prev) =>
+                                  prev.map((t) =>
+                                    t.id === tab.id
+                                      ? { ...t, isRenaming: true, renameDraft: t.name }
+                                      : t
+                                  )
+                                );
+                              }}
+                              title="Double-click to rename"
+                            >
+                              {tab.name}
+                            </span>
+                          )}
+                          <button
+                            onClick={(e) => handleCloseTab(tab.id, e)}
+                            className="shrink-0 p-0.5 rounded hover:bg-copilot-border opacity-0 group-hover:opacity-100 transition-opacity"
+                            title="Close tab"
+                          >
+                            <CloseIcon size={10} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ));
+                })()}
               </div>
 
               {/* Bottom section - aligned with input area */}
@@ -5117,7 +5162,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   } else {
                     setTerminalOpenSessions((prev) => new Set(prev).add(activeTab.id));
                     setTerminalInitializedSessions((prev) => new Set(prev).add(activeTab.id));
-                    trackEvent(TelemetryEvents.FEATURE_TERMINAL_OPENED);
                   }
                 }}
                 className={`shrink-0 flex items-center gap-2 px-4 py-2 text-xs border-b border-copilot-border ${
@@ -5157,7 +5201,11 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
               ))}
 
             {/* Messages Area - Conversation Only */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-2 min-h-0">
+            <div
+              ref={scrollContainerRef}
+              onScroll={handleScroll}
+              className="flex-1 overflow-y-auto p-4 space-y-2 min-h-0 relative"
+            >
               {activeTab?.messages.length === 0 && (
                 <div className="flex flex-col items-center justify-center min-h-full text-center -m-4 p-4">
                   <img src={logo} alt="Cooper" className="w-16 h-16 mb-4" />
@@ -5170,7 +5218,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 </div>
               )}
 
-              {(() => {
+              {useMemo(() => {
                 const filteredMessages = (activeTab?.messages || [])
                   .filter((m) => m.role !== 'system')
                   .filter((m) => m.role === 'user' || m.content.trim());
@@ -5185,279 +5233,17 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 }
 
                 return filteredMessages.map((message, index) => (
-                  <div
-                    key={message.id}
-                    className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}
-                  >
-                    <div
-                      className={`max-w-[85%] rounded-lg px-4 py-2.5 overflow-hidden relative ${
-                        message.role === 'user'
-                          ? message.isPendingInjection
-                            ? 'bg-copilot-warning text-white border border-dashed border-copilot-warning/50'
-                            : 'bg-copilot-success text-copilot-text-inverse'
-                          : 'bg-copilot-surface text-copilot-text'
-                      }`}
-                    >
-                      {/* Stop speaking overlay on last assistant message */}
-                      {message.role === 'assistant' &&
-                        index === lastAssistantIndex &&
-                        voiceSpeech.isSpeaking && (
-                          <button
-                            onClick={() => voiceSpeech.stopSpeaking()}
-                            className="absolute top-1.5 right-1.5 flex items-center gap-1 px-2 py-1 text-[10px] font-medium bg-copilot-warning text-white rounded-md hover:bg-copilot-warning/80 transition-colors z-10"
-                            title="Stop reading aloud"
-                          >
-                            <VolumeMuteIcon size={12} />
-                            Stop
-                          </button>
-                        )}
-                      {/* Pending injection indicator */}
-                      {message.isPendingInjection && (
-                        <div className="flex items-center gap-1.5 text-[10px] opacity-80 mb-1.5">
-                          <ClockIcon size={10} />
-                          <span>Pending — will be read by agent</span>
-                        </div>
-                      )}
-                      <div className="text-sm break-words overflow-hidden">
-                        {message.role === 'user' ? (
-                          <>
-                            {/* User message images */}
-                            {message.imageAttachments && message.imageAttachments.length > 0 && (
-                              <div className="flex flex-wrap gap-2 mb-2">
-                                {message.imageAttachments.map((img) => (
-                                  <img
-                                    key={img.id}
-                                    src={img.previewUrl}
-                                    alt={img.name}
-                                    className="max-h-32 w-auto rounded border border-white/30 object-contain cursor-pointer hover:opacity-80 transition-opacity"
-                                    onClick={() =>
-                                      setLightboxImage({ src: img.previewUrl, alt: img.name })
-                                    }
-                                    title="Click to enlarge"
-                                  />
-                                ))}
-                              </div>
-                            )}
-                            {/* User message files */}
-                            {message.fileAttachments && message.fileAttachments.length > 0 && (
-                              <div className="flex flex-wrap gap-2 mb-2">
-                                {message.fileAttachments.map((file) => (
-                                  <div
-                                    key={file.id}
-                                    className="flex items-center gap-2 px-2.5 py-1.5 bg-black/20 rounded-lg"
-                                  >
-                                    <FileIcon size={16} className="opacity-60 shrink-0" />
-                                    <div className="flex flex-col min-w-0">
-                                      <span
-                                        className="text-xs truncate max-w-[150px]"
-                                        title={file.name}
-                                      >
-                                        {file.name}
-                                      </span>
-                                      <span className="text-[10px] opacity-50">
-                                        {(file.size / 1024).toFixed(1)} KB
-                                      </span>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                            {/* Render user message content - use ReactMarkdown if it contains code blocks */}
-                            {message.content.includes('```') ? (
-                              <ReactMarkdown
-                                remarkPlugins={[remarkGfm]}
-                                components={{
-                                  p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                                  code: ({ className, children }) => {
-                                    const textContent = String(children).replace(/\n$/, '');
-                                    const hasLanguageClass = className?.startsWith('language-');
-                                    const isMultiLine = textContent.includes('\n');
-                                    const isBlock = hasLanguageClass || isMultiLine;
-
-                                    if (isBlock) {
-                                      return (
-                                        <CodeBlockWithCopy
-                                          isDiagram={false}
-                                          textContent={textContent}
-                                          isCliCommand={false}
-                                        >
-                                          {children}
-                                        </CodeBlockWithCopy>
-                                      );
-                                    } else {
-                                      return (
-                                        <code className="bg-copilot-bg px-1 py-0.5 rounded text-copilot-warning text-xs break-all">
-                                          {children}
-                                        </code>
-                                      );
-                                    }
-                                  },
-                                  pre: ({ children }) => (
-                                    <div className="overflow-x-auto max-w-full">{children}</div>
-                                  ),
-                                }}
-                              >
-                                {message.content}
-                              </ReactMarkdown>
-                            ) : (
-                              <span className="whitespace-pre-wrap break-words">
-                                {message.content}
-                              </span>
-                            )}
-                          </>
-                        ) : (
-                          <>
-                            {/* Tool Activity Section for assistant messages */}
-                            {(() => {
-                              // Show live tools only if this message is actively streaming with content
-                              // (otherwise tools show in the thinking bubble)
-                              // For completed messages, show stored tools
-                              const isLive = message.isStreaming && message.content;
-                              const toolsToShow = isLive ? activeTab?.activeTools : message.tools;
-                              const subagentsToShow = isLive
-                                ? activeTab?.activeSubagents
-                                : message.subagents;
-                              if (toolsToShow && toolsToShow.length > 0) {
-                                return (
-                                  <ToolActivitySection tools={toolsToShow} isLive={!!isLive} />
-                                );
-                              }
-                              if (subagentsToShow && subagentsToShow.length > 0) {
-                                return (
-                                  <SubagentActivitySection
-                                    subagents={subagentsToShow}
-                                    isLive={!!isLive}
-                                  />
-                                );
-                              }
-                              return null;
-                            })()}
-                            {message.content ? (
-                              <ReactMarkdown
-                                remarkPlugins={[remarkGfm]}
-                                components={{
-                                  p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                                  strong: ({ children }) => (
-                                    <strong className="font-semibold text-copilot-text">
-                                      {children}
-                                    </strong>
-                                  ),
-                                  em: ({ children }) => <em className="italic">{children}</em>,
-                                  ul: ({ children }) => (
-                                    <ul className="list-disc list-inside mb-2 space-y-1">
-                                      {children}
-                                    </ul>
-                                  ),
-                                  ol: ({ children }) => (
-                                    <ol className="list-decimal list-inside mb-2 space-y-1">
-                                      {children}
-                                    </ol>
-                                  ),
-                                  li: ({ children }) => <li className="ml-2">{children}</li>,
-                                  code: ({ children, className }) => {
-                                    // Extract text content for analysis
-                                    const textContent = extractTextContent(children);
-
-                                    // Fix block detection: treat as block if:
-                                    // 1. Has language class (e.g., language-javascript)
-                                    // 2. OR contains newlines (multi-line content)
-                                    const hasLanguageClass = className?.includes('language-');
-                                    const isMultiLine = textContent.includes('\n');
-                                    const isBlock = hasLanguageClass || isMultiLine;
-
-                                    // Check if content is an ASCII diagram
-                                    const isDiagram = isAsciiDiagram(textContent);
-
-                                    // Check if this is a CLI command (should show run button)
-                                    const isCliCmd = isCliCommand(className, textContent);
-
-                                    if (isBlock) {
-                                      return (
-                                        <CodeBlockWithCopy
-                                          isDiagram={isDiagram}
-                                          textContent={textContent}
-                                          isCliCommand={isCliCmd}
-                                        >
-                                          {children}
-                                        </CodeBlockWithCopy>
-                                      );
-                                    } else {
-                                      return (
-                                        <code className="bg-copilot-bg px-1 py-0.5 rounded text-copilot-warning text-xs break-all">
-                                          {children}
-                                        </code>
-                                      );
-                                    }
-                                  },
-                                  pre: ({ children }) => (
-                                    <div className="overflow-x-auto max-w-full">{children}</div>
-                                  ),
-                                  a: ({ href, children }) => (
-                                    <a
-                                      href={href}
-                                      className="text-copilot-accent hover:underline"
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                    >
-                                      {children}
-                                    </a>
-                                  ),
-                                  h1: ({ children }) => (
-                                    <h1 className="text-lg font-bold mb-2 text-copilot-text">
-                                      {children}
-                                    </h1>
-                                  ),
-                                  h2: ({ children }) => (
-                                    <h2 className="text-base font-bold mb-2 text-copilot-text">
-                                      {children}
-                                    </h2>
-                                  ),
-                                  h3: ({ children }) => (
-                                    <h3 className="text-sm font-bold mb-1 text-copilot-text">
-                                      {children}
-                                    </h3>
-                                  ),
-                                  blockquote: ({ children }) => (
-                                    <blockquote className="border-l-2 border-copilot-border pl-3 my-2 text-copilot-text-muted italic">
-                                      {children}
-                                    </blockquote>
-                                  ),
-                                  table: ({ children }) => (
-                                    <div className="overflow-x-auto my-2">
-                                      <table className="min-w-full border-collapse border border-copilot-border text-sm">
-                                        {children}
-                                      </table>
-                                    </div>
-                                  ),
-                                  thead: ({ children }) => (
-                                    <thead className="bg-copilot-bg">{children}</thead>
-                                  ),
-                                  tbody: ({ children }) => <tbody>{children}</tbody>,
-                                  tr: ({ children }) => (
-                                    <tr className="border-b border-copilot-border">{children}</tr>
-                                  ),
-                                  th: ({ children }) => (
-                                    <th className="px-3 py-2 text-left font-semibold text-copilot-text border border-copilot-border">
-                                      {children}
-                                    </th>
-                                  ),
-                                  td: ({ children }) => (
-                                    <td className="px-3 py-2 text-copilot-text border border-copilot-border">
-                                      {children}
-                                    </td>
-                                  ),
-                                }}
-                              >
-                                {message.content}
-                              </ReactMarkdown>
-                            ) : null}
-                          </>
-                        )}
-                        {message.isStreaming && message.content && (
-                          <span className="inline-block w-2 h-4 ml-1 bg-copilot-accent animate-pulse rounded-sm" />
-                        )}
-                      </div>
-                    </div>
+                  <React.Fragment key={message.id}>
+                    <MessageItem
+                      message={message}
+                      index={index}
+                      lastAssistantIndex={lastAssistantIndex}
+                      isVoiceSpeaking={voiceSpeech.isSpeaking}
+                      activeTools={activeTab?.activeTools}
+                      activeSubagents={activeTab?.activeSubagents}
+                      onStopSpeaking={voiceSpeech.stopSpeaking}
+                      onImageClick={handleImageClick}
+                    />
                     {/* Show timestamp for the last assistant message (only when not processing) */}
                     {index === lastAssistantIndex &&
                       message.timestamp &&
@@ -5479,9 +5265,19 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                           onSelect={handleChoiceSelect}
                         />
                       )}
-                  </div>
+                  </React.Fragment>
                 ));
-              })()}
+              }, [
+                activeTab?.messages,
+                activeTab?.isProcessing,
+                activeTab?.activeTools,
+                activeTab?.activeSubagents,
+                activeTab?.detectedChoices,
+                voiceSpeech.isSpeaking,
+                voiceSpeech.stopSpeaking,
+                handleImageClick,
+                handleChoiceSelect,
+              ])}
 
               {/* Thinking indicator when processing but no streaming content yet */}
               {activeTab?.isProcessing &&
@@ -5489,15 +5285,16 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   <div className="flex flex-col items-start">
                     <div className="bg-copilot-surface text-copilot-text rounded-lg px-4 py-2.5">
                       {/* Show live tools and subagents in the thinking bubble */}
-                      {activeTab?.activeTools && activeTab.activeTools.length > 0 && (
+                      {activeTab?.activeTools && (activeTab.activeTools?.length ?? 0) > 0 && (
                         <ToolActivitySection tools={activeTab.activeTools} isLive={true} />
                       )}
-                      {activeTab?.activeSubagents && activeTab.activeSubagents.length > 0 && (
-                        <SubagentActivitySection
-                          subagents={activeTab.activeSubagents}
-                          isLive={true}
-                        />
-                      )}
+                      {activeTab?.activeSubagents &&
+                        (activeTab.activeSubagents?.length ?? 0) > 0 && (
+                          <SubagentActivitySection
+                            subagents={activeTab.activeSubagents}
+                            isLive={true}
+                          />
+                        )}
                       <div className="flex items-center gap-2 text-sm">
                         <Spinner size="sm" />
                         <span className="text-copilot-text-muted">
@@ -5544,6 +5341,17 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 </div>
               )}
 
+              {/* Scroll to Bottom Button */}
+              {showScrollToBottom && (
+                <button
+                  onClick={handleScrollToBottomClick}
+                  className="sticky bottom-1 float-right mr-1 w-8 h-8 flex items-center justify-center bg-copilot-bg hover:bg-copilot-surface border border-copilot-border rounded-full shadow-sm text-copilot-text-muted hover:text-copilot-text transition-all"
+                  title="Scroll to bottom"
+                >
+                  <span className="text-sm">↓</span>
+                </button>
+              )}
+
               <div ref={messagesEndRef} />
             </div>
 
@@ -5551,7 +5359,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
             {activeTab?.pendingConfirmations?.[0] &&
               (() => {
                 const pendingConfirmation = activeTab.pendingConfirmations[0];
-                const queueLength = activeTab.pendingConfirmations.length;
+                const queueLength = activeTab.pendingConfirmations?.length ?? 0;
                 return (
                   <div
                     className={`shrink-0 mx-3 mb-2 p-4 bg-copilot-surface rounded-lg border ${pendingConfirmation.isDestructive ? 'border-copilot-error' : 'border-copilot-warning'}`}
@@ -5786,511 +5594,52 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
 
             {/* Input Area */}
             <div className="shrink-0 p-3 bg-copilot-surface border-t border-copilot-border">
-              {/* Lisa Phase Progress - Shows during active Lisa loop or after completion */}
-              {(activeTab?.lisaConfig?.active || activeTab?.lisaConfig?.phaseHistory?.length) && (
-                <div className="mb-2 p-3 bg-copilot-bg rounded-lg border border-copilot-border">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-medium text-copilot-text flex items-center gap-2">
-                      <LisaIcon size={16} />
-                      Lisa Simpson Loop
-                    </span>
-                  </div>
-
-                  {/* Phase progress as a horizontal pipeline */}
-                  <div className="flex items-center gap-2">
-                    {[
-                      {
-                        work: 'plan' as const,
-                        review: 'plan-review' as const,
-                        emoji: '📋',
-                        workLabel: 'Plan',
-                        reviewLabel: 'Review',
-                      },
-                      {
-                        work: 'execute' as const,
-                        review: 'code-review' as const,
-                        emoji: '💻',
-                        workLabel: 'Code',
-                        reviewLabel: 'Review',
-                      },
-                      {
-                        work: 'validate' as const,
-                        review: 'final-review' as const,
-                        emoji: '🧪',
-                        workLabel: 'Test',
-                        reviewLabel: 'Final',
-                      },
-                    ].map((group, groupIdx) => {
-                      const workIteration = activeTab.lisaConfig?.phaseIterations[group.work] || 0;
-                      const reviewIteration =
-                        activeTab.lisaConfig?.phaseIterations[group.review] || 0;
-                      const isCurrentWork = activeTab.lisaConfig?.currentPhase === group.work;
-                      const isCurrentReview = activeTab.lisaConfig?.currentPhase === group.review;
-                      const workDone = workIteration > 0 && !isCurrentWork;
-                      const reviewDone = reviewIteration > 0 && !isCurrentReview;
-
-                      return (
-                        <React.Fragment key={group.work}>
-                          {/* Arrow connector between groups */}
-                          {groupIdx > 0 && (
-                            <span className="text-sm text-copilot-warning/70">→</span>
-                          )}
-
-                          {/* Work phase */}
-                          <div
-                            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all ${
-                              isCurrentWork
-                                ? 'bg-copilot-accent/20 ring-2 ring-copilot-accent'
-                                : workDone
-                                  ? 'bg-copilot-success/15 text-copilot-success'
-                                  : 'bg-copilot-surface text-copilot-text-muted'
-                            }`}
-                            title={`${group.workLabel}: ${workIteration} iteration(s)`}
-                          >
-                            <span className="text-sm">{group.emoji}</span>
-                            <span
-                              className={`text-xs font-medium ${isCurrentWork ? 'text-copilot-accent' : ''}`}
-                            >
-                              {group.workLabel}
-                            </span>
-                            {workDone && <span className="text-xs">✓</span>}
-                            {isCurrentWork && (
-                              <span className="text-[10px] text-copilot-text-muted">
-                                {workIteration}
-                              </span>
-                            )}
-                          </div>
-
-                          {/* Arrow to review */}
-                          <span className="text-xs text-copilot-warning/70">→</span>
-
-                          {/* Review phase */}
-                          <div
-                            className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-all ${
-                              isCurrentReview
-                                ? 'bg-copilot-warning/20 ring-2 ring-copilot-warning'
-                                : reviewDone
-                                  ? 'bg-copilot-success/15 text-copilot-success'
-                                  : 'bg-copilot-surface text-copilot-text-muted'
-                            }`}
-                            title={`${group.reviewLabel} Review: ${reviewIteration} iteration(s)`}
-                          >
-                            <span className="text-xs">👀</span>
-                            <span
-                              className={`text-xs font-medium ${isCurrentReview ? 'text-copilot-warning' : ''}`}
-                            >
-                              {group.reviewLabel}
-                            </span>
-                            {reviewDone && <span className="text-xs">✓</span>}
-                            {isCurrentReview && (
-                              <span className="text-[10px] text-copilot-text-muted">
-                                {reviewIteration}
-                              </span>
-                            )}
-                          </div>
-                        </React.Fragment>
-                      );
-                    })}
-                  </div>
-
-                  {/* Current status */}
-                  <div className="mt-2 pt-2 border-t border-copilot-border/50">
-                    <div className="text-xs text-copilot-text-muted">
-                      {activeTab?.lisaConfig?.active ? (
-                        (() => {
-                          const phase = activeTab.lisaConfig?.currentPhase;
-                          const iter = activeTab.lisaConfig?.phaseIterations[phase!] || 1;
-                          const descriptions: Record<LisaPhase, string> = {
-                            plan: 'Planner is creating the implementation plan...',
-                            'plan-review': 'Reviewer is checking the plan before coding begins...',
-                            execute: 'Coder is implementing the plan...',
-                            'code-review': 'Reviewer is checking code quality & architecture...',
-                            validate: 'Tester is testing and gathering evidence...',
-                            'final-review': 'Reviewer is analyzing screenshots and approving...',
-                          };
-                          return (
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <span className="animate-pulse">●</span>
-                                <span>{descriptions[phase!]}</span>
-                                <span className="text-copilot-text-muted/50">
-                                  (iteration {iter})
-                                </span>
-                              </div>
-                              {(phase === 'validate' || phase === 'final-review') &&
-                                activeTab?.lisaConfig?.evidenceFolderPath && (
-                                  <button
-                                    onClick={() => {
-                                      window.electronAPI.file.openFile(
-                                        `${activeTab.lisaConfig!.evidenceFolderPath!}/summary.html`
-                                      );
-                                    }}
-                                    className="px-2 py-1 text-xs bg-copilot-surface text-copilot-text-muted rounded hover:bg-copilot-border flex items-center gap-1"
-                                    title="Open evidence summary"
-                                  >
-                                    📄 Summary
-                                  </button>
-                                )}
-                            </div>
-                          );
-                        })()
-                      ) : (
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2 text-copilot-success">
-                            <span>✅</span>
-                            <span>Loop completed - all phases approved</span>
-                          </div>
-                          {activeTab?.lisaConfig?.evidenceFolderPath && (
-                            <button
-                              onClick={() => {
-                                window.electronAPI.file.openFile(
-                                  `${activeTab.lisaConfig!.evidenceFolderPath!}/summary.html`
-                                );
-                              }}
-                              className="px-2 py-1 text-xs bg-copilot-accent/20 text-copilot-accent rounded hover:bg-copilot-accent/30 flex items-center gap-1"
-                              title="Open evidence summary"
-                            >
-                              📄 View Summary
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Context Usage Indicator */}
-              {activeTab?.contextUsage && (
-                <div className="mb-1.5 flex items-center gap-2 px-1">
-                  <div className="flex-1 h-1.5 bg-copilot-border rounded-full overflow-hidden">
-                    <div
-                      className={`h-full transition-all duration-300 ${
-                        activeTab.contextUsage.currentTokens / activeTab.contextUsage.tokenLimit >=
-                        0.9
-                          ? 'bg-copilot-error'
-                          : activeTab.contextUsage.currentTokens /
-                                activeTab.contextUsage.tokenLimit >=
-                              0.7
-                            ? 'bg-copilot-warning'
-                            : 'bg-copilot-accent'
-                      }`}
-                      style={{
-                        width: `${Math.min(100, (activeTab.contextUsage.currentTokens / activeTab.contextUsage.tokenLimit) * 100)}%`,
-                      }}
-                    />
-                  </div>
-                  <span
-                    className={`text-[10px] shrink-0 ${
-                      activeTab.contextUsage.currentTokens / activeTab.contextUsage.tokenLimit >=
-                      0.9
-                        ? 'text-copilot-error'
-                        : activeTab.contextUsage.currentTokens /
-                              activeTab.contextUsage.tokenLimit >=
-                            0.7
-                          ? 'text-copilot-warning'
-                          : 'text-copilot-text-muted'
-                    }`}
-                  >
-                    {activeTab.compactionStatus === 'compacting'
-                      ? '📦 Compacting...'
-                      : `${((activeTab.contextUsage.currentTokens / activeTab.contextUsage.tokenLimit) * 100).toFixed(0)}% (${(activeTab.contextUsage.currentTokens / 1000).toFixed(0)}K/${(activeTab.contextUsage.tokenLimit / 1000).toFixed(0)}K)`}
-                  </span>
-                </div>
-              )}
-
-              {/* Terminal Attachment Indicator */}
-              {terminalAttachment && (
-                <div className="flex items-center gap-2 px-3 py-1.5 bg-copilot-surface border border-b-0 border-copilot-border rounded-t-lg">
-                  <TerminalIcon size={12} className="text-copilot-accent shrink-0" />
-                  <span className="text-xs text-copilot-text">
-                    Terminal output: {terminalAttachment.lineCount} lines
-                  </span>
-                  <button
-                    onClick={() => setTerminalAttachment(null)}
-                    className="ml-auto text-copilot-text-muted hover:text-copilot-text text-xs"
-                    title="Remove terminal output"
-                  >
-                    ✕
-                  </button>
-                </div>
-              )}
-
-              {/* Image Attachments Preview */}
-              {imageAttachments.length > 0 && (
-                <div
-                  className={`flex flex-wrap gap-2 p-2 bg-copilot-surface border border-b-0 border-copilot-border ${terminalAttachment ? '' : 'rounded-t-lg'}`}
-                >
-                  {imageAttachments.map((img) => (
-                    <div key={img.id} className="relative group">
-                      <img
-                        src={img.previewUrl}
-                        alt={img.name}
-                        className="h-16 w-auto rounded border border-copilot-border object-cover"
-                        onError={(e) =>
-                          console.error(
-                            'Image preview failed to load:',
-                            img.name,
-                            img.previewUrl?.substring(0, 100)
-                          )
-                        }
-                      />
-                      <button
-                        onClick={() => handleRemoveImage(img.id)}
-                        className="absolute -top-1.5 -right-1.5 bg-copilot-error text-white rounded-full w-4 h-4 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-                        title="Remove image"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* File Attachments Preview */}
-              {fileAttachments.length > 0 && (
-                <div
-                  className={`flex flex-wrap gap-2 p-2 bg-copilot-surface border border-b-0 border-copilot-border ${terminalAttachment || imageAttachments.length > 0 ? '' : 'rounded-t-lg'}`}
-                >
-                  {fileAttachments.map((file) => (
-                    <div
-                      key={file.id}
-                      className="relative group flex items-center gap-2 px-2 py-1.5 bg-copilot-bg rounded border border-copilot-border"
-                    >
-                      <FileIcon size={16} className="text-copilot-text-muted shrink-0" />
-                      <div className="flex flex-col min-w-0">
-                        <span
-                          className="text-xs text-copilot-text truncate max-w-[120px]"
-                          title={file.name}
-                        >
-                          {file.name}
-                        </span>
-                        <span className="text-[10px] text-copilot-text-muted">
-                          {(file.size / 1024).toFixed(1)} KB
-                        </span>
-                      </div>
-                      <button
-                        onClick={() => handleRemoveFile(file.id)}
-                        className="shrink-0 text-copilot-text-muted hover:text-copilot-error transition-colors"
-                        title="Remove file"
-                      >
-                        <CloseIcon size={14} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Vision Warning */}
-              {imageAttachments.length > 0 &&
-                activeTab &&
-                modelCapabilities[activeTab.model] &&
-                !modelCapabilities[activeTab.model].supportsVision && (
-                  <div className="flex items-center gap-2 px-3 py-1.5 bg-copilot-warning/10 border border-b-0 border-copilot-warning/30 text-copilot-warning text-xs">
-                    <span>⚠️</span>
-                    <span>
-                      The current model ({activeTab.model}) may not support image processing. If
-                      images aren't recognized, try switching models.
-                    </span>
-                  </div>
-                )}
-
-              <div
-                className={`relative flex flex-col bg-copilot-bg border border-copilot-border focus-within:border-copilot-accent transition-colors ${terminalAttachment || imageAttachments.length > 0 || fileAttachments.length > 0 || (imageAttachments.length > 0 && activeTab && modelCapabilities[activeTab.model] && !modelCapabilities[activeTab.model].supportsVision) ? 'rounded-b-lg' : 'rounded-lg'} ${isDraggingImage || isDraggingFile ? 'border-copilot-accent border-dashed bg-copilot-accent/5' : ''}`}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
+              <ChatInput
+                ref={chatInputRef}
+                status={status}
+                isProcessing={activeTab?.isProcessing || false}
+                activeTabModel={activeTab?.model || ''}
+                modelCapabilities={modelCapabilities}
+                terminalAttachment={terminalAttachment}
+                lisaEnabled={lisaEnabled}
+                ralphEnabled={ralphEnabled}
+                isMobile={isMobile}
+                pushToTalk={pushToTalk}
+                alwaysListening={alwaysListening}
+                voiceAutoSendCountdown={voiceAutoSendCountdown}
+                onSendMessage={handleSendMessage}
+                onStop={handleStop}
+                onKeyPress={handleKeyPress}
+                onRemoveTerminalAttachment={() => setTerminalAttachment(null)}
+                onAlwaysListeningError={setAlwaysListeningError}
+                onAbortDetected={cancelVoiceAutoSend}
+                onCancelVoiceAutoSend={cancelVoiceAutoSend}
+                onStartVoiceAutoSend={startVoiceAutoSend}
+                onOpenSettings={() => openSettingsVoice(true)}
               >
-                <div className="flex items-center">
-                  {/* Hidden file inputs */}
-                  <input
-                    ref={imageInputRef}
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={(e) => handleImageSelect(e.target.files)}
-                    className="hidden"
-                  />
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    multiple
-                    onChange={(e) => handleFileSelect(e.target.files)}
-                    className="hidden"
-                  />
-
-                  <textarea
-                    ref={inputRef}
-                    value={inputValue}
-                    onChange={(e) => {
-                      setInputValue(e.target.value);
-                      // Cancel auto-send if user starts typing
-                      if (voiceAutoSendCountdown !== null) {
-                        cancelVoiceAutoSend();
-                      }
-                    }}
-                    onKeyDown={handleKeyPress}
-                    onPaste={handlePaste}
-                    placeholder={
-                      isDraggingImage || isDraggingFile
-                        ? 'Drop files here...'
-                        : activeTab?.isProcessing
-                          ? isMobile
-                            ? 'Inject message...'
-                            : 'Type to inject message to agent...'
-                          : lisaEnabled
-                            ? isMobile
-                              ? 'Describe task...'
-                              : 'Describe task for multi-phase analysis (Plan → Execute → Validate → Review)...'
-                            : ralphEnabled
-                              ? isMobile
-                                ? 'Describe task...'
-                                : 'Describe task with clear completion criteria...'
-                              : isMobile
-                                ? 'Ask Cooper...'
-                                : 'Ask Cooper... (Shift+Enter for new line)'
-                    }
-                    className="flex-1 bg-transparent py-2.5 pl-3 pr-2 text-copilot-text placeholder-copilot-text-muted outline-none text-sm resize-none min-h-[40px] max-h-[200px]"
-                    disabled={status !== 'connected'}
-                    autoFocus
-                    rows={1}
-                    style={{ height: 'auto' }}
-                    onInput={(e) => {
-                      const target = e.target as HTMLTextAreaElement;
-                      target.style.height = 'auto';
-                      target.style.height = Math.min(target.scrollHeight, 200) + 'px';
-                    }}
-                  />
-                  {/* Audio Input (Mic) Button - uses whisper.cpp for STT */}
-                  {!activeTab?.isProcessing && (
-                    <MicButton
-                      onTranscript={(text) => {
-                        if (text.trim()) {
-                          setInputValue((prev) => (prev ? prev + ' ' + text : text));
-                          // Start auto-send countdown if always listening is enabled
-                          if (alwaysListening) {
-                            startVoiceAutoSend();
-                          }
-                        }
-                      }}
-                      className="shrink-0"
-                      pushToTalk={pushToTalk}
-                      alwaysListening={alwaysListening}
-                      onAlwaysListeningError={setAlwaysListeningError}
-                      onAbortDetected={cancelVoiceAutoSend}
-                      onOpenSettings={() => openSettingsVoice(true)}
-                    />
-                  )}
-                  {/* File Attach Button */}
-                  {!activeTab?.isProcessing && (
-                    <button
-                      onClick={() => fileInputRef.current?.click()}
-                      className={`shrink-0 p-1.5 transition-colors ${
-                        fileAttachments.length > 0
-                          ? 'text-copilot-accent'
-                          : 'text-copilot-text-muted hover:text-copilot-text'
-                      }`}
-                      title="Attach file (or drag & drop, or paste)"
-                    >
-                      <PaperclipIcon size={18} />
-                    </button>
-                  )}
-                  {/* Image Attach Button */}
-                  {!activeTab?.isProcessing && (
-                    <button
-                      onClick={() => imageInputRef.current?.click()}
-                      className={`shrink-0 p-1.5 transition-colors ${
-                        imageAttachments.length > 0
-                          ? 'text-copilot-accent'
-                          : 'text-copilot-text-muted hover:text-copilot-text'
-                      }`}
-                      title="Attach image (or drag & drop, or paste)"
-                    >
-                      <ImageIcon size={18} />
-                    </button>
-                  )}
-                  {activeTab?.isProcessing ? (
-                    <>
-                      {/* Send button while processing - queues message */}
-                      {(inputValue.trim() ||
-                        terminalAttachment ||
-                        imageAttachments.length > 0 ||
-                        fileAttachments.length > 0) && (
-                        <button
-                          onClick={handleSendMessage}
-                          disabled={status !== 'connected'}
-                          className="shrink-0 px-3 py-2.5 text-copilot-warning hover:brightness-110 disabled:opacity-30 disabled:cursor-not-allowed text-xs font-medium transition-colors"
-                          title="Send message (will be queued until agent finishes)"
-                        >
-                          Send
-                        </button>
-                      )}
-                      {/* Stop button */}
-                      <button
-                        onClick={handleStop}
-                        className="shrink-0 px-4 py-2.5 text-copilot-error hover:brightness-110 text-xs font-medium transition-colors flex items-center gap-1.5"
-                        title={
-                          activeTab?.lisaConfig?.active
-                            ? 'Stop Lisa Loop'
-                            : activeTab?.ralphConfig?.active
-                              ? 'Stop Ralph Loop'
-                              : 'Stop'
-                        }
-                      >
-                        <StopIcon size={10} />
-                        {activeTab?.ralphConfig?.active || activeTab?.lisaConfig?.active
-                          ? 'Stop Loop'
-                          : 'Stop'}
-                      </button>
-                    </>
-                  ) : (
-                    <div className="relative">
-                      <button
-                        onClick={() => {
-                          cancelVoiceAutoSend();
-                          handleSendMessage();
-                        }}
-                        disabled={
-                          (!inputValue.trim() &&
-                            !terminalAttachment &&
-                            imageAttachments.length === 0 &&
-                            fileAttachments.length === 0) ||
-                          status !== 'connected'
-                        }
-                        className={`shrink-0 px-4 py-2.5 hover:brightness-110 disabled:opacity-30 disabled:cursor-not-allowed text-xs font-medium transition-colors ${
-                          voiceAutoSendCountdown !== null
-                            ? 'text-copilot-success'
-                            : 'text-copilot-accent'
-                        }`}
-                      >
-                        {lisaEnabled ? 'Start Lisa Loop' : ralphEnabled ? 'Start Loop' : 'Send'}
-                      </button>
-                      {/* Auto-send countdown tooltip */}
-                      {voiceAutoSendCountdown !== null && (
-                        <div
-                          className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-copilot-success text-white rounded-lg shadow-lg cursor-pointer animate-pulse text-center"
-                          onClick={cancelVoiceAutoSend}
-                          title="Click to cancel auto-send"
-                        >
-                          <div className="text-xs font-bold whitespace-nowrap">
-                            Sending in {voiceAutoSendCountdown}s
-                          </div>
-                          <div className="text-[10px] opacity-80 mt-0.5">Say "abort" to cancel</div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
                 {/* Models, Agents, Loops selectors */}
                 {activeTab && (
-                  <div className="flex items-center mx-1.5 mb-1.5 mt-0.5 border-t border-copilot-border relative">
+                  <div className="flex items-center border-t !border-t-copilot-border relative">
                     {/* Models Selector */}
                     <div className="relative" data-tour="model-selector">
                       <button
-                        onClick={() =>
-                          setOpenTopBarSelector(openTopBarSelector === 'models' ? null : 'models')
-                        }
-                        className={`flex items-center gap-1.5 px-3 py-2 text-xs transition-colors ${
+                        onClick={async () => {
+                          const newState = openTopBarSelector === 'models' ? null : 'models';
+                          setOpenTopBarSelector(newState);
+
+                          // Fetch fresh models when opening the selector
+                          if (newState === 'models') {
+                            try {
+                              const result = await window.electronAPI.copilot.getModels();
+                              if (result.models.length > 0) {
+                                setAvailableModels(result.models);
+                              }
+                            } catch (err) {
+                              console.error('Failed to fetch models:', err);
+                            }
+                          }
+                        }}
+                        className={`flex items-center gap-1.5 px-3 h-[39px] text-xs transition-colors rounded-bl-lg ${
                           openTopBarSelector === 'models'
                             ? 'text-copilot-accent bg-copilot-surface-hover'
                             : 'text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover'
@@ -6310,7 +5659,13 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                         />
                       </button>
                       {openTopBarSelector === 'models' && (
-                        <div className="absolute bottom-full left-0 z-50 mb-0.5 w-60 max-h-80 overflow-y-auto bg-copilot-surface border border-copilot-border rounded-lg shadow-lg">
+                        <div
+                          className="absolute bottom-full left-0 z-50 mb-0.5 w-60 max-h-80 overflow-y-auto bg-copilot-surface border border-copilot-border rounded-lg"
+                          style={{
+                            boxShadow:
+                              '0 -4px 6px -1px rgb(0 0 0 / 0.1), 0 -2px 4px -2px rgb(0 0 0 / 0.1)',
+                          }}
+                        >
                           {sortedModels.map((m, idx) => {
                             const isFav = favoriteModels.includes(m.id);
                             return (
@@ -6358,7 +5713,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                                   )}
                                   <span className="flex-1 text-left truncate">
                                     {m.id === activeTab?.model && (
-                                      <span className="text-copilot-accent">✓ </span>
+                                      <span className="text-copilot-accent">✔ </span>
                                     )}
                                     {m.name || m.id}
                                   </span>
@@ -6392,163 +5747,6 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       )}
                     </div>
 
-                    {/* Agents Selector - Commented out until SDK supports true agent selection */}
-                    {/* TODO: Uncomment when @github/copilot-sdk exposes selectCustomAgent() or selectedCustomAgent config
-                    <div className="relative">
-                      <button
-                        onClick={() =>
-                          setOpenTopBarSelector(openTopBarSelector === 'agents' ? null : 'agents')
-                        }
-                        className={`flex items-center gap-1.5 px-3 py-2 text-xs transition-colors ${
-                          openTopBarSelector === 'agents'
-                            ? 'text-copilot-accent bg-copilot-surface-hover'
-                            : 'text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover'
-                        }`}
-                        title="Select agent"
-                      >
-                        <ZapIcon size={12} />
-                        <span className="font-medium truncate max-w-[120px]">
-                          {activeAgent?.name || 'Agents'}
-                        </span>
-                        <ChevronDownIcon
-                          size={10}
-                          className={`transition-transform duration-200 ${openTopBarSelector === 'agents' ? 'rotate-180' : ''}`}
-                        />
-                      </button>
-                      {openTopBarSelector === 'agents' && (
-                        <div className="absolute bottom-full left-0 z-50 mb-0.5 w-60 max-h-80 overflow-y-auto bg-copilot-surface border border-copilot-border rounded-lg shadow-lg">
-                          {groupedAgents.length === 0 ? (
-                            <div className="px-4 py-4 text-xs text-copilot-text-muted text-center">
-                              No agents found
-                            </div>
-                          ) : (
-                            groupedAgents.map((section, sectionIdx) => (
-                              <div key={section.id}>
-                                <div className="px-3 py-1.5 text-[10px] uppercase tracking-wide text-copilot-text-muted">
-                                  {section.label}
-                                </div>
-                                {section.agents.map((agent) => {
-                                  const isFav = favoriteAgents.includes(agent.path);
-                                  const isActive = activeAgentPath === agent.path;
-                                  const selectAgent = async () => {
-                                    if (!activeTab) return;
-                                    setOpenTopBarSelector(null);
-                                    const selectedAgentName =
-                                      agent.path === COOPER_DEFAULT_AGENT.path ? undefined : agent.name;
-                                    const previousSessionId = activeTab.id;
-                                    let updatedSessionId = activeTab.id;
-                                    let hasMessages = activeTab.messages.length > 0;
-                                    if (agent.model && activeTab.model !== agent.model) {
-                                      const modelResult = await handleModelChange(agent.model);
-                                      if (modelResult?.sessionId) {
-                                        updatedSessionId = modelResult.sessionId;
-                                        hasMessages = !modelResult.newSession;
-                                      }
-                                    }
-                                    setSelectedAgentByTab((prev) => {
-                                      const next = { ...prev, [updatedSessionId]: agent.path };
-                                      if (updatedSessionId !== previousSessionId) {
-                                        delete next[previousSessionId];
-                                      }
-                                      return next;
-                                    });
-                                    try {
-                                      const result = await window.electronAPI.copilot.setActiveAgent(
-                                        updatedSessionId,
-                                        selectedAgentName,
-                                        hasMessages
-                                      );
-                                      if (result.sessionId !== updatedSessionId) {
-                                        const priorSessionId = updatedSessionId;
-                                        updatedSessionId = result.sessionId;
-                                        setTabs((prev) =>
-                                          prev.map((t) =>
-                                            t.id === priorSessionId ? { ...t, id: result.sessionId } : t
-                                          )
-                                        );
-                                        setSelectedAgentByTab((prev) => {
-                                          const next = { ...prev, [result.sessionId]: agent.path };
-                                          delete next[priorSessionId];
-                                          return next;
-                                        });
-                                        setActiveTabId(result.sessionId);
-                                      }
-                                    } catch (error) {
-                                      console.error('Failed to select agent:', error);
-                                    }
-                                    updateTab(updatedSessionId, {
-                                      activeAgentName: selectedAgentName ? agent.name : undefined,
-                                    });
-                                  };
-                                  return (
-                                    <div
-                                      key={agent.path}
-                                      role="button"
-                                      tabIndex={0}
-                                      onClick={selectAgent}
-                                      onKeyDown={(event) => {
-                                        if (event.key === 'Enter' || event.key === ' ') {
-                                          event.preventDefault();
-                                          selectAgent();
-                                        }
-                                      }}
-                                      className={`group w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-copilot-surface-hover transition-colors ${
-                                        isActive
-                                          ? 'text-copilot-accent bg-copilot-surface'
-                                          : 'text-copilot-text'
-                                      }`}
-                                    >
-                                      <button
-                                        type="button"
-                                        onClick={(event) => {
-                                          event.stopPropagation();
-                                          handleToggleFavoriteAgent(agent.path);
-                                        }}
-                                        className={`shrink-0 transition-colors ${
-                                          isFav
-                                            ? 'text-copilot-warning'
-                                            : 'text-transparent group-hover:text-copilot-text-muted hover:!text-copilot-warning'
-                                        }`}
-                                        title={isFav ? 'Remove from favorites' : 'Add to favorites'}
-                                      >
-                                        {isFav ? (
-                                          <StarFilledIcon size={12} />
-                                        ) : (
-                                          <StarIcon size={12} />
-                                        )}
-                                      </button>
-                                      <span className="flex-1 text-left truncate">
-                                        {isActive && (
-                                          <span className="text-copilot-accent">✓ </span>
-                                        )}
-                                        {agent.name}
-                                      </span>
-                                      {agent.type !== 'system' && (
-                                        <button
-                                          type="button"
-                                          onClick={(event) =>
-                                            handleOpenEnvironment('agents', event, agent.path)
-                                          }
-                                          className="shrink-0 opacity-0 group-hover:opacity-100 text-copilot-text-muted hover:text-copilot-text transition-opacity"
-                                          title="View agent file"
-                                        >
-                                          <EyeIcon size={12} />
-                                        </button>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                                {sectionIdx < groupedAgents.length - 1 && (
-                                  <div className="border-t border-copilot-border" />
-                                )}
-                              </div>
-                            ))
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    */}
-
                     {/* Loops Selector */}
                     <div className="relative">
                       <button
@@ -6563,7 +5761,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                             setShowLisaSettings(false);
                           }
                         }}
-                        className={`flex items-center gap-1.5 px-3 py-2 text-xs transition-colors ${
+                        className={`flex items-center gap-1.5 px-3 h-[39px] text-xs transition-colors ${
                           ralphEnabled || lisaEnabled
                             ? 'text-copilot-warning'
                             : openTopBarSelector === 'loops'
@@ -6590,7 +5788,11 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       </button>
                       {openTopBarSelector === 'loops' && (
                         <div
-                          className={`absolute bottom-full z-50 mb-0.5 w-80 max-w-[calc(100vw-2rem)] bg-copilot-surface border border-copilot-border rounded-lg shadow-lg p-3 ${isMobile ? 'right-0' : 'left-0'}`}
+                          className={`absolute bottom-full z-50 mb-0.5 w-80 max-w-[calc(100vw-2rem)] bg-copilot-surface border border-copilot-border rounded-lg p-3 ${isMobile ? 'right-0' : 'left-0'}`}
+                          style={{
+                            boxShadow:
+                              '0 -4px 6px -1px rgb(0 0 0 / 0.1), 0 -2px 4px -2px rgb(0 0 0 / 0.1)',
+                          }}
                           data-tour="agent-modes-panel"
                         >
                           <div className="flex items-center gap-2 mb-3">
@@ -6730,7 +5932,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                                   </span>
                                   <span>→</span>
                                   <span className="px-1 py-0.5 bg-copilot-warning/20 rounded text-[9px]">
-                                    👀
+                                    🔍
                                   </span>
                                   <span>→</span>
                                   <span className="px-1.5 py-0.5 bg-copilot-surface rounded">
@@ -6738,7 +5940,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                                   </span>
                                   <span>→</span>
                                   <span className="px-1 py-0.5 bg-copilot-warning/20 rounded text-[9px]">
-                                    👀
+                                    🔍
                                   </span>
                                   <span>→</span>
                                   <span className="px-1.5 py-0.5 bg-copilot-surface rounded">
@@ -6746,7 +5948,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                                   </span>
                                   <span>→</span>
                                   <span className="px-1 py-0.5 bg-copilot-warning/20 rounded text-[9px]">
-                                    👀
+                                    🔍
                                   </span>
                                 </div>
                                 <p>
@@ -6761,6 +5963,51 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                       )}
                     </div>
 
+                    {/* Context Usage Tracker */}
+                    {activeTab?.contextUsage && (
+                      <div className="ml-auto flex items-center gap-2 px-3 h-[39px] text-[10px]">
+                        {activeTab.compactionStatus === 'compacting' ? (
+                          <>
+                            <span className="text-copilot-warning animate-pulse">
+                              Compacting...
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <span
+                              className={
+                                (activeTab.contextUsage.currentTokens /
+                                  activeTab.contextUsage.tokenLimit) *
+                                  100 >=
+                                90
+                                  ? 'text-copilot-error font-medium'
+                                  : (activeTab.contextUsage.currentTokens /
+                                        activeTab.contextUsage.tokenLimit) *
+                                        100 >=
+                                      70
+                                    ? 'text-copilot-warning'
+                                    : 'text-copilot-text-muted'
+                              }
+                            >
+                              {(
+                                (activeTab.contextUsage.currentTokens /
+                                  activeTab.contextUsage.tokenLimit) *
+                                100
+                              ).toFixed(0)}
+                              %
+                            </span>
+                            <span className="text-copilot-text-muted">
+                              {(activeTab.contextUsage.currentTokens / 1000).toFixed(1)}K /{' '}
+                              {(activeTab.contextUsage.tokenLimit / 1000).toFixed(0)}K
+                            </span>
+                            <span className="text-copilot-text-muted">
+                              ({activeTab.contextUsage.messagesLength} msgs)
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    )}
+
                     {/* Click-away handler for dropdowns */}
                     {openTopBarSelector && (
                       <div
@@ -6774,7 +6021,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     )}
                   </div>
                 )}
-              </div>
+              </ChatInput>
             </div>
           </div>
 
@@ -6963,7 +6210,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                     </div>
                     {showEditedFiles && activeTab && (
                       <div className="max-h-48 overflow-y-auto">
-                        {activeTab.editedFiles.length === 0 ? (
+                        {(activeTab.editedFiles?.length ?? 0) === 0 ? (
                           <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
                             No files edited
                           </div>
@@ -7341,7 +6588,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 </div>
                 {!activeTab?.yoloMode && showAllowedCommands && activeTab && (
                   <div className="max-h-48 overflow-y-auto">
-                    {activeTab.alwaysAllowed.length === 0 ? (
+                    {(activeTab.alwaysAllowed?.length ?? 0) === 0 ? (
                       <div className="px-3 py-2 text-[10px] text-copilot-text-muted">
                         No session commands
                       </div>
@@ -7852,6 +7099,9 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
             }
           }}
         />
+
+        {/* CLI Setup Modal */}
+        <CliSetupModal isOpen={showCliSetupModal} onComplete={() => setShowCliSetupModal(false)} />
 
         {/* Session Context Menu (right-click on tab) */}
         {contextMenu && (

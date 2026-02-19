@@ -68,6 +68,7 @@ const electronAPI = {
         alwaysAllowed?: string[];
         name?: string;
         yoloMode?: boolean;
+        sourceIssue?: { url: string; number: number; owner: string; repo: string };
       }[]
     ): Promise<{ success: boolean }> => {
       return ipcRenderer.invoke('copilot:saveOpenSessions', sessions);
@@ -567,6 +568,32 @@ const electronAPI = {
     }> => {
       return ipcRenderer.invoke('copilot:fetchImageFromUrl', url);
     },
+    // CLI Setup & Authentication
+    checkCliStatus: (): Promise<{
+      cliInstalled: boolean;
+      authenticated: boolean;
+      npmAvailable: boolean;
+      error?: string;
+    }> => {
+      return ipcRenderer.invoke('copilot:checkCliStatus');
+    },
+    installCli: (): Promise<{ success: boolean; error?: string }> => {
+      return ipcRenderer.invoke('copilot:installCli');
+    },
+    authLogin: (): Promise<{
+      success: boolean;
+      error?: string;
+      url?: string;
+      code?: string;
+    }> => {
+      return ipcRenderer.invoke('copilot:authLogin');
+    },
+    onAuthDeviceFlow: (callback: (data: { url: string; code: string }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { url: string; code: string }) =>
+        callback(data);
+      ipcRenderer.on('copilot:authDeviceFlow', handler);
+      return () => ipcRenderer.removeListener('copilot:authDeviceFlow', handler);
+    },
   },
 
   // Window controls
@@ -700,7 +727,8 @@ const electronAPI = {
       title: string | undefined,
       draft: boolean | undefined,
       targetBranch: string,
-      untrackedFiles?: string[]
+      untrackedFiles?: string[],
+      sourceIssue?: { url: string; number: number; owner: string; repo: string }
     ): Promise<{
       success: boolean;
       error?: string;
@@ -714,6 +742,7 @@ const electronAPI = {
         draft,
         targetBranch,
         untrackedFiles,
+        sourceIssue,
       });
     },
     getWorkingStatus: (

@@ -17,6 +17,7 @@ export type {
   CompactionStatus,
   DetectedChoice,
   PendingInjection,
+  SourceIssue,
 } from './session';
 
 export {

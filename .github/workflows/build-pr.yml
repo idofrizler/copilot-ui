@@ -24,6 +24,8 @@ jobs:
             platform: mac
           - os: windows-latest
             platform: win
+          - os: ubuntu-latest
+            platform: linux
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -68,6 +70,21 @@ jobs:
           node node_modules/ffmpeg-static/install.js
           node node_modules/vosk-koffi/scripts/postinstall.js
 
+      # --- Linux setup ---
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo ./scripts/install-linux-deps.sh
+
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: npm ci --ignore-scripts && npx patch-package && npm run rebuild-pty
+
+      - name: Install native dependency binaries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          node node_modules/ffmpeg-static/install.js
+          node node_modules/vosk-koffi/scripts/postinstall.js
+
       # --- Build & package (no signing) ---
       - name: Run tests
         run: npm test
@@ -85,6 +102,10 @@ jobs:
       - name: Package distributables (Windows, unsigned)
         if: runner.os == 'Windows'
         run: npx electron-builder --win --publish never
+
+      - name: Package distributables (Linux)
+        if: runner.os == 'Linux'
+        run: npx electron-builder --linux --publish never
 
       # --- Upload artifacts for reviewers to test ---
       - name: Upload DMG (macOS)
@@ -105,4 +126,60 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+      - name: Upload AppImage (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cooper-AppImage
+          path: release/*.AppImage
+          if-no-files-found: error
+          retention-days: 3
 
+      - name: Upload deb (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cooper-deb
+          path: release/*.deb
+          if-no-files-found: error
+          retention-days: 3
+
+  # Fedora build to verify non-Debian distro compatibility
+  # Only builds AppImage to test compatibility - rpm would require libcrypt compat library
+  build-fedora:
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies (Fedora)
+        run: |
+          dnf install -y nodejs npm git python3 make gcc gcc-c++
+          ./scripts/install-linux-deps.sh
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts && npx patch-package && npm run rebuild-pty
+
+      - name: Install native dependency binaries
+        run: |
+          node node_modules/ffmpeg-static/install.js
+          node node_modules/vosk-koffi/scripts/postinstall.js
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build application
+        run: npm run prebuild-info && npx electron-vite build
+
+      - name: Package AppImage (Fedora)
+        run: npx electron-builder --linux AppImage --publish never
+
+      - name: Upload AppImage (Fedora)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cooper-AppImage-fedora
+          path: release/*.AppImage
+          if-no-files-found: error
+          retention-days: 3
