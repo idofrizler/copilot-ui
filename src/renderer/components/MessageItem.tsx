@@ -18,6 +18,7 @@ interface MessageItemProps {
   activeSubagents?: any[];
   onStopSpeaking: () => void;
   onImageClick: (src: string, alt: string) => void;
+  isHighlighted?: boolean;
 }
 
 export const MessageItem = memo<MessageItemProps>(
@@ -30,17 +31,21 @@ export const MessageItem = memo<MessageItemProps>(
     activeSubagents,
     onStopSpeaking,
     onImageClick,
+    isHighlighted = false,
   }) => {
     return (
-      <div className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}>
+      <div
+        id={`message-${message.id}`}
+        className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}
+      >
         <div
-          className={`max-w-[85%] rounded-lg px-4 py-2.5 overflow-hidden relative ${
+          className={`max-w-[85%] rounded-lg px-4 py-2.5 overflow-hidden relative transition-all ${
             message.role === 'user'
               ? message.isPendingInjection
                 ? 'bg-copilot-warning text-white border border-dashed border-copilot-warning/50'
                 : 'bg-copilot-success text-copilot-text-inverse'
               : 'bg-copilot-surface text-copilot-text'
-          }`}
+          } ${isHighlighted ? 'ring-2 ring-copilot-accent ring-offset-2 ring-offset-copilot-bg' : ''}`}
         >
           {/* Stop speaking overlay on last assistant message */}
           {message.role === 'assistant' && index === lastAssistantIndex && isVoiceSpeaking && (
@@ -158,7 +163,8 @@ export const MessageItem = memo<MessageItemProps>(
       prevProps.message.tools === nextProps.message.tools &&
       prevProps.message.subagents === nextProps.message.subagents &&
       prevProps.message.imageAttachments === nextProps.message.imageAttachments &&
-      prevProps.message.fileAttachments === nextProps.message.fileAttachments
+      prevProps.message.fileAttachments === nextProps.message.fileAttachments &&
+      prevProps.isHighlighted === nextProps.isHighlighted
     );
   }
 );

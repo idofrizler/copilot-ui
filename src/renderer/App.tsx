@@ -55,6 +55,7 @@ import {
   VolumeMuteIcon,
   TitleBar,
   EyeIcon,
+  SearchIcon,
   MessageItem,
   ChatInput,
   type ChatInputHandle,
@@ -476,6 +477,15 @@ const App: React.FC = () => {
   const isAtBottomRef = useRef<boolean>(true);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
 
+  // Find in chat state
+  const [findInChatVisible, setFindInChatVisible] = useState(false);
+  const [findInChatQuery, setFindInChatQuery] = useState('');
+  const [findInChatMatches, setFindInChatMatches] = useState<
+    { messageId: string; index: number }[]
+  >([]);
+  const [findInChatCurrentMatch, setFindInChatCurrentMatch] = useState(0);
+  const findInChatInputRef = useRef<HTMLInputElement>(null);
+
   // Voice speech hook for STT/TTS
   const voiceSpeech = useVoiceSpeech();
   const { isRecording } = voiceSpeech;
@@ -514,6 +524,28 @@ const App: React.FC = () => {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, []);
+
+  // Find in chat keyboard shortcut (Ctrl/Cmd+F)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        setFindInChatVisible(true);
+        // Focus input on next tick
+        setTimeout(() => findInChatInputRef.current?.focus(), 0);
+      }
+      // Escape to close search
+      if (e.key === 'Escape' && findInChatVisible) {
+        e.preventDefault();
+        setFindInChatVisible(false);
+        setFindInChatQuery('');
+        setFindInChatMatches([]);
+        setFindInChatCurrentMatch(0);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [findInChatVisible]);
 
   useEffect(() => {
     if (!window.electronAPI?.window?.onZoomChanged) return;
@@ -2792,6 +2824,47 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     handleSendMessageRef.current = handleSendMessage;
   }, [handleSendMessage]);
 
+  // Find in chat: Update matches when query or messages change
+  useEffect(() => {
+    if (!findInChatQuery.trim() || !activeTab) {
+      setFindInChatMatches([]);
+      setFindInChatCurrentMatch(0);
+      return;
+    }
+
+    const query = findInChatQuery.toLowerCase();
+    const matches: { messageId: string; index: number }[] = [];
+
+    // Filter messages (same filter as display)
+    const filteredMessages = activeTab.messages
+      .filter((m) => m.role !== 'system')
+      .filter((m) => m.role === 'user' || m.content.trim());
+
+    for (let index = filteredMessages.length - 1; index >= 0; index--) {
+      const msg = filteredMessages[index];
+      if (msg.content.toLowerCase().includes(query)) {
+        matches.push({ messageId: msg.id, index });
+      }
+    }
+
+    setFindInChatMatches(matches);
+    setFindInChatCurrentMatch(matches.length > 0 ? 0 : -1);
+  }, [findInChatQuery, activeTab?.messages, activeTab?.id]);
+
+  // Find in chat: Scroll to current match
+  useEffect(() => {
+    if (findInChatMatches.length === 0 || findInChatCurrentMatch < 0) return;
+
+    const currentMatch = findInChatMatches[findInChatCurrentMatch];
+    if (!currentMatch) return;
+
+    // Find the message element and scroll to it
+    const messageElement = document.getElementById(`message-${currentMatch.messageId}`);
+    if (messageElement) {
+      messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [findInChatCurrentMatch, findInChatMatches]);
+
   // Handle sending terminal output to the agent
   const handleSendTerminalOutput = useCallback(
     (output: string, lineCount: number, lastCommandStart?: number) => {
@@ -2834,6 +2907,26 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     setTerminalAttachment({ output, lineCount });
     setPendingTerminalOutput(null);
     chatInputRef.current?.focus();
+  }, []);
+
+  // Find in chat handlers
+  const handleFindInChatNext = useCallback(() => {
+    if (findInChatMatches.length === 0) return;
+    setFindInChatCurrentMatch((prev) => (prev + 1) % findInChatMatches.length);
+  }, [findInChatMatches.length]);
+
+  const handleFindInChatPrevious = useCallback(() => {
+    if (findInChatMatches.length === 0) return;
+    setFindInChatCurrentMatch(
+      (prev) => (prev - 1 + findInChatMatches.length) % findInChatMatches.length
+    );
+  }, [findInChatMatches.length]);
+
+  const handleCloseFindInChat = useCallback(() => {
+    setFindInChatVisible(false);
+    setFindInChatQuery('');
+    setFindInChatMatches([]);
+    setFindInChatCurrentMatch(0);
   }, []);
 
   // Cancel a specific pending injection by index, or all if index not provided
@@ -5232,41 +5325,47 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   }
                 }
 
-                return filteredMessages.map((message, index) => (
-                  <React.Fragment key={message.id}>
-                    <MessageItem
-                      message={message}
-                      index={index}
-                      lastAssistantIndex={lastAssistantIndex}
-                      isVoiceSpeaking={voiceSpeech.isSpeaking}
-                      activeTools={activeTab?.activeTools}
-                      activeSubagents={activeTab?.activeSubagents}
-                      onStopSpeaking={voiceSpeech.stopSpeaking}
-                      onImageClick={handleImageClick}
-                    />
-                    {/* Show timestamp for the last assistant message (only when not processing) */}
-                    {index === lastAssistantIndex &&
-                      message.timestamp &&
-                      !activeTab?.isProcessing && (
-                        <span className="text-[10px] text-copilot-text-muted mt-1 ml-1">
-                          {new Date(message.timestamp).toLocaleTimeString([], {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </span>
-                      )}
-                    {/* Show choice selector for the last assistant message when choices are detected */}
-                    {index === lastAssistantIndex &&
-                      !activeTab?.isProcessing &&
-                      activeTab?.detectedChoices &&
-                      activeTab.detectedChoices.length > 0 && (
-                        <ChoiceSelector
-                          choices={activeTab.detectedChoices}
-                          onSelect={handleChoiceSelect}
-                        />
-                      )}
-                  </React.Fragment>
-                ));
+                return filteredMessages.map((message, index) => {
+                  const currentMatch = findInChatMatches[findInChatCurrentMatch];
+                  const isHighlighted = currentMatch?.messageId === message.id;
+
+                  return (
+                    <React.Fragment key={message.id}>
+                      <MessageItem
+                        message={message}
+                        index={index}
+                        lastAssistantIndex={lastAssistantIndex}
+                        isVoiceSpeaking={voiceSpeech.isSpeaking}
+                        activeTools={activeTab?.activeTools}
+                        activeSubagents={activeTab?.activeSubagents}
+                        onStopSpeaking={voiceSpeech.stopSpeaking}
+                        onImageClick={handleImageClick}
+                        isHighlighted={isHighlighted}
+                      />
+                      {/* Show timestamp for the last assistant message (only when not processing) */}
+                      {index === lastAssistantIndex &&
+                        message.timestamp &&
+                        !activeTab?.isProcessing && (
+                          <span className="text-[10px] text-copilot-text-muted mt-1 ml-1">
+                            {new Date(message.timestamp).toLocaleTimeString([], {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </span>
+                        )}
+                      {/* Show choice selector for the last assistant message when choices are detected */}
+                      {index === lastAssistantIndex &&
+                        !activeTab?.isProcessing &&
+                        activeTab?.detectedChoices &&
+                        activeTab.detectedChoices.length > 0 && (
+                          <ChoiceSelector
+                            choices={activeTab.detectedChoices}
+                            onSelect={handleChoiceSelect}
+                          />
+                        )}
+                    </React.Fragment>
+                  );
+                });
               }, [
                 activeTab?.messages,
                 activeTab?.isProcessing,
@@ -5277,6 +5376,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 voiceSpeech.stopSpeaking,
                 handleImageClick,
                 handleChoiceSelect,
+                findInChatMatches,
+                findInChatCurrentMatch,
               ])}
 
               {/* Thinking indicator when processing but no streaming content yet */}
@@ -5591,6 +5692,61 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   </div>
                 );
               })()}
+
+            {/* Find in Chat Search Box */}
+            {findInChatVisible && (
+              <div className="shrink-0 px-3 py-2 bg-copilot-surface border-t border-copilot-border">
+                <div className="flex items-center gap-2">
+                  <SearchIcon size={16} className="text-copilot-text-muted shrink-0" />
+                  <input
+                    ref={findInChatInputRef}
+                    type="text"
+                    value={findInChatQuery}
+                    onChange={(e) => setFindInChatQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (e.shiftKey) {
+                          handleFindInChatPrevious();
+                        } else {
+                          handleFindInChatNext();
+                        }
+                      }
+                    }}
+                    placeholder="Find in chat..."
+                    className="flex-1 px-2 py-1 text-sm bg-copilot-bg text-copilot-text border border-copilot-border rounded focus:outline-none focus:ring-1 focus:ring-copilot-accent"
+                  />
+                  {findInChatMatches.length > 0 && (
+                    <span className="text-xs text-copilot-text-muted shrink-0">
+                      {findInChatCurrentMatch + 1} of {findInChatMatches.length}
+                    </span>
+                  )}
+                  <button
+                    onClick={handleFindInChatPrevious}
+                    disabled={findInChatMatches.length === 0}
+                    className="p-1 text-copilot-text-muted hover:text-copilot-text disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="Previous match (Shift+Enter)"
+                  >
+                    <ChevronRightIcon size={16} className="rotate-[-90deg]" />
+                  </button>
+                  <button
+                    onClick={handleFindInChatNext}
+                    disabled={findInChatMatches.length === 0}
+                    className="p-1 text-copilot-text-muted hover:text-copilot-text disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="Next match (Enter)"
+                  >
+                    <ChevronRightIcon size={16} className="rotate-90" />
+                  </button>
+                  <button
+                    onClick={handleCloseFindInChat}
+                    className="p-1 text-copilot-text-muted hover:text-copilot-text"
+                    title="Close (Escape)"
+                  >
+                    <CloseIcon size={16} />
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Input Area */}
             <div className="shrink-0 p-3 bg-copilot-surface border-t border-copilot-border">
