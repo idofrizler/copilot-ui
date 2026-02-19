@@ -74,6 +74,7 @@ import {
   getDestructiveExecutables,
   extractFilesToDelete,
 } from './utils/extractExecutables';
+import { mergeSessionCwds, resolveSessionName } from './utils/sessionRestore';
 import * as worktree from './worktree';
 import * as ptyManager from './pty';
 import * as browserManager from './browser';
@@ -933,6 +934,7 @@ function startEarlyClientInit(): void {
 // Start resuming stored sessions early - runs in parallel with window loading
 async function startEarlySessionResumption(): Promise<void> {
   const openSessions = (store.get('openSessions') as StoredSession[]) || [];
+  const sessionNames = (store.get('sessionNames') as Record<string, string>) || {};
   if (openSessions.length === 0) {
     earlyResumptionComplete = true;
     return;
@@ -1110,7 +1112,7 @@ async function startEarlySessionResumption(): Promise<void> {
           sessionId,
           model: sessionModel,
           cwd: sessionCwd,
-          name,
+          name: resolveSessionName({ storedName: name, persistedName: sessionNames[sessionId] }),
           editedFiles: editedFiles || [],
           alwaysAllowed: storedAlwaysAllowed,
           untrackedFiles: untrackedFiles || [],
@@ -2170,7 +2172,11 @@ async function initCopilot(): Promise<void> {
           sessionId,
           model: sessionModel,
           cwd: sessionCwd,
-          name: storedSession?.name || meta?.summary || undefined,
+          name: resolveSessionName({
+            storedName: storedSession?.name,
+            persistedName: sessionNames[sessionId],
+            summary: meta?.summary,
+          }),
           editedFiles: storedSession?.editedFiles || [],
           alwaysAllowed: storedAlwaysAllowed,
           untrackedFiles: storedSession?.untrackedFiles || [],
@@ -2214,7 +2220,11 @@ async function initCopilot(): Promise<void> {
         sessionId,
         model: sessionModel,
         cwd: sessionCwd,
-        name: storedSession?.name || meta?.summary || undefined,
+        name: resolveSessionName({
+          storedName: storedSession?.name,
+          persistedName: sessionNames[sessionId],
+          summary: meta?.summary,
+        }),
         editedFiles: storedSession?.editedFiles || [],
         alwaysAllowed: storedSession?.alwaysAllowed || [],
         untrackedFiles: storedSession?.untrackedFiles || [],
@@ -3559,6 +3569,10 @@ ipcMain.handle('copilot:removeDeniedUrl', async (_event, url: string) => {
 // Save open session IDs to persist across restarts
 ipcMain.handle('copilot:saveOpenSessions', async (_event, openSessions: StoredSession[]) => {
   store.set('openSessions', openSessions);
+
+  // Persist session cwds for all open sessions so history restoration keeps directory context.
+  const sessionCwds = (store.get('sessionCwds') as Record<string, string>) || {};
+  store.set('sessionCwds', mergeSessionCwds(sessionCwds, openSessions));
 
   // Also persist marks to sessionMarks store (for when sessions go to history)
   const sessionMarks =
