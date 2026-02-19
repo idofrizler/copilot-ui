@@ -851,4 +851,151 @@ describe('SessionHistory Component', () => {
       expect(screen.getByText('2')).toBeInTheDocument();
     });
   });
+
+  describe('Worktree Session Deduplication', () => {
+    const worktreePath = '/Users/dev/.copilot-sessions/repo--feature-branch';
+    const worktreeListResult = {
+      sessions: [
+        {
+          id: 'repo--feature-branch',
+          repoPath: '/Users/dev/repo',
+          branch: 'feature/branch',
+          worktreePath,
+          status: 'active' as const,
+          lastAccessedAt: new Date().toISOString(),
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    };
+
+    it('enriches previous sessions with worktree data from worktreeMap and prevents standalone duplicate', async () => {
+      // Mock listSessions to return a worktree matching the session's cwd
+      (window.electronAPI.worktree.listSessions as ReturnType<typeof vi.fn>).mockResolvedValue(
+        worktreeListResult
+      );
+
+      // Session has cwd matching worktree but no worktree property
+      const sessions: PreviousSession[] = [
+        createMockSession('session-1', 'Work on feature', 0, worktreePath),
+      ];
+
+      await renderAndSettle(
+        <SessionHistory
+          isOpen={true}
+          onClose={mockOnClose}
+          sessions={sessions}
+          onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
+        />
+      );
+
+      // Wait for worktreeMap to be populated via useEffect
+      await waitFor(() => {
+        // Should show the branch name (enriched from worktreeMap)
+        expect(screen.getByText('feature/branch')).toBeInTheDocument();
+      });
+
+      // Should only appear once — no standalone worktree duplicate
+      const branchElements = screen.getAllByText('feature/branch');
+      expect(branchElements).toHaveLength(1);
+    });
+
+    it('deduplicates previous sessions sharing the same worktree path', async () => {
+      (window.electronAPI.worktree.listSessions as ReturnType<typeof vi.fn>).mockResolvedValue(
+        worktreeListResult
+      );
+
+      const olderDate = new Date();
+      olderDate.setHours(olderDate.getHours() - 2);
+
+      // Two SDK sessions pointing to the same worktree
+      const sessions: PreviousSession[] = [
+        {
+          sessionId: 'session-older',
+          name: 'Older session on branch',
+          modifiedTime: olderDate.toISOString(),
+          cwd: worktreePath,
+        },
+        {
+          sessionId: 'session-newer',
+          name: 'Newer session on branch',
+          modifiedTime: new Date().toISOString(),
+          cwd: worktreePath,
+        },
+      ];
+
+      await renderAndSettle(
+        <SessionHistory
+          isOpen={true}
+          onClose={mockOnClose}
+          sessions={sessions}
+          onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('feature/branch')).toBeInTheDocument();
+      });
+
+      // Only the most recent session should remain
+      expect(screen.getByText('Newer session on branch')).toBeInTheDocument();
+      expect(screen.queryByText('Older session on branch')).not.toBeInTheDocument();
+
+      // Branch should appear exactly once (no standalone duplicate either)
+      expect(screen.getAllByText('feature/branch')).toHaveLength(1);
+    });
+
+    it('does not deduplicate sessions with different worktree paths', async () => {
+      const worktreePath2 = '/Users/dev/.copilot-sessions/repo--other-branch';
+      (window.electronAPI.worktree.listSessions as ReturnType<typeof vi.fn>).mockResolvedValue({
+        sessions: [
+          ...worktreeListResult.sessions,
+          {
+            id: 'repo--other-branch',
+            repoPath: '/Users/dev/repo',
+            branch: 'other/branch',
+            worktreePath: worktreePath2,
+            status: 'active' as const,
+            lastAccessedAt: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      });
+
+      const sessions: PreviousSession[] = [
+        createMockSession('session-1', 'Work on feature', 0, worktreePath),
+        createMockSession('session-2', 'Work on other', 0, worktreePath2),
+      ];
+
+      await renderAndSettle(
+        <SessionHistory
+          isOpen={true}
+          onClose={mockOnClose}
+          sessions={sessions}
+          onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('feature/branch')).toBeInTheDocument();
+      });
+
+      // Both sessions should be visible — different worktrees
+      expect(screen.getByText('Work on feature')).toBeInTheDocument();
+      expect(screen.getByText('Work on other')).toBeInTheDocument();
+      expect(screen.getByText('feature/branch')).toBeInTheDocument();
+      expect(screen.getByText('other/branch')).toBeInTheDocument();
+    });
+  });
 });
