@@ -684,9 +684,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Settings" width="600px" testId="settings-modal">
-      <div className="flex min-h-[400px] flex-1 overflow-hidden">
+      <div className="flex min-h-[400px] flex-1 min-h-0">
         {/* Sidebar */}
-        <div className="w-40 border-r border-copilot-border p-2 shrink-0">
+        <div className="w-40 border-r border-copilot-border p-2 shrink-0 overflow-y-auto">
           {sections.map((section) => (
             <button
               key={section.id}
@@ -704,7 +704,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         {/* Content */}
-        <div className="flex-1 p-4 overflow-y-auto">{renderContent()}</div>
+        <div className="flex-1 p-4 overflow-y-auto min-h-0">{renderContent()}</div>
       </div>
     </Modal>
   );
