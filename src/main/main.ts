@@ -1164,6 +1164,7 @@ interface ModelsCache {
   version: number; // Cache version for invalidation
 }
 let modelsCache: ModelsCache | null = null;
+let modelsWarmupPromise: Promise<void> | null = null;
 const MODEL_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours (models don't change frequently)
 const MODEL_CACHE_VERSION = 3; // Increment when model schema or fetch logic changes (bumped to 3 to refresh all caches with latest 17 models)
 
@@ -1314,6 +1315,33 @@ async function fetchModelsFromAPI(client: CopilotClient): Promise<ModelInfo[]> {
     console.error('No cached models available, returning empty list');
     return [];
   }
+}
+
+function warmModelsCacheInBackground(): void {
+  if (modelsWarmupPromise) return;
+
+  if (getCachedModels().length > 0) {
+    return;
+  }
+
+  const client = getDefaultClient();
+  if (!client) {
+    console.warn('[warmModelsCacheInBackground] No Copilot client available yet');
+    return;
+  }
+
+  modelsWarmupPromise = (async () => {
+    try {
+      const models = await fetchModelsFromAPI(client);
+      if (models.length > 0 && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('copilot:modelsVerified', { models });
+      }
+    } catch (error) {
+      console.warn('[warmModelsCacheInBackground] Failed to warm model cache:', error);
+    } finally {
+      modelsWarmupPromise = null;
+    }
+  })();
 }
 
 // Preferred models for quick, simple AI tasks (in order of preference)
@@ -2247,7 +2275,8 @@ async function initCopilot(): Promise<void> {
       }
     }
 
-    // Models will be fetched on-demand when user opens model selector (via copilot:getModels IPC)
+    // Warm model cache asynchronously on startup to avoid first-open model selector lag.
+    warmModelsCacheInBackground();
 
     // Start keep-alive timer to prevent session timeouts
     startKeepAlive();
@@ -3091,6 +3120,15 @@ ipcMain.handle('copilot:getModels', async () => {
 
   // No valid cache - fetch fresh from API
   console.log('[copilot:getModels] No cache, fetching from API...');
+  if (modelsWarmupPromise) {
+    await modelsWarmupPromise;
+    const warmedModels = getCachedModels();
+    if (warmedModels.length > 0) {
+      console.log(`[copilot:getModels] Returning ${warmedModels.length} warmed models`);
+      return { models: warmedModels, current: currentModel };
+    }
+  }
+
   const client = getDefaultClient();
   if (!client) {
     console.warn('No Copilot client available for fetching models');

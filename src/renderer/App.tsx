@@ -1486,6 +1486,12 @@ const App: React.FC = () => {
         .catch((err) => console.error(`Failed to load history for ${s.sessionId}:`, err));
     });
 
+    const unsubscribeModelsVerified = window.electronAPI.copilot.onModelsVerified((data) => {
+      if (data.models.length > 0) {
+        setAvailableModels(data.models);
+      }
+    });
+
     // Also fetch models in case ready event was missed (baseline list only)
     window.electronAPI.copilot
       .getModels()
@@ -2401,6 +2407,7 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       unsubscribePermission();
       unsubscribeError();
       unsubscribeSessionResumed();
+      unsubscribeModelsVerified();
       unsubscribeUsageInfo();
       unsubscribeCompactionStart();
       unsubscribeCompactionComplete();
