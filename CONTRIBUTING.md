@@ -46,10 +46,10 @@ node scripts/bump-version.js [major|minor|patch]
 
 ### Release types
 
-| Branch    | Tag                      | Type                              |
-| --------- | ------------------------ | --------------------------------- |
-| `main`    | `v1.0.0`                 | Full release (marked as `latest`) |
-| `staging` | `v1.0.0-rc.<run_number>` | Release candidate (prerelease)    |
+| Branch    | Tag             | Type                              |
+| --------- | --------------- | --------------------------------- |
+| `main`    | `v1.0.0`        | Full release (marked as `latest`) |
+| `staging` | `v1.0.0-rc.<n>` | Release candidate (prerelease)    |
 
 ### Artifacts
 
