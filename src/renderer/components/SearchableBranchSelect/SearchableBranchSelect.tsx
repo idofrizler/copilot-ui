@@ -32,6 +32,7 @@ export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
   label,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [openDirection, setOpenDirection] = useState<'up' | 'down'>('down');
   const [searchTerm, setSearchTerm] = useState('');
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -48,6 +49,34 @@ export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
     if (isOpen && inputRef.current) {
       inputRef.current.focus();
     }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !dropdownRef.current) {
+      return;
+    }
+
+    const updateDropdownDirection = () => {
+      if (!dropdownRef.current) return;
+
+      const rect = dropdownRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      const estimatedDropdownHeight = 250;
+
+      setOpenDirection(
+        spaceBelow < estimatedDropdownHeight && spaceAbove > spaceBelow ? 'up' : 'down'
+      );
+    };
+
+    updateDropdownDirection();
+    window.addEventListener('resize', updateDropdownDirection);
+    window.addEventListener('scroll', updateDropdownDirection, true);
+
+    return () => {
+      window.removeEventListener('resize', updateDropdownDirection);
+      window.removeEventListener('scroll', updateDropdownDirection, true);
+    };
   }, [isOpen]);
 
   const filteredBranches = branches.filter((branch) =>
@@ -99,7 +128,10 @@ export const SearchableBranchSelect: React.FC<SearchableBranchSelectProps> = ({
 
       {isOpen && (
         <div
-          className="absolute top-full left-0 right-0 mt-1 bg-copilot-surface border border-copilot-border rounded-lg shadow-lg z-50 overflow-hidden"
+          data-testid="searchable-branch-select-menu"
+          className={`absolute left-0 right-0 bg-copilot-surface border border-copilot-border rounded-lg shadow-lg z-50 overflow-hidden ${
+            openDirection === 'up' ? 'bottom-full mb-1' : 'top-full mt-1'
+          }`}
           onClick={(e) => e.stopPropagation()}
         >
           {/* Search input */}

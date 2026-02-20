@@ -1150,6 +1150,12 @@ const electronAPI = {
     openFile: (filePath: string): Promise<{ success: boolean; error?: string }> => {
       return ipcRenderer.invoke('file:openFile', filePath);
     },
+    writeContent: (
+      filePath: string,
+      content: string
+    ): Promise<{ success: boolean; filePath?: string; error?: string }> => {
+      return ipcRenderer.invoke('file:writeContent', { filePath, content });
+    },
   },
   diagnostics: {
     getPaths: (): Promise<{ logFilePath: string; crashDumpsPath: string }> => {

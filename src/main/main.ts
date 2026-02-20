@@ -19,6 +19,7 @@ import {
   copyFileSync,
   statSync,
   unlinkSync,
+  writeFileSync,
 } from 'fs';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
@@ -74,6 +75,7 @@ import {
   getDestructiveExecutables,
   extractFilesToDelete,
 } from './utils/extractExecutables';
+import { mergeSessionCwds, resolveSessionName } from './utils/sessionRestore';
 import * as worktree from './worktree';
 import * as ptyManager from './pty';
 import * as browserManager from './browser';
@@ -933,6 +935,7 @@ function startEarlyClientInit(): void {
 // Start resuming stored sessions early - runs in parallel with window loading
 async function startEarlySessionResumption(): Promise<void> {
   const openSessions = (store.get('openSessions') as StoredSession[]) || [];
+  const sessionNames = (store.get('sessionNames') as Record<string, string>) || {};
   if (openSessions.length === 0) {
     earlyResumptionComplete = true;
     return;
@@ -1110,7 +1113,7 @@ async function startEarlySessionResumption(): Promise<void> {
           sessionId,
           model: sessionModel,
           cwd: sessionCwd,
-          name,
+          name: resolveSessionName({ storedName: name, persistedName: sessionNames[sessionId] }),
           editedFiles: editedFiles || [],
           alwaysAllowed: storedAlwaysAllowed,
           untrackedFiles: untrackedFiles || [],
@@ -1161,6 +1164,7 @@ interface ModelsCache {
   version: number; // Cache version for invalidation
 }
 let modelsCache: ModelsCache | null = null;
+let modelsWarmupPromise: Promise<void> | null = null;
 const MODEL_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours (models don't change frequently)
 const MODEL_CACHE_VERSION = 3; // Increment when model schema or fetch logic changes (bumped to 3 to refresh all caches with latest 17 models)
 
@@ -1311,6 +1315,33 @@ async function fetchModelsFromAPI(client: CopilotClient): Promise<ModelInfo[]> {
     console.error('No cached models available, returning empty list');
     return [];
   }
+}
+
+function warmModelsCacheInBackground(): void {
+  if (modelsWarmupPromise) return;
+
+  if (getCachedModels().length > 0) {
+    return;
+  }
+
+  const client = getDefaultClient();
+  if (!client) {
+    console.warn('[warmModelsCacheInBackground] No Copilot client available yet');
+    return;
+  }
+
+  modelsWarmupPromise = (async () => {
+    try {
+      const models = await fetchModelsFromAPI(client);
+      if (models.length > 0 && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('copilot:modelsVerified', { models });
+      }
+    } catch (error) {
+      console.warn('[warmModelsCacheInBackground] Failed to warm model cache:', error);
+    } finally {
+      modelsWarmupPromise = null;
+    }
+  })();
 }
 
 // Preferred models for quick, simple AI tasks (in order of preference)
@@ -2170,7 +2201,11 @@ async function initCopilot(): Promise<void> {
           sessionId,
           model: sessionModel,
           cwd: sessionCwd,
-          name: storedSession?.name || meta?.summary || undefined,
+          name: resolveSessionName({
+            storedName: storedSession?.name,
+            persistedName: sessionNames[sessionId],
+            summary: meta?.summary,
+          }),
           editedFiles: storedSession?.editedFiles || [],
           alwaysAllowed: storedAlwaysAllowed,
           untrackedFiles: storedSession?.untrackedFiles || [],
@@ -2214,7 +2249,11 @@ async function initCopilot(): Promise<void> {
         sessionId,
         model: sessionModel,
         cwd: sessionCwd,
-        name: storedSession?.name || meta?.summary || undefined,
+        name: resolveSessionName({
+          storedName: storedSession?.name,
+          persistedName: sessionNames[sessionId],
+          summary: meta?.summary,
+        }),
         editedFiles: storedSession?.editedFiles || [],
         alwaysAllowed: storedSession?.alwaysAllowed || [],
         untrackedFiles: storedSession?.untrackedFiles || [],
@@ -2236,7 +2275,8 @@ async function initCopilot(): Promise<void> {
       }
     }
 
-    // Models will be fetched on-demand when user opens model selector (via copilot:getModels IPC)
+    // Warm model cache asynchronously on startup to avoid first-open model selector lag.
+    warmModelsCacheInBackground();
 
     // Start keep-alive timer to prevent session timeouts
     startKeepAlive();
@@ -3080,6 +3120,15 @@ ipcMain.handle('copilot:getModels', async () => {
 
   // No valid cache - fetch fresh from API
   console.log('[copilot:getModels] No cache, fetching from API...');
+  if (modelsWarmupPromise) {
+    await modelsWarmupPromise;
+    const warmedModels = getCachedModels();
+    if (warmedModels.length > 0) {
+      console.log(`[copilot:getModels] Returning ${warmedModels.length} warmed models`);
+      return { models: warmedModels, current: currentModel };
+    }
+  }
+
   const client = getDefaultClient();
   if (!client) {
     console.warn('No Copilot client available for fetching models');
@@ -3559,6 +3608,10 @@ ipcMain.handle('copilot:removeDeniedUrl', async (_event, url: string) => {
 // Save open session IDs to persist across restarts
 ipcMain.handle('copilot:saveOpenSessions', async (_event, openSessions: StoredSession[]) => {
   store.set('openSessions', openSessions);
+
+  // Persist session cwds for all open sessions so history restoration keeps directory context.
+  const sessionCwds = (store.get('sessionCwds') as Record<string, string>) || {};
+  store.set('sessionCwds', mergeSessionCwds(sessionCwds, openSessions));
 
   // Also persist marks to sessionMarks store (for when sessions go to history)
   const sessionMarks =
@@ -5560,6 +5613,33 @@ ipcMain.handle('file:openFile', async (_event, filePath: string) => {
     return { success: false, error: String(error) };
   }
 });
+
+// File operations - write/save file content
+ipcMain.handle(
+  'file:writeContent',
+  async (_event, { filePath, content }: { filePath: string; content: string }) => {
+    try {
+      // Validate file path to prevent directory traversal
+      const normalizedPath = path.normalize(filePath);
+      if (normalizedPath.includes('..')) {
+        return { success: false, error: 'Invalid file path: directory traversal not allowed' };
+      }
+
+      // Ensure parent directory exists
+      const dir = path.dirname(normalizedPath);
+      if (!existsSync(dir)) {
+        return { success: false, error: 'Parent directory does not exist' };
+      }
+
+      // Write file content
+      writeFileSync(normalizedPath, content, 'utf-8');
+      return { success: true, filePath: normalizedPath };
+    } catch (error) {
+      console.error('Failed to write file:', error);
+      return { success: false, error: String(error) };
+    }
+  }
+);
 
 // Crash diagnostics
 ipcMain.handle('diagnostics:getPaths', async () => {

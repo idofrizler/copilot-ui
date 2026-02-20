@@ -4,6 +4,8 @@ import remarkGfm from 'remark-gfm';
 import {
   CloseIcon,
   ExternalLinkIcon,
+  EditIcon,
+  EyeIcon,
   ListIcon,
   TreeIcon,
   FileIcon,
@@ -121,6 +123,11 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   const [fileContent, setFileContent] = useState<FileContent | null>(null);
   const [selectedFile, setSelectedFile] = useState<string>(initialFilePath);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const [editMode, setEditMode] = useState(false);
+  const [editContent, setEditContent] = useState<string>('');
+  const [originalEditContent, setOriginalEditContent] = useState<string>('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Track current request to prevent race conditions when selectedFile changes rapidly
   const loadRequestRef = useRef<number>(0);
@@ -152,6 +159,14 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
       setSelectedFile(initialFilePath);
     }
   }, [initialFilePath]);
+
+  // Reset edit mode when selected file changes
+  useEffect(() => {
+    setEditMode(false);
+    setEditContent('');
+    setOriginalEditContent('');
+    setSaveError(null);
+  }, [selectedFile]);
 
   const loadFileContent = useCallback(async () => {
     if (!selectedFile) return;
@@ -265,15 +280,77 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
     }
   }, [isOpen, selectedFile, loadFileContent]);
 
+  // Load file content for editing
+  const loadEditContent = useCallback(async () => {
+    if (!selectedFile || !cwd) return;
+    const resolvedPath =
+      !selectedFile.startsWith('/') && !selectedFile.match(/^[a-zA-Z]:/)
+        ? `${cwd}/${selectedFile}`
+        : selectedFile;
+    const result = await window.electronAPI.file.readContent(resolvedPath);
+    if (result.success && result.content !== undefined) {
+      setEditContent(result.content);
+      setOriginalEditContent(result.content);
+    }
+  }, [selectedFile, cwd]);
+
+  const handleSave = useCallback(async () => {
+    if (!selectedFile || !cwd) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const resolvedPath =
+        !selectedFile.startsWith('/') && !selectedFile.match(/^[a-zA-Z]:/)
+          ? `${cwd}/${selectedFile}`
+          : selectedFile;
+      const result = await window.electronAPI.file.writeContent(resolvedPath, editContent);
+      if (result.success) {
+        setOriginalEditContent(editContent);
+        setEditMode(false);
+        loadFileContent();
+      } else {
+        setSaveError(result.error || 'Failed to save');
+      }
+    } catch (err) {
+      setSaveError(String(err));
+    } finally {
+      setSaving(false);
+    }
+  }, [selectedFile, cwd, editContent, loadFileContent]);
+
+  const handleToggleEdit = useCallback(async () => {
+    if (!editMode) {
+      await loadEditContent();
+      setEditMode(true);
+    } else {
+      if (editContent !== originalEditContent) {
+        if (!window.confirm('Discard unsaved changes?')) return;
+      }
+      setEditMode(false);
+      setSaveError(null);
+    }
+  }, [editMode, editContent, originalEditContent, loadEditContent]);
+
+  const hasUnsavedChanges = editMode && editContent !== originalEditContent;
+
+  const handleCloseWithCheck = useCallback(() => {
+    if (hasUnsavedChanges) {
+      if (!window.confirm('Discard unsaved changes?')) return;
+    }
+    setEditMode(false);
+    setSaveError(null);
+    onClose();
+  }, [hasUnsavedChanges, onClose]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {
-        onClose();
+        handleCloseWithCheck();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [isOpen, handleCloseWithCheck]);
 
   const handleRevealInFolder = async () => {
     try {
@@ -285,7 +362,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
 
   const handleBackdropClick = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget) {
-      onClose();
+      handleCloseWithCheck();
     }
   };
 
@@ -506,6 +583,33 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
             )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            {/* Edit / Save controls */}
+            {selectedFile && contentMode === 'diff' && (
+              <>
+                {editMode && hasUnsavedChanges && (
+                  <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-copilot-accent text-white rounded hover:bg-copilot-accent/80 disabled:opacity-50 transition-colors"
+                    title="Save changes (Ctrl/Cmd+S)"
+                  >
+                    <span>{saving ? 'Saving...' : 'Save'}</span>
+                  </button>
+                )}
+                <button
+                  onClick={handleToggleEdit}
+                  className={`flex items-center gap-1.5 px-2 py-1 text-xs rounded transition-colors ${
+                    editMode
+                      ? 'text-copilot-accent bg-copilot-accent/10 hover:bg-copilot-accent/20'
+                      : 'text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-bg'
+                  }`}
+                  title={editMode ? 'Back to diff view' : 'Edit file'}
+                >
+                  {editMode ? <EyeIcon size={14} /> : <EditIcon size={14} />}
+                  <span>{editMode ? 'Preview' : 'Edit'}</span>
+                </button>
+              </>
+            )}
             {isFullOverlay && onViewModeChange && (
               <button
                 onClick={() => onViewModeChange(fileViewMode === 'flat' ? 'tree' : 'flat')}
@@ -527,7 +631,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
               </button>
             )}
             <button
-              onClick={onClose}
+              onClick={handleCloseWithCheck}
               className="text-copilot-text-muted hover:text-copilot-text transition-colors p-1"
               aria-label="Close modal"
             >
@@ -609,143 +713,205 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                 >
                   {selectedFile}
                 </span>
+                {editMode && (
+                  <span className="text-[9px] font-semibold text-copilot-accent shrink-0">
+                    EDITING{hasUnsavedChanges ? ' •' : ''}
+                  </span>
+                )}
               </div>
             )}
 
-            {/* Diff content */}
-            <div className="flex-1 overflow-auto p-4 min-h-0 min-w-0">
-              {!selectedFile ? (
-                <div className="flex flex-col items-center justify-center h-full text-center">
-                  <p className="text-copilot-text-muted text-sm">Select a file to preview</p>
-                </div>
-              ) : loading ? (
-                <div className="flex items-center justify-center h-32">
-                  <Spinner size={24} />
-                </div>
-              ) : contentMode === 'diff' && fileDiff?.success && fileDiff?.diff ? (
-                <div className="text-xs leading-relaxed">{renderDiff(fileDiff.diff)}</div>
-              ) : fileContent?.success && fileContent?.content !== undefined ? (
-                isMarkdownView ? (
-                  <div className="prose prose-sm prose-invert max-w-none">
-                    <div className="text-copilot-text">
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm]}
-                        components={{
-                          h1: ({ children }) => (
-                            <h1 className="text-xl font-semibold text-copilot-text mb-3">
-                              {children}
-                            </h1>
-                          ),
-                          h2: ({ children }) => (
-                            <h2 className="text-base font-semibold text-copilot-text mt-6 mb-3 pb-2 border-b border-copilot-border">
-                              {children}
-                            </h2>
-                          ),
-                          h3: ({ children }) => (
-                            <h3 className="text-sm font-semibold text-copilot-text mt-5 mb-2 pb-1 border-b border-copilot-border/70">
-                              {children}
-                            </h3>
-                          ),
-                          ul: ({ children }) => (
-                            <ul className="list-disc list-inside space-y-1 text-copilot-text text-sm">
-                              {children}
-                            </ul>
-                          ),
-                          ol: ({ children }) => (
-                            <ol className="list-decimal list-inside space-y-1 text-copilot-text text-sm">
-                              {children}
-                            </ol>
-                          ),
-                          li: ({ children }) => (
-                            <li className="text-copilot-text-muted">
-                              <span className="text-copilot-text">{children}</span>
-                            </li>
-                          ),
-                          p: ({ children }) => (
-                            <p className="text-copilot-text-muted text-sm leading-6 mb-3">
-                              {children}
-                            </p>
-                          ),
-                          strong: ({ children }) => (
-                            <strong className="text-copilot-text font-semibold">{children}</strong>
-                          ),
-                          a: ({ href, children }) => (
-                            <a
-                              href={href}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-blue-400 hover:text-blue-300 underline"
-                            >
-                              {children}
-                            </a>
-                          ),
-                          blockquote: ({ children }) => (
-                            <blockquote className="border-l-2 border-copilot-border pl-3 my-3 text-copilot-text-muted italic">
-                              {children}
-                            </blockquote>
-                          ),
-                          hr: () => <hr className="border-copilot-border my-4" />,
-                          table: ({ children }) => (
-                            <div className="overflow-x-auto my-3">
-                              <table className="min-w-full border-collapse border border-copilot-border text-sm">
-                                {children}
-                              </table>
-                            </div>
-                          ),
-                          thead: ({ children }) => (
-                            <thead className="bg-copilot-bg/50">{children}</thead>
-                          ),
-                          tbody: ({ children }) => <tbody>{children}</tbody>,
-                          tr: ({ children }) => (
-                            <tr className="border-b border-copilot-border">{children}</tr>
-                          ),
-                          th: ({ children }) => (
-                            <th className="px-3 py-2 text-left font-semibold text-copilot-text border border-copilot-border">
-                              {children}
-                            </th>
-                          ),
-                          td: ({ children }) => (
-                            <td className="px-3 py-2 text-copilot-text border border-copilot-border">
-                              {children}
-                            </td>
-                          ),
-                          code: ({ inline, children }) =>
-                            inline ? (
-                              <code className="bg-copilot-bg px-1 py-0.5 rounded text-copilot-text text-[11px] font-mono">
-                                {children}
-                              </code>
-                            ) : (
-                              <code className="text-[11px] font-mono text-copilot-text">
-                                {children}
-                              </code>
-                            ),
-                          pre: ({ children }) => (
-                            <pre className="bg-copilot-bg/70 border border-copilot-border rounded p-3 overflow-auto">
-                              {children}
-                            </pre>
-                          ),
-                        }}
-                      >
-                        {fileContent.content}
-                      </ReactMarkdown>
+            {/* Save error banner */}
+            {saveError && (
+              <div className="px-4 py-1.5 bg-red-500/10 border-b border-red-500/30 text-red-400 text-xs">
+                {saveError}
+              </div>
+            )}
+
+            {/* Editor / Diff content */}
+            {editMode && selectedFile ? (
+              <div className="flex-1 flex min-h-0 min-w-0">
+                {/* Line numbers gutter */}
+                <div
+                  className="shrink-0 pt-4 pb-4 pl-3 pr-2 text-right select-none bg-copilot-bg border-r border-copilot-border overflow-hidden"
+                  aria-hidden="true"
+                >
+                  {editContent.split('\n').map((_, i) => (
+                    <div
+                      key={i}
+                      className="font-mono text-[11px] leading-relaxed text-copilot-text-muted/50"
+                    >
+                      {i + 1}
                     </div>
-                  </div>
-                ) : (
-                  <pre className="font-mono text-[11px] leading-relaxed text-copilot-text whitespace-pre-wrap break-words">
-                    {fileContent.content}
-                  </pre>
-                )
-              ) : (
-                <div className="flex flex-col items-center justify-center h-32 text-center">
-                  <p className="text-copilot-text-muted text-sm mb-2">
-                    ⚠️ {isGitRepo && !isMarkdownView ? 'Error loading diff' : 'Error loading file'}
-                  </p>
-                  <p className="text-copilot-text-muted text-xs">
-                    {fileDiff?.error || fileContent?.error || 'Unknown error'}
-                  </p>
+                  ))}
                 </div>
-              )}
-            </div>
+                <textarea
+                  value={editContent}
+                  onChange={(e) => setEditContent(e.target.value)}
+                  onKeyDown={(e) => {
+                    // Ctrl/Cmd+S to save
+                    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                      e.preventDefault();
+                      handleSave();
+                    }
+                    // Tab inserts two spaces
+                    if (e.key === 'Tab') {
+                      e.preventDefault();
+                      const target = e.target as HTMLTextAreaElement;
+                      const start = target.selectionStart;
+                      const end = target.selectionEnd;
+                      const newValue =
+                        editContent.substring(0, start) + '  ' + editContent.substring(end);
+                      setEditContent(newValue);
+                      requestAnimationFrame(() => {
+                        target.selectionStart = target.selectionEnd = start + 2;
+                      });
+                    }
+                  }}
+                  className="flex-1 p-4 pl-3 bg-copilot-bg text-copilot-text font-mono text-[11px] leading-relaxed resize-none focus:outline-none overflow-auto"
+                  spellCheck={false}
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                />
+              </div>
+            ) : (
+              <div className="flex-1 overflow-auto p-4 min-h-0 min-w-0">
+                {!selectedFile ? (
+                  <div className="flex flex-col items-center justify-center h-full text-center">
+                    <p className="text-copilot-text-muted text-sm">Select a file to preview</p>
+                  </div>
+                ) : loading ? (
+                  <div className="flex items-center justify-center h-32">
+                    <Spinner size={24} />
+                  </div>
+                ) : contentMode === 'diff' && fileDiff?.success && fileDiff?.diff ? (
+                  <div className="text-xs leading-relaxed">{renderDiff(fileDiff.diff)}</div>
+                ) : fileContent?.success && fileContent?.content !== undefined ? (
+                  isMarkdownView ? (
+                    <div className="prose prose-sm prose-invert max-w-none">
+                      <div className="text-copilot-text">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            h1: ({ children }) => (
+                              <h1 className="text-xl font-semibold text-copilot-text mb-3">
+                                {children}
+                              </h1>
+                            ),
+                            h2: ({ children }) => (
+                              <h2 className="text-base font-semibold text-copilot-text mt-6 mb-3 pb-2 border-b border-copilot-border">
+                                {children}
+                              </h2>
+                            ),
+                            h3: ({ children }) => (
+                              <h3 className="text-sm font-semibold text-copilot-text mt-5 mb-2 pb-1 border-b border-copilot-border/70">
+                                {children}
+                              </h3>
+                            ),
+                            ul: ({ children }) => (
+                              <ul className="list-disc list-inside space-y-1 text-copilot-text text-sm">
+                                {children}
+                              </ul>
+                            ),
+                            ol: ({ children }) => (
+                              <ol className="list-decimal list-inside space-y-1 text-copilot-text text-sm">
+                                {children}
+                              </ol>
+                            ),
+                            li: ({ children }) => (
+                              <li className="text-copilot-text-muted">
+                                <span className="text-copilot-text">{children}</span>
+                              </li>
+                            ),
+                            p: ({ children }) => (
+                              <p className="text-copilot-text-muted text-sm leading-6 mb-3">
+                                {children}
+                              </p>
+                            ),
+                            strong: ({ children }) => (
+                              <strong className="text-copilot-text font-semibold">
+                                {children}
+                              </strong>
+                            ),
+                            a: ({ href, children }) => (
+                              <a
+                                href={href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-400 hover:text-blue-300 underline"
+                              >
+                                {children}
+                              </a>
+                            ),
+                            blockquote: ({ children }) => (
+                              <blockquote className="border-l-2 border-copilot-border pl-3 my-3 text-copilot-text-muted italic">
+                                {children}
+                              </blockquote>
+                            ),
+                            hr: () => <hr className="border-copilot-border my-4" />,
+                            table: ({ children }) => (
+                              <div className="overflow-x-auto my-3">
+                                <table className="min-w-full border-collapse border border-copilot-border text-sm">
+                                  {children}
+                                </table>
+                              </div>
+                            ),
+                            thead: ({ children }) => (
+                              <thead className="bg-copilot-bg/50">{children}</thead>
+                            ),
+                            tbody: ({ children }) => <tbody>{children}</tbody>,
+                            tr: ({ children }) => (
+                              <tr className="border-b border-copilot-border">{children}</tr>
+                            ),
+                            th: ({ children }) => (
+                              <th className="px-3 py-2 text-left font-semibold text-copilot-text border border-copilot-border">
+                                {children}
+                              </th>
+                            ),
+                            td: ({ children }) => (
+                              <td className="px-3 py-2 text-copilot-text border border-copilot-border">
+                                {children}
+                              </td>
+                            ),
+                            code: ({ inline, children }) =>
+                              inline ? (
+                                <code className="bg-copilot-bg px-1 py-0.5 rounded text-copilot-text text-[11px] font-mono">
+                                  {children}
+                                </code>
+                              ) : (
+                                <code className="text-[11px] font-mono text-copilot-text">
+                                  {children}
+                                </code>
+                              ),
+                            pre: ({ children }) => (
+                              <pre className="bg-copilot-bg/70 border border-copilot-border rounded p-3 overflow-auto">
+                                {children}
+                              </pre>
+                            ),
+                          }}
+                        >
+                          {fileContent.content}
+                        </ReactMarkdown>
+                      </div>
+                    </div>
+                  ) : (
+                    <pre className="font-mono text-[11px] leading-relaxed text-copilot-text whitespace-pre-wrap break-words">
+                      {fileContent.content}
+                    </pre>
+                  )
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-32 text-center">
+                    <p className="text-copilot-text-muted text-sm mb-2">
+                      ⚠️{' '}
+                      {isGitRepo && !isMarkdownView ? 'Error loading diff' : 'Error loading file'}
+                    </p>
+                    <p className="text-copilot-text-muted text-xs">
+                      {fileDiff?.error || fileContent?.error || 'Unknown error'}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
