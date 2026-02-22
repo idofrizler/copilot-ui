@@ -1445,10 +1445,10 @@ async function fetchModelsFromAPI(client: CopilotClient): Promise<ModelInfo[]> {
   }
 }
 
-function warmModelsCacheInBackground(): void {
+function warmModelsCacheInBackground(forceRefresh = false): void {
   if (modelsWarmupPromise) return;
 
-  if (getCachedModels().length > 0) {
+  if (!forceRefresh && getCachedModels().length > 0) {
     return;
   }
 
@@ -3242,6 +3242,8 @@ ipcMain.handle('copilot:getModels', async () => {
 
   // If cache is valid, return it immediately
   if (cachedModels.length > 0) {
+    // Also refresh in background so newly released models appear without waiting for cache TTL.
+    warmModelsCacheInBackground(true);
     console.log(`[copilot:getModels] Returning ${cachedModels.length} cached models`);
     return { models: cachedModels, current: currentModel };
   }
