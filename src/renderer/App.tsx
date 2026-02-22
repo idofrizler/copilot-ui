@@ -454,13 +454,14 @@ const App: React.FC = () => {
   // Settings modal state
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [settingsDefaultSection, setSettingsDefaultSection] = useState<
-    'themes' | 'voice' | 'sounds' | 'commands' | 'accessibility' | undefined
+    'themes' | 'voice' | 'sounds' | 'commands' | 'accessibility' | 'environment' | undefined
   >(undefined);
   const [zoomFactor, setZoomFactor] = useState(1);
   const [soundEnabled, setSoundEnabled] = useState(() => {
     const saved = localStorage.getItem('copilot-sound-enabled');
     return saved !== null ? saved === 'true' : true; // Default to enabled
   });
+  const [recursiveAgentSkillsScan, setRecursiveAgentSkillsScan] = useState(false);
 
   // Welcome wizard state
   const [showWelcomeWizard, setShowWelcomeWizard] = useState(false);
@@ -508,6 +509,17 @@ const App: React.FC = () => {
         setZoomFactor(result.zoomFactor);
       }
     });
+  }, []);
+
+  useEffect(() => {
+    window.electronAPI.settings
+      .getEnvironment()
+      .then((result) => {
+        if (result.success) {
+          setRecursiveAgentSkillsScan(result.recursiveAgentSkillsScan === true);
+        }
+      })
+      .catch((error) => console.error('Failed to load environment settings:', error));
   }, []);
 
   // Prevent page refresh shortcuts (causes limbo state)
@@ -1129,52 +1141,35 @@ const App: React.FC = () => {
     loadMcpConfig();
   }, []);
 
-  // Load Agent Skills on startup and when active tab changes
+  // Load skills/agents/instructions together on startup and when active tab changes
   useEffect(() => {
-    const loadSkills = async () => {
+    let cancelled = false;
+    const loadSessionContext = async () => {
       try {
         const cwd = activeTab?.cwd;
-        const result = await window.electronAPI.skills.getAll(cwd);
-        setSkills(result.skills || []);
-        if (result.errors?.length > 0) {
-          console.warn('Some skills had errors:', result.errors);
+        const result = await window.electronAPI.sessionContext.getAll(cwd);
+        if (cancelled) return;
+
+        setSkills(result.skills.skills || []);
+        setAgents(result.agents.agents || []);
+        setInstructions(result.instructions.instructions || []);
+
+        if (result.skills.errors?.length > 0) {
+          console.warn('Some skills had errors:', result.skills.errors);
+        }
+        if (result.instructions.errors?.length > 0) {
+          console.warn('Some instructions had errors:', result.instructions.errors);
         }
       } catch (error) {
-        console.error('Failed to load skills:', error);
-      }
-    };
-    loadSkills();
-  }, [activeTab?.cwd]);
-
-  // Discover agents on startup and when active tab changes
-  useEffect(() => {
-    const loadAgents = async () => {
-      try {
-        const cwd = activeTab?.cwd;
-        const result = await window.electronAPI.agents.getAll(cwd);
-        setAgents(result.agents || []);
-      } catch {
-        // Ignore agent discovery errors to avoid noisy console logs.
-      }
-    };
-    loadAgents();
-  }, [activeTab?.cwd]);
-
-  // Load Copilot Instructions on startup and when active tab changes
-  useEffect(() => {
-    const loadInstructions = async () => {
-      try {
-        const cwd = activeTab?.cwd;
-        const result = await window.electronAPI.instructions.getAll(cwd);
-        setInstructions(result.instructions || []);
-        if (result.errors?.length > 0) {
-          console.warn('Some instructions had errors:', result.errors);
+        if (!cancelled) {
+          console.error('Failed to load session context:', error);
         }
-      } catch (error) {
-        console.error('Failed to load instructions:', error);
       }
     };
-    loadInstructions();
+    loadSessionContext();
+    return () => {
+      cancelled = true;
+    };
   }, [activeTab?.cwd]);
 
   // Fetch worktree data to map worktree paths to original repo paths
@@ -3750,6 +3745,17 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
   const handleSoundEnabledChange = (enabled: boolean) => {
     setSoundEnabled(enabled);
     localStorage.setItem('copilot-sound-enabled', String(enabled));
+  };
+
+  const handleToggleRecursiveAgentSkillsScan = async (enabled: boolean) => {
+    try {
+      const result = await window.electronAPI.settings.setRecursiveAgentSkillsScan(enabled);
+      if (result.success) {
+        setRecursiveAgentSkillsScan(enabled);
+      }
+    } catch (error) {
+      console.error('Failed to update recursive agent skills scan setting:', error);
+    }
   };
 
   const handleCloseTab = async (tabId: string, e?: React.MouseEvent) => {
@@ -7234,6 +7240,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           }}
           onRemoveGlobalSafeCommand={handleRemoveGlobalSafeCommand}
           diagnosticsPaths={diagnosticsPaths}
+          recursiveAgentSkillsScan={recursiveAgentSkillsScan}
+          onToggleRecursiveAgentSkillsScan={handleToggleRecursiveAgentSkillsScan}
           onRevealLogFile={async (pathToReveal) => {
             try {
               await window.electronAPI.file.revealInFolder(pathToReveal);

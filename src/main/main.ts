@@ -198,13 +198,13 @@ async function writeMcpConfig(config: MCPConfigFile): Promise<void> {
 }
 
 // Agent Skills - imported from skills module
-import { getAllSkills } from './skills';
+import { getAllSkills, type SkillsResult } from './skills';
 
 // Agent discovery - imported from agents module
-import { getAllAgents, parseAgentFrontmatter } from './agents';
+import { getAllAgents, parseAgentFrontmatter, type AgentsResult } from './agents';
 
 // Copilot Instructions - imported from instructions module
-import { getAllInstructions, getGitRoot } from './instructions';
+import { getAllInstructions, getGitRoot, type InstructionsResult } from './instructions';
 
 // Set up file logging only - no IPC to renderer (causes errors)
 log.transports.file.level = 'info';
@@ -298,6 +298,7 @@ const store = new Store({
     hasSeenWelcomeWizard: false as boolean, // Whether user has completed the welcome wizard
     wizardVersion: 0 as number, // Version of wizard shown (bump to re-show wizard after updates)
     installationId: '' as string, // Unique ID for this installation (for telemetry user identification)
+    recursiveAgentSkillsScan: false as boolean, // Optional bounded recursive project scan for nested .claude/.agents skills
     // URL allowlist - domains that are auto-approved for web_fetch (similar to --allow-url in Copilot CLI)
     allowedUrls: [
       'github.com',
@@ -676,6 +677,133 @@ interface SessionState {
 const sessions = new Map<string, SessionState>();
 let activeSessionId: string | null = null;
 let sessionCounter = 0;
+const SESSION_CONTEXT_CACHE_TTL_MS = 5 * 60 * 1000;
+const GIT_ROOT_CACHE_TTL_MS = 5 * 60 * 1000;
+
+type CacheEntry<T> = { value: T; expiresAt: number };
+const skillsCache = new Map<string, CacheEntry<SkillsResult>>();
+const agentsCache = new Map<string, CacheEntry<AgentsResult>>();
+const instructionsCache = new Map<string, CacheEntry<InstructionsResult>>();
+const gitRootCache = new Map<string, CacheEntry<string | null>>();
+const skillsInFlight = new Map<string, Promise<SkillsResult>>();
+const agentsInFlight = new Map<string, Promise<AgentsResult>>();
+const instructionsInFlight = new Map<string, Promise<InstructionsResult>>();
+const gitRootInFlight = new Map<string, Promise<string | null>>();
+
+function getCachedValue<T>(cache: Map<string, CacheEntry<T>>, key: string): T | null {
+  const cached = cache.get(key);
+  if (!cached) return null;
+  if (cached.expiresAt <= Date.now()) {
+    cache.delete(key);
+    return null;
+  }
+  return cached.value;
+}
+
+function setCachedValue<T>(
+  cache: Map<string, CacheEntry<T>>,
+  key: string,
+  value: T,
+  ttlMs: number
+): void {
+  cache.set(key, { value, expiresAt: Date.now() + ttlMs });
+}
+
+async function getOrLoadCached<T>(
+  key: string,
+  cache: Map<string, CacheEntry<T>>,
+  inFlight: Map<string, Promise<T>>,
+  ttlMs: number,
+  loader: () => Promise<T>
+): Promise<T> {
+  const cached = getCachedValue(cache, key);
+  if (cached) {
+    return cached;
+  }
+
+  const existing = inFlight.get(key);
+  if (existing) {
+    return existing;
+  }
+
+  const pending = loader()
+    .then((result) => {
+      setCachedValue(cache, key, result, ttlMs);
+      return result;
+    })
+    .finally(() => {
+      inFlight.delete(key);
+    });
+
+  inFlight.set(key, pending);
+  return pending;
+}
+
+function resolveWorkingDir(cwd?: string): string | undefined {
+  if (cwd) {
+    return cwd;
+  }
+  if (sessions.size === 0) {
+    return undefined;
+  }
+  const firstSession = sessions.values().next().value;
+  return firstSession?.cwd;
+}
+
+function isRecursiveAgentSkillsScanEnabled(): boolean {
+  return store.get('recursiveAgentSkillsScan') === true;
+}
+
+async function getCachedGitRoot(workingDir?: string): Promise<string | null> {
+  if (!workingDir) {
+    return null;
+  }
+  return getOrLoadCached(
+    workingDir,
+    gitRootCache,
+    gitRootInFlight,
+    GIT_ROOT_CACHE_TTL_MS,
+    async () => getGitRoot(workingDir)
+  );
+}
+
+async function loadSessionContext(cwd?: string): Promise<{
+  skills: SkillsResult;
+  agents: AgentsResult;
+  instructions: InstructionsResult;
+}> {
+  const workingDir = resolveWorkingDir(cwd);
+  const gitRoot = await getCachedGitRoot(workingDir);
+  const projectRoot = gitRoot || workingDir;
+  const projectCacheKey = projectRoot || '__none__';
+  const cwdCacheKey = workingDir || '__none__';
+
+  const [skills, agents, instructions] = await Promise.all([
+    getOrLoadCached(
+      projectCacheKey,
+      skillsCache,
+      skillsInFlight,
+      SESSION_CONTEXT_CACHE_TTL_MS,
+      () => getAllSkills(projectRoot, { recursiveProjectScan: isRecursiveAgentSkillsScanEnabled() })
+    ),
+    getOrLoadCached(
+      `${projectCacheKey}::${cwdCacheKey}`,
+      agentsCache,
+      agentsInFlight,
+      SESSION_CONTEXT_CACHE_TTL_MS,
+      () => getAllAgents(projectRoot, workingDir)
+    ),
+    getOrLoadCached(
+      `${projectCacheKey}::${cwdCacheKey}`,
+      instructionsCache,
+      instructionsInFlight,
+      SESSION_CONTEXT_CACHE_TTL_MS,
+      () => getAllInstructions(projectRoot, workingDir)
+    ),
+  ]);
+
+  return { skills, agents, instructions };
+}
 
 // Registers event forwarding from a CopilotSession to the renderer via IPC.
 // Used after createSession and resumeSession to wire up the session.
@@ -3970,6 +4098,23 @@ ipcMain.handle('settings:getTargetBranch', async (_event, repoPath: string) => {
   }
 });
 
+ipcMain.handle('settings:getEnvironment', async () => {
+  return {
+    success: true,
+    recursiveAgentSkillsScan: isRecursiveAgentSkillsScanEnabled(),
+  };
+});
+
+ipcMain.handle('settings:setRecursiveAgentSkillsScan', async (_event, enabled: boolean) => {
+  try {
+    store.set('recursiveAgentSkillsScan', enabled === true);
+    return { success: true };
+  } catch (error) {
+    console.error('Set recursive agent skills scan failed:', error);
+    return { success: false, error: String(error) };
+  }
+});
+
 // Settings - set target branch for a repository
 ipcMain.handle(
   'settings:setTargetBranch',
@@ -4960,57 +5105,30 @@ ipcMain.handle('mcp:getConfigPath', async () => {
 
 // Agent Skills handlers
 ipcMain.handle('skills:getAll', async (_event, cwd?: string) => {
-  // Use provided cwd or try to get from active session
-  let workingDir = cwd;
-  if (!workingDir && sessions.size > 0) {
-    // Get cwd from first active session
-    const firstSession = sessions.values().next().value;
-    if (firstSession) {
-      workingDir = firstSession.cwd;
-    }
-  }
-
-  const gitRoot = workingDir ? await getGitRoot(workingDir) : null;
-  const projectRoot = gitRoot || workingDir;
-  const result = await getAllSkills(projectRoot);
-  console.log(`Found ${result.skills.length} skills (${result.errors.length} errors)`);
-  return result;
+  const result = await loadSessionContext(cwd);
+  console.log(
+    `Found ${result.skills.skills.length} skills (${result.skills.errors.length} errors)`
+  );
+  return result.skills;
 });
 
 // Agent discovery handlers
 ipcMain.handle('agents:getAll', async (_event, cwd?: string) => {
-  let workingDir = cwd;
-  if (!workingDir && sessions.size > 0) {
-    const firstSession = sessions.values().next().value;
-    if (firstSession) {
-      workingDir = firstSession.cwd;
-    }
-  }
-
-  const gitRoot = workingDir ? await getGitRoot(workingDir) : null;
-  const projectRoot = gitRoot || workingDir;
-
-  const result = await getAllAgents(projectRoot, workingDir);
-  return result;
+  const result = await loadSessionContext(cwd);
+  return result.agents;
 });
 
 // Copilot Instructions handlers
 ipcMain.handle('instructions:getAll', async (_event, cwd?: string) => {
-  let workingDir = cwd;
-  if (!workingDir && sessions.size > 0) {
-    const firstSession = sessions.values().next().value;
-    if (firstSession) {
-      workingDir = firstSession.cwd;
-    }
-  }
+  const result = await loadSessionContext(cwd);
+  console.log(
+    `Found ${result.instructions.instructions.length} instructions (${result.instructions.errors.length} errors)`
+  );
+  return result.instructions;
+});
 
-  // Detect git root for proper instruction discovery
-  const gitRoot = workingDir ? await getGitRoot(workingDir) : null;
-  const projectRoot = gitRoot || workingDir;
-
-  const result = await getAllInstructions(projectRoot, workingDir);
-  console.log(`Found ${result.instructions.length} instructions (${result.errors.length} errors)`);
-  return result;
+ipcMain.handle('sessionContext:getAll', async (_event, cwd?: string) => {
+  return loadSessionContext(cwd);
 });
 
 // Browser session management handlers
