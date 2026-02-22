@@ -86,6 +86,7 @@ interface MCPServerConfigBase {
   tools: string[];
   type?: string;
   timeout?: number;
+  builtIn?: boolean; // Flag to indicate if this is a built-in plugin
 }
 
 interface MCPLocalServerConfig extends MCPServerConfigBase {
@@ -156,8 +157,52 @@ const getSafeCopilotReadPaths = (): string[] => {
   ];
 };
 
+// Read built-in plugins from config.json
+export async function readBuiltInPlugins(): Promise<Record<string, MCPServerConfig>> {
+  const configPath = join(app.getPath('home'), '.copilot', 'config.json');
+  try {
+    if (!existsSync(configPath)) {
+      return {};
+    }
+    const content = await readFile(configPath, 'utf-8');
+    const config = JSON.parse(content);
+
+    // Look for installed_plugins array
+    if (!config.installed_plugins || !Array.isArray(config.installed_plugins)) {
+      return {};
+    }
+
+    // Convert installed_plugins to MCP server format
+    const builtInServers: Record<string, MCPServerConfig> = {};
+    for (const plugin of config.installed_plugins) {
+      if (!plugin.enabled) continue;
+
+      // Read the plugin's .mcp.json file
+      const mcpJsonPath = join(plugin.cache_path, '.mcp.json');
+      if (existsSync(mcpJsonPath)) {
+        const mcpContent = await readFile(mcpJsonPath, 'utf-8');
+        const mcpConfig = JSON.parse(mcpContent);
+
+        // Extract the first (and typically only) MCP server definition
+        const serverName = Object.keys(mcpConfig.mcpServers || {})[0];
+        if (serverName && mcpConfig.mcpServers[serverName]) {
+          builtInServers[plugin.name] = {
+            ...mcpConfig.mcpServers[serverName],
+            builtIn: true, // Mark as built-in
+          };
+        }
+      }
+    }
+
+    return builtInServers;
+  } catch (error) {
+    console.error('Failed to read built-in plugins:', error);
+    return {};
+  }
+}
+
 // Read MCP config from file
-async function readMcpConfig(): Promise<MCPConfigFile> {
+export async function readMcpConfig(): Promise<MCPConfigFile> {
   const configPath = getMcpConfigPath();
   try {
     if (!existsSync(configPath)) {
@@ -4861,8 +4906,29 @@ ipcMain.handle('copilot:authLogin', async () => {
 // MCP Server Management
 ipcMain.handle('mcp:getConfig', async () => {
   const config = await readMcpConfig();
-  return config;
+  const builtInPlugins = await readBuiltInPlugins();
+
+  // Merge built-in plugins with regular MCP servers
+  return {
+    mcpServers: {
+      ...builtInPlugins,
+      ...config.mcpServers, // User-configured servers take precedence
+    },
+  };
 });
+
+// Helper for testing: get merged MCP config
+export async function getMergedMcpConfig(): Promise<MCPConfigFile> {
+  const config = await readMcpConfig();
+  const builtInPlugins = await readBuiltInPlugins();
+
+  return {
+    mcpServers: {
+      ...builtInPlugins,
+      ...config.mcpServers,
+    },
+  };
+}
 
 ipcMain.handle('mcp:saveConfig', async (_event, config: MCPConfigFile) => {
   await writeMcpConfig(config);

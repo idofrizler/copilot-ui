@@ -4478,6 +4478,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                             !server.type || server.type === 'local' || server.type === 'stdio';
                           const toolCount =
                             server.tools?.[0] === '*' ? 'all' : `${server.tools?.length ?? 0}`;
+                          const isBuiltIn = server.builtIn === true;
                           return (
                             <div key={name} className="flex items-center gap-2 text-xs">
                               {isLocal ? (
@@ -4486,7 +4487,14 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                                 <GlobeIcon size={12} className="text-copilot-accent" />
                               )}
                               <div className="flex-1 min-w-0">
-                                <div className="text-copilot-text truncate">{name}</div>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-copilot-text truncate">{name}</span>
+                                  {isBuiltIn && (
+                                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-copilot-accent/20 text-copilot-accent font-medium">
+                                      BUILT-IN
+                                    </span>
+                                  )}
+                                </div>
                                 <div className="text-[10px] text-copilot-text-muted">
                                   {toolCount} tools
                                 </div>
@@ -6308,6 +6316,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                                   !server.type ||
                                   server.type === 'local' ||
                                   server.type === 'stdio';
+                                const isBuiltIn = server.builtIn === true;
                                 return (
                                   <div
                                     key={name}
@@ -6326,8 +6335,15 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                                         />
                                       )}
                                       <div className="flex-1 min-w-0">
-                                        <div className="text-xs text-copilot-text truncate">
-                                          {name}
+                                        <div className="flex items-center gap-1">
+                                          <span className="text-xs text-copilot-text truncate">
+                                            {name}
+                                          </span>
+                                          {isBuiltIn && (
+                                            <span className="text-[8px] px-1 py-0.5 rounded bg-copilot-accent/20 text-copilot-accent font-medium">
+                                              BUILT-IN
+                                            </span>
+                                          )}
                                         </div>
                                       </div>
                                       <div className="shrink-0 opacity-0 group-hover:opacity-100 flex gap-1">

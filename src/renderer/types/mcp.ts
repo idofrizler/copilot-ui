@@ -3,6 +3,7 @@ export interface MCPServerConfigBase {
   tools: string[];
   type?: string;
   timeout?: number;
+  builtIn?: boolean; // Flag to indicate if this is a built-in plugin
 }
 
 export interface MCPLocalServerConfig extends MCPServerConfigBase {
