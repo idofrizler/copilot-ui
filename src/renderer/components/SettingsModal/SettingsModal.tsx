@@ -19,7 +19,14 @@ import { useTheme } from '../../context/ThemeContext';
 import { trackEvent, TelemetryEvents } from '../../utils/telemetry';
 import { VOICE_KEYWORDS } from '../../hooks/useVoiceSpeech';
 
-type SettingsSection = 'themes' | 'voice' | 'sounds' | 'commands' | 'accessibility' | 'diagnostics';
+type SettingsSection =
+  | 'themes'
+  | 'voice'
+  | 'sounds'
+  | 'commands'
+  | 'accessibility'
+  | 'environment'
+  | 'diagnostics';
 
 export interface SettingsModalProps {
   isOpen: boolean;
@@ -60,6 +67,8 @@ export interface SettingsModalProps {
   diagnosticsPaths?: { logFilePath: string; crashDumpsPath: string } | null;
   onRevealLogFile?: (path: string) => Promise<void>;
   onOpenCrashDumps?: (path: string) => Promise<void>;
+  recursiveAgentSkillsScan?: boolean;
+  onToggleRecursiveAgentSkillsScan?: (enabled: boolean) => Promise<void> | void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -100,6 +109,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   diagnosticsPaths = null,
   onRevealLogFile,
   onOpenCrashDumps,
+  recursiveAgentSkillsScan = false,
+  onToggleRecursiveAgentSkillsScan,
 }) => {
   const [activeSection, setActiveSection] = useState<SettingsSection>('themes');
   const [newCommandValue, setNewCommandValue] = useState('');
@@ -115,6 +126,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const sections: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
     { id: 'themes', label: 'Themes', icon: <PaletteIcon size={16} /> },
     { id: 'accessibility', label: 'Accessibility', icon: <MonitorIcon size={16} /> },
+    { id: 'environment', label: 'Environment', icon: <GlobeIcon size={16} /> },
     { id: 'commands', label: 'Commands', icon: <GlobeIcon size={16} /> },
     { id: 'voice', label: 'Voice', icon: <MicIcon size={16} /> },
     { id: 'sounds', label: 'Sounds', icon: <VolumeIcon size={16} /> },
@@ -614,6 +626,37 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       </div>
     );
   };
+
+  const renderEnvironmentSection = () => (
+    <div>
+      <h4 className="text-[11px] font-semibold uppercase tracking-wider text-copilot-text-muted mb-1">
+        Environment Discovery
+      </h4>
+      <div className="flex items-center justify-between py-2.5">
+        <div>
+          <span className="text-sm text-copilot-text">Recursive agent skills scan</span>
+          <p className="text-xs text-copilot-text-muted">
+            Optional bounded scan for nested .claude/.agents skills (depth 3).
+          </p>
+        </div>
+        <button
+          onClick={() => onToggleRecursiveAgentSkillsScan?.(!recursiveAgentSkillsScan)}
+          className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
+            recursiveAgentSkillsScan ? 'bg-copilot-accent' : 'bg-copilot-border'
+          }`}
+        >
+          <span
+            className="inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform"
+            style={{ transform: recursiveAgentSkillsScan ? 'translateX(18px)' : 'translateX(4px)' }}
+          />
+        </button>
+      </div>
+      <p className="text-xs text-copilot-text-muted mt-2">
+        Default behavior matches Copilot CLI path-based discovery.
+      </p>
+    </div>
+  );
+
   const renderDiagnosticsSection = () => (
     <div>
       <h4 className="text-[11px] font-semibold uppercase tracking-wider text-copilot-text-muted mb-1">
@@ -673,6 +716,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         return renderAccessibilitySection();
       case 'commands':
         return renderCommandsSection();
+      case 'environment':
+        return renderEnvironmentSection();
       case 'voice':
         return renderVoiceSection();
       case 'sounds':
@@ -684,9 +729,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Settings" width="600px" testId="settings-modal">
-      <div className="flex min-h-[400px]">
+      <div className="flex min-h-[400px] flex-1 min-h-0">
         {/* Sidebar */}
-        <div className="w-40 border-r border-copilot-border p-2 shrink-0">
+        <div className="w-40 border-r border-copilot-border p-2 shrink-0 overflow-y-auto">
           {sections.map((section) => (
             <button
               key={section.id}
@@ -704,7 +749,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         {/* Content */}
-        <div className="flex-1 p-4">{renderContent()}</div>
+        <div className="flex-1 p-4 overflow-y-auto min-h-0">{renderContent()}</div>
       </div>
     </Modal>
   );

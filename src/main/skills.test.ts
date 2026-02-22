@@ -205,7 +205,7 @@ describe('skills module', () => {
         return [];
       });
 
-      const result = await getAllSkills('/project');
+      const result = await getAllSkills('/project', { recursiveProjectScan: true });
 
       expect(result.skills.length).toBe(1);
       expect(result.skills[0].name).toBe('test-skill');
@@ -244,7 +244,7 @@ describe('skills module', () => {
         return [];
       });
 
-      const result = await getAllSkills('/project');
+      const result = await getAllSkills('/project', { recursiveProjectScan: true });
 
       expect(result.skills.length).toBe(2);
 
@@ -287,7 +287,7 @@ describe('skills module', () => {
         return [];
       });
 
-      const result = await getAllSkills('/project');
+      const result = await getAllSkills('/project', { recursiveProjectScan: true });
 
       const agentsSkill = result.skills.find((skill) => skill.name === 'agents-skill');
       expect(agentsSkill?.source).toBe('agents');
@@ -327,7 +327,7 @@ describe('skills module', () => {
         return [];
       });
 
-      const result = await getAllSkills('/project');
+      const result = await getAllSkills('/project', { recursiveProjectScan: true });
 
       const nestedSkill = result.skills.find((skill) => skill.name === 'nested-skill');
       expect(nestedSkill?.source).toBe('claude');

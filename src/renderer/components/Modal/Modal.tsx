@@ -92,7 +92,7 @@ export const Modal: React.FC<ModalProps> & {
       data-testid={testId}
     >
       <div
-        className="bg-copilot-surface border border-copilot-border rounded-lg shadow-xl max-w-[90%]"
+        className="bg-copilot-surface border border-copilot-border rounded-lg shadow-xl max-w-[90%] max-h-[90vh] flex flex-col my-4"
         style={{ width, WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         role="dialog"
         aria-modal="true"

@@ -116,6 +116,40 @@ describe('SearchableBranchSelect Component', () => {
 
       expect(mockOnSelect).toHaveBeenCalledWith('develop');
     });
+
+    it('opens upward when there is not enough viewport space below', () => {
+      const originalInnerHeight = window.innerHeight;
+      const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
+
+      try {
+        Object.defineProperty(window, 'innerHeight', { value: 400, configurable: true });
+        HTMLElement.prototype.getBoundingClientRect = vi.fn(() => ({
+          top: 350,
+          bottom: 380,
+          left: 0,
+          right: 0,
+          width: 100,
+          height: 30,
+          x: 0,
+          y: 350,
+          toJSON: () => ({}),
+        }));
+
+        render(
+          <SearchableBranchSelect value={null} branches={mockBranches} onSelect={mockOnSelect} />
+        );
+
+        fireEvent.click(screen.getByRole('button'));
+
+        expect(screen.getByTestId('searchable-branch-select-menu')).toHaveClass('bottom-full');
+      } finally {
+        Object.defineProperty(window, 'innerHeight', {
+          value: originalInnerHeight,
+          configurable: true,
+        });
+        HTMLElement.prototype.getBoundingClientRect = originalGetBoundingClientRect;
+      }
+    });
   });
 
   describe('Empty State', () => {

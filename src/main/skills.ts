@@ -23,6 +23,10 @@ export interface SkillsResult {
   errors: string[];
 }
 
+export interface SkillsScanOptions {
+  recursiveProjectScan?: boolean;
+}
+
 const normalizePath = (value: string): string => value.replace(/\\/g, '/');
 
 const formatLocationLabel = (basePath: string, homePath: string, projectCwd?: string): string => {
@@ -119,7 +123,10 @@ export async function scanSkillsDirectory(
   return { skills, errors };
 }
 
-export async function getAllSkills(projectCwd?: string): Promise<SkillsResult> {
+export async function getAllSkills(
+  projectCwd?: string,
+  options?: SkillsScanOptions
+): Promise<SkillsResult> {
   const allSkills: Skill[] = [];
   const allErrors: string[] = [];
 
@@ -210,41 +217,44 @@ export async function getAllSkills(projectCwd?: string): Promise<SkillsResult> {
       currentDir = parentDir;
     }
 
-    const skipDirs = new Set([
-      '.git',
-      'node_modules',
-      'dist',
-      'build',
-      'out',
-      'release',
-      'coverage',
-      '.copilot-sessions',
-      '.copilot',
-    ]);
-
-    const stack = [projectCwd];
-    while (stack.length > 0) {
-      const current = stack.pop();
-      if (!current) continue;
-      try {
-        const entries = readdirSync(current, { withFileTypes: true });
-        for (const entry of entries) {
-          if (!entry.isDirectory()) continue;
-          if (skipDirs.has(entry.name)) continue;
-          const entryPath = join(current, entry.name);
-          if (entry.name === '.claude') {
-            addSkillDirectory(join(entryPath, 'skills'), 'project', 'claude');
-            addSkillDirectory(join(entryPath, 'commands'), 'project', 'claude');
-            continue;
+    if (options?.recursiveProjectScan) {
+      const skipDirs = new Set([
+        '.git',
+        'node_modules',
+        'dist',
+        'build',
+        'out',
+        'release',
+        'coverage',
+        '.copilot-sessions',
+        '.copilot',
+      ]);
+      const maxScanDepth = 3;
+      const stack: Array<{ path: string; depth: number }> = [{ path: projectCwd, depth: 0 }];
+      while (stack.length > 0) {
+        const current = stack.pop();
+        if (!current) continue;
+        try {
+          const entries = readdirSync(current.path, { withFileTypes: true });
+          for (const entry of entries) {
+            if (!entry.isDirectory() || skipDirs.has(entry.name)) continue;
+            const entryPath = join(current.path, entry.name);
+            if (entry.name === '.claude') {
+              addSkillDirectory(join(entryPath, 'skills'), 'project', 'claude');
+              addSkillDirectory(join(entryPath, 'commands'), 'project', 'claude');
+              continue;
+            }
+            if (entry.name === '.agents') {
+              addSkillDirectory(join(entryPath, 'skills'), 'project', 'agents');
+              continue;
+            }
+            if (current.depth < maxScanDepth) {
+              stack.push({ path: entryPath, depth: current.depth + 1 });
+            }
           }
-          if (entry.name === '.agents') {
-            addSkillDirectory(join(entryPath, 'skills'), 'project', 'agents');
-            continue;
-          }
-          stack.push(entryPath);
+        } catch {
+          // Ignore recursive scan errors
         }
-      } catch {
-        // Ignore recursive scan errors
       }
     }
 

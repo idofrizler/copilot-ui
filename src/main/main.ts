@@ -19,6 +19,7 @@ import {
   copyFileSync,
   statSync,
   unlinkSync,
+  writeFileSync,
 } from 'fs';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
@@ -74,6 +75,7 @@ import {
   getDestructiveExecutables,
   extractFilesToDelete,
 } from './utils/extractExecutables';
+import { mergeSessionCwds, resolveSessionName } from './utils/sessionRestore';
 import * as worktree from './worktree';
 import * as ptyManager from './pty';
 import * as browserManager from './browser';
@@ -196,13 +198,13 @@ async function writeMcpConfig(config: MCPConfigFile): Promise<void> {
 }
 
 // Agent Skills - imported from skills module
-import { getAllSkills } from './skills';
+import { getAllSkills, type SkillsResult } from './skills';
 
 // Agent discovery - imported from agents module
-import { getAllAgents, parseAgentFrontmatter } from './agents';
+import { getAllAgents, parseAgentFrontmatter, type AgentsResult } from './agents';
 
 // Copilot Instructions - imported from instructions module
-import { getAllInstructions, getGitRoot } from './instructions';
+import { getAllInstructions, getGitRoot, type InstructionsResult } from './instructions';
 
 // Set up file logging only - no IPC to renderer (causes errors)
 log.transports.file.level = 'info';
@@ -296,6 +298,7 @@ const store = new Store({
     hasSeenWelcomeWizard: false as boolean, // Whether user has completed the welcome wizard
     wizardVersion: 0 as number, // Version of wizard shown (bump to re-show wizard after updates)
     installationId: '' as string, // Unique ID for this installation (for telemetry user identification)
+    recursiveAgentSkillsScan: false as boolean, // Optional bounded recursive project scan for nested .claude/.agents skills
     // URL allowlist - domains that are auto-approved for web_fetch (similar to --allow-url in Copilot CLI)
     allowedUrls: [
       'github.com',
@@ -674,6 +677,133 @@ interface SessionState {
 const sessions = new Map<string, SessionState>();
 let activeSessionId: string | null = null;
 let sessionCounter = 0;
+const SESSION_CONTEXT_CACHE_TTL_MS = 5 * 60 * 1000;
+const GIT_ROOT_CACHE_TTL_MS = 5 * 60 * 1000;
+
+type CacheEntry<T> = { value: T; expiresAt: number };
+const skillsCache = new Map<string, CacheEntry<SkillsResult>>();
+const agentsCache = new Map<string, CacheEntry<AgentsResult>>();
+const instructionsCache = new Map<string, CacheEntry<InstructionsResult>>();
+const gitRootCache = new Map<string, CacheEntry<string | null>>();
+const skillsInFlight = new Map<string, Promise<SkillsResult>>();
+const agentsInFlight = new Map<string, Promise<AgentsResult>>();
+const instructionsInFlight = new Map<string, Promise<InstructionsResult>>();
+const gitRootInFlight = new Map<string, Promise<string | null>>();
+
+function getCachedValue<T>(cache: Map<string, CacheEntry<T>>, key: string): T | null {
+  const cached = cache.get(key);
+  if (!cached) return null;
+  if (cached.expiresAt <= Date.now()) {
+    cache.delete(key);
+    return null;
+  }
+  return cached.value;
+}
+
+function setCachedValue<T>(
+  cache: Map<string, CacheEntry<T>>,
+  key: string,
+  value: T,
+  ttlMs: number
+): void {
+  cache.set(key, { value, expiresAt: Date.now() + ttlMs });
+}
+
+async function getOrLoadCached<T>(
+  key: string,
+  cache: Map<string, CacheEntry<T>>,
+  inFlight: Map<string, Promise<T>>,
+  ttlMs: number,
+  loader: () => Promise<T>
+): Promise<T> {
+  const cached = getCachedValue(cache, key);
+  if (cached) {
+    return cached;
+  }
+
+  const existing = inFlight.get(key);
+  if (existing) {
+    return existing;
+  }
+
+  const pending = loader()
+    .then((result) => {
+      setCachedValue(cache, key, result, ttlMs);
+      return result;
+    })
+    .finally(() => {
+      inFlight.delete(key);
+    });
+
+  inFlight.set(key, pending);
+  return pending;
+}
+
+function resolveWorkingDir(cwd?: string): string | undefined {
+  if (cwd) {
+    return cwd;
+  }
+  if (sessions.size === 0) {
+    return undefined;
+  }
+  const firstSession = sessions.values().next().value;
+  return firstSession?.cwd;
+}
+
+function isRecursiveAgentSkillsScanEnabled(): boolean {
+  return store.get('recursiveAgentSkillsScan') === true;
+}
+
+async function getCachedGitRoot(workingDir?: string): Promise<string | null> {
+  if (!workingDir) {
+    return null;
+  }
+  return getOrLoadCached(
+    workingDir,
+    gitRootCache,
+    gitRootInFlight,
+    GIT_ROOT_CACHE_TTL_MS,
+    async () => getGitRoot(workingDir)
+  );
+}
+
+async function loadSessionContext(cwd?: string): Promise<{
+  skills: SkillsResult;
+  agents: AgentsResult;
+  instructions: InstructionsResult;
+}> {
+  const workingDir = resolveWorkingDir(cwd);
+  const gitRoot = await getCachedGitRoot(workingDir);
+  const projectRoot = gitRoot || workingDir;
+  const projectCacheKey = projectRoot || '__none__';
+  const cwdCacheKey = workingDir || '__none__';
+
+  const [skills, agents, instructions] = await Promise.all([
+    getOrLoadCached(
+      projectCacheKey,
+      skillsCache,
+      skillsInFlight,
+      SESSION_CONTEXT_CACHE_TTL_MS,
+      () => getAllSkills(projectRoot, { recursiveProjectScan: isRecursiveAgentSkillsScanEnabled() })
+    ),
+    getOrLoadCached(
+      `${projectCacheKey}::${cwdCacheKey}`,
+      agentsCache,
+      agentsInFlight,
+      SESSION_CONTEXT_CACHE_TTL_MS,
+      () => getAllAgents(projectRoot, workingDir)
+    ),
+    getOrLoadCached(
+      `${projectCacheKey}::${cwdCacheKey}`,
+      instructionsCache,
+      instructionsInFlight,
+      SESSION_CONTEXT_CACHE_TTL_MS,
+      () => getAllInstructions(projectRoot, workingDir)
+    ),
+  ]);
+
+  return { skills, agents, instructions };
+}
 
 // Registers event forwarding from a CopilotSession to the renderer via IPC.
 // Used after createSession and resumeSession to wire up the session.
@@ -933,6 +1063,7 @@ function startEarlyClientInit(): void {
 // Start resuming stored sessions early - runs in parallel with window loading
 async function startEarlySessionResumption(): Promise<void> {
   const openSessions = (store.get('openSessions') as StoredSession[]) || [];
+  const sessionNames = (store.get('sessionNames') as Record<string, string>) || {};
   if (openSessions.length === 0) {
     earlyResumptionComplete = true;
     return;
@@ -1110,7 +1241,7 @@ async function startEarlySessionResumption(): Promise<void> {
           sessionId,
           model: sessionModel,
           cwd: sessionCwd,
-          name,
+          name: resolveSessionName({ storedName: name, persistedName: sessionNames[sessionId] }),
           editedFiles: editedFiles || [],
           alwaysAllowed: storedAlwaysAllowed,
           untrackedFiles: untrackedFiles || [],
@@ -1161,6 +1292,7 @@ interface ModelsCache {
   version: number; // Cache version for invalidation
 }
 let modelsCache: ModelsCache | null = null;
+let modelsWarmupPromise: Promise<void> | null = null;
 const MODEL_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours (models don't change frequently)
 const MODEL_CACHE_VERSION = 3; // Increment when model schema or fetch logic changes (bumped to 3 to refresh all caches with latest 17 models)
 
@@ -1311,6 +1443,33 @@ async function fetchModelsFromAPI(client: CopilotClient): Promise<ModelInfo[]> {
     console.error('No cached models available, returning empty list');
     return [];
   }
+}
+
+function warmModelsCacheInBackground(): void {
+  if (modelsWarmupPromise) return;
+
+  if (getCachedModels().length > 0) {
+    return;
+  }
+
+  const client = getDefaultClient();
+  if (!client) {
+    console.warn('[warmModelsCacheInBackground] No Copilot client available yet');
+    return;
+  }
+
+  modelsWarmupPromise = (async () => {
+    try {
+      const models = await fetchModelsFromAPI(client);
+      if (models.length > 0 && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('copilot:modelsVerified', { models });
+      }
+    } catch (error) {
+      console.warn('[warmModelsCacheInBackground] Failed to warm model cache:', error);
+    } finally {
+      modelsWarmupPromise = null;
+    }
+  })();
 }
 
 // Preferred models for quick, simple AI tasks (in order of preference)
@@ -2170,7 +2329,11 @@ async function initCopilot(): Promise<void> {
           sessionId,
           model: sessionModel,
           cwd: sessionCwd,
-          name: storedSession?.name || meta?.summary || undefined,
+          name: resolveSessionName({
+            storedName: storedSession?.name,
+            persistedName: sessionNames[sessionId],
+            summary: meta?.summary,
+          }),
           editedFiles: storedSession?.editedFiles || [],
           alwaysAllowed: storedAlwaysAllowed,
           untrackedFiles: storedSession?.untrackedFiles || [],
@@ -2214,7 +2377,11 @@ async function initCopilot(): Promise<void> {
         sessionId,
         model: sessionModel,
         cwd: sessionCwd,
-        name: storedSession?.name || meta?.summary || undefined,
+        name: resolveSessionName({
+          storedName: storedSession?.name,
+          persistedName: sessionNames[sessionId],
+          summary: meta?.summary,
+        }),
         editedFiles: storedSession?.editedFiles || [],
         alwaysAllowed: storedSession?.alwaysAllowed || [],
         untrackedFiles: storedSession?.untrackedFiles || [],
@@ -2236,7 +2403,8 @@ async function initCopilot(): Promise<void> {
       }
     }
 
-    // Models will be fetched on-demand when user opens model selector (via copilot:getModels IPC)
+    // Warm model cache asynchronously on startup to avoid first-open model selector lag.
+    warmModelsCacheInBackground();
 
     // Start keep-alive timer to prevent session timeouts
     startKeepAlive();
@@ -3080,6 +3248,15 @@ ipcMain.handle('copilot:getModels', async () => {
 
   // No valid cache - fetch fresh from API
   console.log('[copilot:getModels] No cache, fetching from API...');
+  if (modelsWarmupPromise) {
+    await modelsWarmupPromise;
+    const warmedModels = getCachedModels();
+    if (warmedModels.length > 0) {
+      console.log(`[copilot:getModels] Returning ${warmedModels.length} warmed models`);
+      return { models: warmedModels, current: currentModel };
+    }
+  }
+
   const client = getDefaultClient();
   if (!client) {
     console.warn('No Copilot client available for fetching models');
@@ -3560,6 +3737,10 @@ ipcMain.handle('copilot:removeDeniedUrl', async (_event, url: string) => {
 ipcMain.handle('copilot:saveOpenSessions', async (_event, openSessions: StoredSession[]) => {
   store.set('openSessions', openSessions);
 
+  // Persist session cwds for all open sessions so history restoration keeps directory context.
+  const sessionCwds = (store.get('sessionCwds') as Record<string, string>) || {};
+  store.set('sessionCwds', mergeSessionCwds(sessionCwds, openSessions));
+
   // Also persist marks to sessionMarks store (for when sessions go to history)
   const sessionMarks =
     (store.get('sessionMarks') as Record<
@@ -3664,7 +3845,9 @@ ipcMain.handle(
 
       if (data.includeAll) {
         // Get ALL changed files (staged, unstaged, and untracked)
-        const { stdout: status } = await execAsync('git status --porcelain', { cwd: data.cwd });
+        const { stdout: status } = await execAsync('git status --porcelain --untracked-files=all', {
+          cwd: data.cwd,
+        });
         for (const line of status.split('\n')) {
           if (line.trim()) {
             // Status format: XY filename (where XY is 2-char status)
@@ -3912,6 +4095,23 @@ ipcMain.handle('settings:getTargetBranch', async (_event, repoPath: string) => {
   } catch (error) {
     console.error('Get target branch failed:', error);
     return { success: false, targetBranch: null, error: String(error) };
+  }
+});
+
+ipcMain.handle('settings:getEnvironment', async () => {
+  return {
+    success: true,
+    recursiveAgentSkillsScan: isRecursiveAgentSkillsScanEnabled(),
+  };
+});
+
+ipcMain.handle('settings:setRecursiveAgentSkillsScan', async (_event, enabled: boolean) => {
+  try {
+    store.set('recursiveAgentSkillsScan', enabled === true);
+    return { success: true };
+  } catch (error) {
+    console.error('Set recursive agent skills scan failed:', error);
+    return { success: false, error: String(error) };
   }
 });
 
@@ -4905,57 +5105,30 @@ ipcMain.handle('mcp:getConfigPath', async () => {
 
 // Agent Skills handlers
 ipcMain.handle('skills:getAll', async (_event, cwd?: string) => {
-  // Use provided cwd or try to get from active session
-  let workingDir = cwd;
-  if (!workingDir && sessions.size > 0) {
-    // Get cwd from first active session
-    const firstSession = sessions.values().next().value;
-    if (firstSession) {
-      workingDir = firstSession.cwd;
-    }
-  }
-
-  const gitRoot = workingDir ? await getGitRoot(workingDir) : null;
-  const projectRoot = gitRoot || workingDir;
-  const result = await getAllSkills(projectRoot);
-  console.log(`Found ${result.skills.length} skills (${result.errors.length} errors)`);
-  return result;
+  const result = await loadSessionContext(cwd);
+  console.log(
+    `Found ${result.skills.skills.length} skills (${result.skills.errors.length} errors)`
+  );
+  return result.skills;
 });
 
 // Agent discovery handlers
 ipcMain.handle('agents:getAll', async (_event, cwd?: string) => {
-  let workingDir = cwd;
-  if (!workingDir && sessions.size > 0) {
-    const firstSession = sessions.values().next().value;
-    if (firstSession) {
-      workingDir = firstSession.cwd;
-    }
-  }
-
-  const gitRoot = workingDir ? await getGitRoot(workingDir) : null;
-  const projectRoot = gitRoot || workingDir;
-
-  const result = await getAllAgents(projectRoot, workingDir);
-  return result;
+  const result = await loadSessionContext(cwd);
+  return result.agents;
 });
 
 // Copilot Instructions handlers
 ipcMain.handle('instructions:getAll', async (_event, cwd?: string) => {
-  let workingDir = cwd;
-  if (!workingDir && sessions.size > 0) {
-    const firstSession = sessions.values().next().value;
-    if (firstSession) {
-      workingDir = firstSession.cwd;
-    }
-  }
+  const result = await loadSessionContext(cwd);
+  console.log(
+    `Found ${result.instructions.instructions.length} instructions (${result.instructions.errors.length} errors)`
+  );
+  return result.instructions;
+});
 
-  // Detect git root for proper instruction discovery
-  const gitRoot = workingDir ? await getGitRoot(workingDir) : null;
-  const projectRoot = gitRoot || workingDir;
-
-  const result = await getAllInstructions(projectRoot, workingDir);
-  console.log(`Found ${result.instructions.length} instructions (${result.errors.length} errors)`);
-  return result;
+ipcMain.handle('sessionContext:getAll', async (_event, cwd?: string) => {
+  return loadSessionContext(cwd);
 });
 
 // Browser session management handlers
@@ -5560,6 +5733,33 @@ ipcMain.handle('file:openFile', async (_event, filePath: string) => {
     return { success: false, error: String(error) };
   }
 });
+
+// File operations - write/save file content
+ipcMain.handle(
+  'file:writeContent',
+  async (_event, { filePath, content }: { filePath: string; content: string }) => {
+    try {
+      // Validate file path to prevent directory traversal
+      const normalizedPath = path.normalize(filePath);
+      if (normalizedPath.includes('..')) {
+        return { success: false, error: 'Invalid file path: directory traversal not allowed' };
+      }
+
+      // Ensure parent directory exists
+      const dir = path.dirname(normalizedPath);
+      if (!existsSync(dir)) {
+        return { success: false, error: 'Parent directory does not exist' };
+      }
+
+      // Write file content
+      writeFileSync(normalizedPath, content, 'utf-8');
+      return { success: true, filePath: normalizedPath };
+    } catch (error) {
+      console.error('Failed to write file:', error);
+      return { success: false, error: String(error) };
+    }
+  }
+);
 
 // Crash diagnostics
 ipcMain.handle('diagnostics:getPaths', async () => {

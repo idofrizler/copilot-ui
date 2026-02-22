@@ -231,3 +231,28 @@ describe('SettingsModal Diagnostics Section', () => {
     expect(onOpenCrashDumps).toHaveBeenCalledWith('C:\\crash-dumps');
   });
 });
+
+describe('SettingsModal Environment Section', () => {
+  it('renders recursive agent skills scan toggle and triggers callback', () => {
+    const onToggleRecursiveAgentSkillsScan = vi.fn();
+    render(
+      <SettingsModal
+        isOpen={true}
+        onClose={vi.fn()}
+        soundEnabled={true}
+        onSoundEnabledChange={vi.fn()}
+        recursiveAgentSkillsScan={false}
+        onToggleRecursiveAgentSkillsScan={onToggleRecursiveAgentSkillsScan}
+      />
+    );
+
+    fireEvent.click(screen.getByText('Environment'));
+    expect(screen.getByText('Recursive agent skills scan')).toBeInTheDocument();
+
+    const toggle = screen.getByText('Recursive agent skills scan').closest('div')?.parentElement;
+    const button = toggle?.querySelector('button');
+    if (button) fireEvent.click(button);
+
+    expect(onToggleRecursiveAgentSkillsScan).toHaveBeenCalledWith(true);
+  });
+});

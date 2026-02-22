@@ -5,6 +5,21 @@ All notable changes to Cooper will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 1.0.3
+
+This release includes all changes currently on `staging` since `main` (`1.0.2`).
+
+### Added
+
+- **Find in Chat** — Added in-chat search with `Ctrl/Cmd+F`.
+- **Session groups and same-repo spawn** — Added per-repo/folder session grouping and the ability to spawn a new session for the same repository.
+- **File editing** — Added lightweight in-app file editing for final tweaks without turning Cooper into a full IDE.
+
+### Fixed
+
+- **Session persistence and history loading** — Fixed session persistence issues, including loading sessions from history.
+- **Session loading stability/performance** — Fixed latency and crash issues during session loading.
+
 ## 1.0.2
 
 This release includes all changes currently on `staging` since `main` (`1.0.1`), based on commit and diff review.

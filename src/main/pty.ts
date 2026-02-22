@@ -308,15 +308,59 @@ function resolveWindowsTerminalDefaultCommandLine(): string | null {
   return commandLine;
 }
 
+function splitLeadingWindowsExecutable(
+  commandLine: string
+): { shell: string; rest: string } | null {
+  if (!/^[a-zA-Z]:\\/.test(commandLine)) {
+    return null;
+  }
+
+  const executableExtensions = ['.exe', '.com', '.cmd', '.bat', '.ps1'];
+  const lower = commandLine.toLowerCase();
+  let splitIndex = -1;
+
+  for (const extension of executableExtensions) {
+    const index = lower.indexOf(extension);
+    if (index === -1) {
+      continue;
+    }
+    const extensionEnd = index + extension.length;
+    if (extensionEnd === lower.length || /\s/.test(lower[extensionEnd])) {
+      splitIndex = extensionEnd;
+      break;
+    }
+  }
+
+  if (splitIndex === -1) {
+    return null;
+  }
+
+  return {
+    shell: commandLine.slice(0, splitIndex),
+    rest: commandLine.slice(splitIndex).trimStart(),
+  };
+}
+
 function splitCommandLine(commandLine: string): string[] {
+  const trimmed = commandLine.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  const leadingExecutable = splitLeadingWindowsExecutable(trimmed);
+  if (leadingExecutable) {
+    const remainingArgs = splitCommandLine(leadingExecutable.rest);
+    return [leadingExecutable.shell, ...remainingArgs];
+  }
+
   const args: string[] = [];
   let current = '';
   let inQuotes = false;
   let escaped = false;
 
-  for (let i = 0; i < commandLine.length; i++) {
-    const char = commandLine[i];
-    const next = i + 1 < commandLine.length ? commandLine[i + 1] : '';
+  for (let i = 0; i < trimmed.length; i++) {
+    const char = trimmed[i];
+    const next = i + 1 < trimmed.length ? trimmed[i + 1] : '';
 
     if (escaped) {
       current += char;
@@ -555,3 +599,7 @@ export function closeAllPtys(): void {
     closePty(sessionId);
   }
 }
+
+export const __ptyInternals = {
+  splitCommandLine,
+};

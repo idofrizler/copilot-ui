@@ -56,9 +56,9 @@ exports.default = async function sign(context) {
     codesign(lib, { identity, keychain });
   }
 
-  // 2. Sign standalone executables (hardened runtime required for notarization)
+  // 2. Sign standalone executables (hardened runtime + entitlements for V8-based binaries)
   for (const exe of executables) {
-    codesign(exe, { identity, keychain, options: 'runtime' });
+    codesign(exe, { identity, keychain, entitlements, options: 'runtime' });
   }
 
   // 3. Sign framework bundles (timestamp only)
@@ -207,8 +207,17 @@ function getMachOType(filePath) {
 
 function getSigningParams(context) {
   const appPath = context.app || context.path || context.appPath;
-  const entitlements =
-    process.env.CSC_ENTITLEMENTS || context.entitlements || context.entitlementsInherit || null;
+
+  // electron-builder 26+ passes entitlements via optionsForFile(), not directly on context
+  let entitlements = process.env.CSC_ENTITLEMENTS || null;
+  if (!entitlements && typeof context.optionsForFile === 'function') {
+    const fileOpts = context.optionsForFile(appPath);
+    entitlements = fileOpts?.entitlements || null;
+  }
+  if (!entitlements) {
+    entitlements = context.entitlements || context.entitlementsInherit || null;
+  }
+
   const keychain = context.keychain || process.env.CSC_KEYCHAIN || null;
 
   let identity = null;

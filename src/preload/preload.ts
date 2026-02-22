@@ -876,6 +876,14 @@ const electronAPI = {
     ): Promise<{ success: boolean; error?: string }> => {
       return ipcRenderer.invoke('settings:setTargetBranch', { repoPath, targetBranch });
     },
+    getEnvironment: (): Promise<{ success: boolean; recursiveAgentSkillsScan: boolean }> => {
+      return ipcRenderer.invoke('settings:getEnvironment');
+    },
+    setRecursiveAgentSkillsScan: (
+      enabled: boolean
+    ): Promise<{ success: boolean; error?: string }> => {
+      return ipcRenderer.invoke('settings:setRecursiveAgentSkillsScan', enabled);
+    },
   },
   // Theme management
   theme: {
@@ -963,6 +971,17 @@ const electronAPI = {
   instructions: {
     getAll: (cwd?: string): Promise<{ instructions: Instruction[]; errors: string[] }> => {
       return ipcRenderer.invoke('instructions:getAll', cwd);
+    },
+  },
+  sessionContext: {
+    getAll: (
+      cwd?: string
+    ): Promise<{
+      skills: { skills: Skill[]; errors: string[] };
+      agents: { agents: Agent[]; errors: string[] };
+      instructions: { instructions: Instruction[]; errors: string[] };
+    }> => {
+      return ipcRenderer.invoke('sessionContext:getAll', cwd);
     },
   },
   // Browser Automation Management
@@ -1149,6 +1168,12 @@ const electronAPI = {
     },
     openFile: (filePath: string): Promise<{ success: boolean; error?: string }> => {
       return ipcRenderer.invoke('file:openFile', filePath);
+    },
+    writeContent: (
+      filePath: string,
+      content: string
+    ): Promise<{ success: boolean; filePath?: string; error?: string }> => {
+      return ipcRenderer.invoke('file:writeContent', { filePath, content });
     },
   },
   diagnostics: {

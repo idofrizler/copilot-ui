@@ -55,6 +55,7 @@ import {
   VolumeMuteIcon,
   TitleBar,
   EyeIcon,
+  SearchIcon,
   MessageItem,
   ChatInput,
   type ChatInputHandle,
@@ -453,13 +454,14 @@ const App: React.FC = () => {
   // Settings modal state
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [settingsDefaultSection, setSettingsDefaultSection] = useState<
-    'themes' | 'voice' | 'sounds' | 'commands' | 'accessibility' | undefined
+    'themes' | 'voice' | 'sounds' | 'commands' | 'accessibility' | 'environment' | undefined
   >(undefined);
   const [zoomFactor, setZoomFactor] = useState(1);
   const [soundEnabled, setSoundEnabled] = useState(() => {
     const saved = localStorage.getItem('copilot-sound-enabled');
     return saved !== null ? saved === 'true' : true; // Default to enabled
   });
+  const [recursiveAgentSkillsScan, setRecursiveAgentSkillsScan] = useState(false);
 
   // Welcome wizard state
   const [showWelcomeWizard, setShowWelcomeWizard] = useState(false);
@@ -475,6 +477,15 @@ const App: React.FC = () => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef<boolean>(true);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+
+  // Find in chat state
+  const [findInChatVisible, setFindInChatVisible] = useState(false);
+  const [findInChatQuery, setFindInChatQuery] = useState('');
+  const [findInChatMatches, setFindInChatMatches] = useState<
+    { messageId: string; index: number }[]
+  >([]);
+  const [findInChatCurrentMatch, setFindInChatCurrentMatch] = useState(0);
+  const findInChatInputRef = useRef<HTMLInputElement>(null);
 
   // Voice speech hook for STT/TTS
   const voiceSpeech = useVoiceSpeech();
@@ -500,6 +511,17 @@ const App: React.FC = () => {
     });
   }, []);
 
+  useEffect(() => {
+    window.electronAPI.settings
+      .getEnvironment()
+      .then((result) => {
+        if (result.success) {
+          setRecursiveAgentSkillsScan(result.recursiveAgentSkillsScan === true);
+        }
+      })
+      .catch((error) => console.error('Failed to load environment settings:', error));
+  }, []);
+
   // Prevent page refresh shortcuts (causes limbo state)
   // Handles: Ctrl+R (Win/Linux), Cmd+R (Mac), F5 (Win), Ctrl+Shift+R, Cmd+Shift+R
   useEffect(() => {
@@ -514,6 +536,28 @@ const App: React.FC = () => {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, []);
+
+  // Find in chat keyboard shortcut (Ctrl/Cmd+F)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        setFindInChatVisible(true);
+        // Focus input on next tick
+        setTimeout(() => findInChatInputRef.current?.focus(), 0);
+      }
+      // Escape to close search
+      if (e.key === 'Escape' && findInChatVisible) {
+        e.preventDefault();
+        setFindInChatVisible(false);
+        setFindInChatQuery('');
+        setFindInChatMatches([]);
+        setFindInChatCurrentMatch(0);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [findInChatVisible]);
 
   useEffect(() => {
     if (!window.electronAPI?.window?.onZoomChanged) return;
@@ -883,25 +927,24 @@ const App: React.FC = () => {
 
   // Save open sessions with models and cwd whenever tabs change
   useEffect(() => {
-    if (tabs.length > 0) {
-      const openSessions = tabs.map((t) => ({
-        sessionId: t.id,
-        model: t.model,
-        cwd: t.cwd,
-        name: t.name,
-        editedFiles: t.editedFiles,
-        alwaysAllowed: t.alwaysAllowed,
-        markedForReview: t.markedForReview,
-        reviewNote: t.reviewNote,
-        untrackedFiles: t.untrackedFiles,
-        fileViewMode: t.fileViewMode,
-        yoloMode: t.yoloMode,
-        activeAgentName: t.activeAgentName,
-        sourceIssue: t.sourceIssue,
-      }));
-      window.electronAPI.copilot.saveOpenSessions(openSessions);
-    }
-  }, [tabs]);
+    if (!dataLoaded || tabs.length === 0) return;
+    const openSessions = tabs.map((t) => ({
+      sessionId: t.id,
+      model: t.model,
+      cwd: t.cwd,
+      name: t.name,
+      editedFiles: t.editedFiles,
+      alwaysAllowed: t.alwaysAllowed,
+      markedForReview: t.markedForReview,
+      reviewNote: t.reviewNote,
+      untrackedFiles: t.untrackedFiles,
+      fileViewMode: t.fileViewMode,
+      yoloMode: t.yoloMode,
+      activeAgentName: t.activeAgentName,
+      sourceIssue: t.sourceIssue,
+    }));
+    window.electronAPI.copilot.saveOpenSessions(openSessions);
+  }, [tabs, dataLoaded]);
 
   // Save message attachments whenever tabs/messages change
   useEffect(() => {
@@ -1098,52 +1141,35 @@ const App: React.FC = () => {
     loadMcpConfig();
   }, []);
 
-  // Load Agent Skills on startup and when active tab changes
+  // Load skills/agents/instructions together on startup and when active tab changes
   useEffect(() => {
-    const loadSkills = async () => {
+    let cancelled = false;
+    const loadSessionContext = async () => {
       try {
         const cwd = activeTab?.cwd;
-        const result = await window.electronAPI.skills.getAll(cwd);
-        setSkills(result.skills || []);
-        if (result.errors?.length > 0) {
-          console.warn('Some skills had errors:', result.errors);
+        const result = await window.electronAPI.sessionContext.getAll(cwd);
+        if (cancelled) return;
+
+        setSkills(result.skills.skills || []);
+        setAgents(result.agents.agents || []);
+        setInstructions(result.instructions.instructions || []);
+
+        if (result.skills.errors?.length > 0) {
+          console.warn('Some skills had errors:', result.skills.errors);
+        }
+        if (result.instructions.errors?.length > 0) {
+          console.warn('Some instructions had errors:', result.instructions.errors);
         }
       } catch (error) {
-        console.error('Failed to load skills:', error);
-      }
-    };
-    loadSkills();
-  }, [activeTab?.cwd]);
-
-  // Discover agents on startup and when active tab changes
-  useEffect(() => {
-    const loadAgents = async () => {
-      try {
-        const cwd = activeTab?.cwd;
-        const result = await window.electronAPI.agents.getAll(cwd);
-        setAgents(result.agents || []);
-      } catch {
-        // Ignore agent discovery errors to avoid noisy console logs.
-      }
-    };
-    loadAgents();
-  }, [activeTab?.cwd]);
-
-  // Load Copilot Instructions on startup and when active tab changes
-  useEffect(() => {
-    const loadInstructions = async () => {
-      try {
-        const cwd = activeTab?.cwd;
-        const result = await window.electronAPI.instructions.getAll(cwd);
-        setInstructions(result.instructions || []);
-        if (result.errors?.length > 0) {
-          console.warn('Some instructions had errors:', result.errors);
+        if (!cancelled) {
+          console.error('Failed to load session context:', error);
         }
-      } catch (error) {
-        console.error('Failed to load instructions:', error);
       }
     };
-    loadInstructions();
+    loadSessionContext();
+    return () => {
+      cancelled = true;
+    };
   }, [activeTab?.cwd]);
 
   // Fetch worktree data to map worktree paths to original repo paths
@@ -1285,6 +1311,7 @@ const App: React.FC = () => {
           };
           setTabs([newTab]);
           setActiveTabId(result.sessionId);
+          setDataLoaded(true);
         } catch (error) {
           console.error('Failed to create initial session:', error);
           setStatus('error');
@@ -1419,72 +1446,44 @@ const App: React.FC = () => {
       // Only set active tab if none is set yet (don't switch tabs when loading in background)
       setActiveTabId((currentActive) => currentActive || s.sessionId);
 
-      // Only fetch messages if they weren't pre-loaded
-      if (preloadedMessages.length === 0) {
-        // Load messages now that the session is actually resumed and ready
-        Promise.all([
-          window.electronAPI.copilot.getMessages(s.sessionId),
-          window.electronAPI.copilot.loadMessageAttachments(s.sessionId),
-        ])
-          .then(([messages, attachmentsResult]) => {
-            if (messages.length > 0) {
-              const attachmentMap = new Map(
-                attachmentsResult.attachments.map((a) => [a.messageIndex, a])
-              );
-              setTabs((prev) =>
-                prev.map((tab) =>
-                  tab.id === s.sessionId
-                    ? {
-                        ...tab,
-                        messages: messages.map((m, i) => {
-                          const att = attachmentMap.get(i);
-                          return {
-                            id: `hist-${i}`,
-                            ...m,
-                            isStreaming: false,
-                            imageAttachments: att?.imageAttachments,
-                            fileAttachments: att?.fileAttachments,
-                          };
-                        }),
-                        needsTitle: false,
-                      }
-                    : tab
-                )
-              );
-            }
-          })
-          .catch((err) => console.error(`Failed to load history for ${s.sessionId}:`, err));
-      } else {
-        // Still load attachments for pre-loaded messages
-        window.electronAPI.copilot
-          .loadMessageAttachments(s.sessionId)
-          .then((attachmentsResult) => {
-            if (attachmentsResult.attachments.length > 0) {
-              const attachmentMap = new Map(
-                attachmentsResult.attachments.map((a) => [a.messageIndex, a])
-              );
-              setTabs((prev) =>
-                prev.map((tab) =>
-                  tab.id === s.sessionId
-                    ? {
-                        ...tab,
-                        messages: tab.messages.map((m, i) => {
-                          const att = attachmentMap.get(i);
-                          return att
-                            ? {
-                                ...m,
-                                imageAttachments: att.imageAttachments,
-                                fileAttachments: att.fileAttachments,
-                              }
-                            : m;
-                        }),
-                      }
-                    : tab
-                )
-              );
-            }
-          })
-          .catch((err) => console.error(`Failed to load attachments for ${s.sessionId}:`, err));
+      // Always load canonical history after resumption to avoid stale/partial preloaded history.
+      Promise.all([
+        window.electronAPI.copilot.getMessages(s.sessionId),
+        window.electronAPI.copilot.loadMessageAttachments(s.sessionId),
+      ])
+        .then(([messages, attachmentsResult]) => {
+          if (messages.length > 0) {
+            const attachmentMap = new Map(
+              attachmentsResult.attachments.map((a) => [a.messageIndex, a])
+            );
+            setTabs((prev) =>
+              prev.map((tab) =>
+                tab.id === s.sessionId
+                  ? {
+                      ...tab,
+                      messages: messages.map((m, i) => {
+                        const att = attachmentMap.get(i);
+                        return {
+                          id: `hist-${i}`,
+                          ...m,
+                          isStreaming: false,
+                          imageAttachments: att?.imageAttachments,
+                          fileAttachments: att?.fileAttachments,
+                        };
+                      }),
+                      needsTitle: false,
+                    }
+                  : tab
+              )
+            );
+          }
+        })
+        .catch((err) => console.error(`Failed to load history for ${s.sessionId}:`, err));
+    });
+
+    const unsubscribeModelsVerified = window.electronAPI.copilot.onModelsVerified((data) => {
+      if (data.models.length > 0) {
+        setAvailableModels(data.models);
       }
     });
 
@@ -2403,6 +2402,7 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       unsubscribePermission();
       unsubscribeError();
       unsubscribeSessionResumed();
+      unsubscribeModelsVerified();
       unsubscribeUsageInfo();
       unsubscribeCompactionStart();
       unsubscribeCompactionComplete();
@@ -2826,6 +2826,47 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     handleSendMessageRef.current = handleSendMessage;
   }, [handleSendMessage]);
 
+  // Find in chat: Update matches when query or messages change
+  useEffect(() => {
+    if (!findInChatQuery.trim() || !activeTab) {
+      setFindInChatMatches([]);
+      setFindInChatCurrentMatch(0);
+      return;
+    }
+
+    const query = findInChatQuery.toLowerCase();
+    const matches: { messageId: string; index: number }[] = [];
+
+    // Filter messages (same filter as display)
+    const filteredMessages = activeTab.messages
+      .filter((m) => m.role !== 'system')
+      .filter((m) => m.role === 'user' || m.content.trim());
+
+    for (let index = filteredMessages.length - 1; index >= 0; index--) {
+      const msg = filteredMessages[index];
+      if (msg.content.toLowerCase().includes(query)) {
+        matches.push({ messageId: msg.id, index });
+      }
+    }
+
+    setFindInChatMatches(matches);
+    setFindInChatCurrentMatch(matches.length > 0 ? 0 : -1);
+  }, [findInChatQuery, activeTab?.messages, activeTab?.id]);
+
+  // Find in chat: Scroll to current match
+  useEffect(() => {
+    if (findInChatMatches.length === 0 || findInChatCurrentMatch < 0) return;
+
+    const currentMatch = findInChatMatches[findInChatCurrentMatch];
+    if (!currentMatch) return;
+
+    // Find the message element and scroll to it
+    const messageElement = document.getElementById(`message-${currentMatch.messageId}`);
+    if (messageElement) {
+      messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [findInChatCurrentMatch, findInChatMatches]);
+
   // Handle sending terminal output to the agent
   const handleSendTerminalOutput = useCallback(
     (output: string, lineCount: number, lastCommandStart?: number) => {
@@ -2868,6 +2909,26 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     setTerminalAttachment({ output, lineCount });
     setPendingTerminalOutput(null);
     chatInputRef.current?.focus();
+  }, []);
+
+  // Find in chat handlers
+  const handleFindInChatNext = useCallback(() => {
+    if (findInChatMatches.length === 0) return;
+    setFindInChatCurrentMatch((prev) => (prev + 1) % findInChatMatches.length);
+  }, [findInChatMatches.length]);
+
+  const handleFindInChatPrevious = useCallback(() => {
+    if (findInChatMatches.length === 0) return;
+    setFindInChatCurrentMatch(
+      (prev) => (prev - 1 + findInChatMatches.length) % findInChatMatches.length
+    );
+  }, [findInChatMatches.length]);
+
+  const handleCloseFindInChat = useCallback(() => {
+    setFindInChatVisible(false);
+    setFindInChatQuery('');
+    setFindInChatMatches([]);
+    setFindInChatCurrentMatch(0);
   }, []);
 
   // Cancel a specific pending injection by index, or all if index not provided
@@ -3366,6 +3427,42 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     }
   };
 
+  // Create a new session in a specific folder (no folder picker)
+  const handleNewTabInFolder = async (folderPath: string) => {
+    try {
+      setStatus('connecting');
+      const result = await window.electronAPI.copilot.createSession({
+        cwd: folderPath,
+      });
+      const newTab: TabState = {
+        id: result.sessionId,
+        name: generateTabName(),
+        messages: [],
+        model: result.model,
+        cwd: result.cwd,
+        isProcessing: false,
+        activeTools: [],
+        hasUnreadCompletion: false,
+        pendingConfirmations: [],
+        needsTitle: true,
+        alwaysAllowed: [],
+        editedFiles: [],
+        untrackedFiles: [],
+        fileViewMode: 'flat',
+        currentIntent: null,
+        currentIntentTimestamp: null,
+        gitBranchRefresh: 0,
+        activeAgentName: undefined,
+      };
+      setTabs((prev) => [...prev, newTab]);
+      setActiveTabId(result.sessionId);
+      setStatus('connected');
+    } catch (error) {
+      console.error('Failed to create new tab in folder:', error);
+      setStatus('connected');
+    }
+  };
+
   // Handle starting a new worktree session
   const handleNewWorktreeSession = async () => {
     try {
@@ -3648,6 +3745,17 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
   const handleSoundEnabledChange = (enabled: boolean) => {
     setSoundEnabled(enabled);
     localStorage.setItem('copilot-sound-enabled', String(enabled));
+  };
+
+  const handleToggleRecursiveAgentSkillsScan = async (enabled: boolean) => {
+    try {
+      const result = await window.electronAPI.settings.setRecursiveAgentSkillsScan(enabled);
+      if (result.success) {
+        setRecursiveAgentSkillsScan(enabled);
+      }
+    } catch (error) {
+      console.error('Failed to update recursive agent skills scan setting:', error);
+    }
   };
 
   const handleCloseTab = async (tabId: string, e?: React.MouseEvent) => {
@@ -4902,17 +5010,40 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   // Render grouped tabs
                   return folderGroups.map(({ folder, displayName, fullPath, tabs: folderTabs }) => (
                     <div key={folder || 'no-folder'}>
-                      {/* Folder header - only show if there's more than one folder */}
-                      {tabsByFolder.size > 1 && (
-                        <div className="px-3 py-2 border-t border-copilot-border bg-copilot-bg sticky top-0 z-10">
-                          <div
-                            className="text-[10px] text-copilot-text-muted uppercase tracking-wide"
-                            title={fullPath}
-                          >
-                            {displayName}
-                          </div>
+                      {/* Folder header */}
+                      <div className="px-3 py-2 border-t border-copilot-border bg-copilot-bg sticky top-0 z-10 flex items-center justify-between group/folder">
+                        <div
+                          className="text-[10px] text-copilot-text-muted uppercase tracking-wide"
+                          title={fullPath}
+                        >
+                          {displayName}
                         </div>
-                      )}
+                        {folder && !folder.startsWith('worktree:') && (
+                          <div className="flex items-center gap-0.5 opacity-0 group-hover/folder:opacity-100 transition-opacity">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setWorktreeRepoPath(folder);
+                                setShowCreateWorktree(true);
+                              }}
+                              className="p-0.5 text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover rounded"
+                              title={`New worktree in ${displayName}`}
+                            >
+                              <GitBranchIcon size={12} strokeWidth={2} />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleNewTabInFolder(folder);
+                              }}
+                              className="p-0.5 text-copilot-text-muted hover:text-copilot-text hover:bg-copilot-surface-hover rounded"
+                              title={`New session in ${displayName}`}
+                            >
+                              <PlusIcon size={12} strokeWidth={2} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
 
                       {/* Tabs in this folder */}
                       {folderTabs.map((tab) => (
@@ -5207,41 +5338,47 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   }
                 }
 
-                return filteredMessages.map((message, index) => (
-                  <React.Fragment key={message.id}>
-                    <MessageItem
-                      message={message}
-                      index={index}
-                      lastAssistantIndex={lastAssistantIndex}
-                      isVoiceSpeaking={voiceSpeech.isSpeaking}
-                      activeTools={activeTab?.activeTools}
-                      activeSubagents={activeTab?.activeSubagents}
-                      onStopSpeaking={voiceSpeech.stopSpeaking}
-                      onImageClick={handleImageClick}
-                    />
-                    {/* Show timestamp for the last assistant message (only when not processing) */}
-                    {index === lastAssistantIndex &&
-                      message.timestamp &&
-                      !activeTab?.isProcessing && (
-                        <span className="text-[10px] text-copilot-text-muted mt-1 ml-1">
-                          {new Date(message.timestamp).toLocaleTimeString([], {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </span>
-                      )}
-                    {/* Show choice selector for the last assistant message when choices are detected */}
-                    {index === lastAssistantIndex &&
-                      !activeTab?.isProcessing &&
-                      activeTab?.detectedChoices &&
-                      activeTab.detectedChoices.length > 0 && (
-                        <ChoiceSelector
-                          choices={activeTab.detectedChoices}
-                          onSelect={handleChoiceSelect}
-                        />
-                      )}
-                  </React.Fragment>
-                ));
+                return filteredMessages.map((message, index) => {
+                  const currentMatch = findInChatMatches[findInChatCurrentMatch];
+                  const isHighlighted = currentMatch?.messageId === message.id;
+
+                  return (
+                    <React.Fragment key={message.id}>
+                      <MessageItem
+                        message={message}
+                        index={index}
+                        lastAssistantIndex={lastAssistantIndex}
+                        isVoiceSpeaking={voiceSpeech.isSpeaking}
+                        activeTools={activeTab?.activeTools}
+                        activeSubagents={activeTab?.activeSubagents}
+                        onStopSpeaking={voiceSpeech.stopSpeaking}
+                        onImageClick={handleImageClick}
+                        isHighlighted={isHighlighted}
+                      />
+                      {/* Show timestamp for the last assistant message (only when not processing) */}
+                      {index === lastAssistantIndex &&
+                        message.timestamp &&
+                        !activeTab?.isProcessing && (
+                          <span className="text-[10px] text-copilot-text-muted mt-1 ml-1">
+                            {new Date(message.timestamp).toLocaleTimeString([], {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </span>
+                        )}
+                      {/* Show choice selector for the last assistant message when choices are detected */}
+                      {index === lastAssistantIndex &&
+                        !activeTab?.isProcessing &&
+                        activeTab?.detectedChoices &&
+                        activeTab.detectedChoices.length > 0 && (
+                          <ChoiceSelector
+                            choices={activeTab.detectedChoices}
+                            onSelect={handleChoiceSelect}
+                          />
+                        )}
+                    </React.Fragment>
+                  );
+                });
               }, [
                 activeTab?.messages,
                 activeTab?.isProcessing,
@@ -5252,6 +5389,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 voiceSpeech.stopSpeaking,
                 handleImageClick,
                 handleChoiceSelect,
+                findInChatMatches,
+                findInChatCurrentMatch,
               ])}
 
               {/* Thinking indicator when processing but no streaming content yet */}
@@ -5566,6 +5705,61 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                   </div>
                 );
               })()}
+
+            {/* Find in Chat Search Box */}
+            {findInChatVisible && (
+              <div className="shrink-0 px-3 py-2 bg-copilot-surface border-t border-copilot-border">
+                <div className="flex items-center gap-2">
+                  <SearchIcon size={16} className="text-copilot-text-muted shrink-0" />
+                  <input
+                    ref={findInChatInputRef}
+                    type="text"
+                    value={findInChatQuery}
+                    onChange={(e) => setFindInChatQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (e.shiftKey) {
+                          handleFindInChatPrevious();
+                        } else {
+                          handleFindInChatNext();
+                        }
+                      }
+                    }}
+                    placeholder="Find in chat..."
+                    className="flex-1 px-2 py-1 text-sm bg-copilot-bg text-copilot-text border border-copilot-border rounded focus:outline-none focus:ring-1 focus:ring-copilot-accent"
+                  />
+                  {findInChatMatches.length > 0 && (
+                    <span className="text-xs text-copilot-text-muted shrink-0">
+                      {findInChatCurrentMatch + 1} of {findInChatMatches.length}
+                    </span>
+                  )}
+                  <button
+                    onClick={handleFindInChatPrevious}
+                    disabled={findInChatMatches.length === 0}
+                    className="p-1 text-copilot-text-muted hover:text-copilot-text disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="Previous match (Shift+Enter)"
+                  >
+                    <ChevronRightIcon size={16} className="rotate-[-90deg]" />
+                  </button>
+                  <button
+                    onClick={handleFindInChatNext}
+                    disabled={findInChatMatches.length === 0}
+                    className="p-1 text-copilot-text-muted hover:text-copilot-text disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="Next match (Enter)"
+                  >
+                    <ChevronRightIcon size={16} className="rotate-90" />
+                  </button>
+                  <button
+                    onClick={handleCloseFindInChat}
+                    className="p-1 text-copilot-text-muted hover:text-copilot-text"
+                    title="Close (Escape)"
+                  >
+                    <CloseIcon size={16} />
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Input Area */}
             <div className="shrink-0 p-3 bg-copilot-surface border-t border-copilot-border">
@@ -7046,6 +7240,8 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
           }}
           onRemoveGlobalSafeCommand={handleRemoveGlobalSafeCommand}
           diagnosticsPaths={diagnosticsPaths}
+          recursiveAgentSkillsScan={recursiveAgentSkillsScan}
+          onToggleRecursiveAgentSkillsScan={handleToggleRecursiveAgentSkillsScan}
           onRevealLogFile={async (pathToReveal) => {
             try {
               await window.electronAPI.file.revealInFolder(pathToReveal);

@@ -182,7 +182,7 @@ describe('SessionHistory Component', () => {
   });
 
   describe('Time-based Grouping', () => {
-    it('shows folder path as category for sessions with cwd', async () => {
+    it('shows Today category for sessions from today', async () => {
       const todaySessions = [
         createMockSession('today-1', 'Today session', 0, '/Users/dev/my-project'),
       ];
@@ -199,10 +199,10 @@ describe('SessionHistory Component', () => {
         />
       );
 
-      expect(screen.getByText('~/my-project')).toBeInTheDocument();
+      expect(screen.getByText('Today')).toBeInTheDocument();
     });
 
-    it('shows Other category for sessions without cwd', async () => {
+    it('shows Yesterday category for one-day-old sessions', async () => {
       const noCwdSessions = [createMockSession('no-cwd-1', 'Session without cwd', 1)];
       await renderAndSettle(
         <SessionHistory
@@ -217,10 +217,10 @@ describe('SessionHistory Component', () => {
         />
       );
 
-      expect(screen.getByText('Other')).toBeInTheDocument();
+      expect(screen.getByText('Yesterday')).toBeInTheDocument();
     });
 
-    it('groups sessions from same folder together', async () => {
+    it('groups sessions from same timeframe together', async () => {
       const sameFolderSessions = [
         createMockSession('week-1', 'Week session 1', 5, '/Users/dev/project'),
         createMockSession('week-2', 'Week session 2', 3, '/Users/dev/project'),
@@ -238,13 +238,12 @@ describe('SessionHistory Component', () => {
         />
       );
 
-      // Both sessions should be under the same folder category
-      expect(screen.getByText('~/project')).toBeInTheDocument();
+      expect(screen.getByText('Last 7 Days')).toBeInTheDocument();
       expect(screen.getByText('Week session 1')).toBeInTheDocument();
       expect(screen.getByText('Week session 2')).toBeInTheDocument();
     });
 
-    it('sorts folders by most recent session activity', async () => {
+    it('shows Older category for old sessions', async () => {
       const oldSessions = [createMockSession('old-1', 'Old session', 45, '/Users/dev/old-project')];
       await renderAndSettle(
         <SessionHistory
@@ -259,10 +258,10 @@ describe('SessionHistory Component', () => {
         />
       );
 
-      expect(screen.getByText('~/old-project')).toBeInTheDocument();
+      expect(screen.getByText('Older')).toBeInTheDocument();
     });
 
-    it('shows multiple categories when sessions are in different folders', async () => {
+    it('shows multiple time categories for mixed session ages', async () => {
       await renderAndSettle(
         <SessionHistory
           isOpen={true}
@@ -276,14 +275,14 @@ describe('SessionHistory Component', () => {
         />
       );
 
-      // Sessions are now grouped by folder path (shortened with ~)
-      expect(screen.getByText('~/project-a')).toBeInTheDocument();
-      expect(screen.getByText('~/project-b')).toBeInTheDocument();
-      expect(screen.getByText('~/project-c')).toBeInTheDocument();
-      expect(screen.getByText('~/cooper')).toBeInTheDocument();
+      expect(screen.getByText('Today')).toBeInTheDocument();
+      expect(screen.getByText('Yesterday')).toBeInTheDocument();
+      expect(screen.getByText('Last 7 Days')).toBeInTheDocument();
+      expect(screen.getByText('Last 30 Days')).toBeInTheDocument();
+      expect(screen.getByText('Older')).toBeInTheDocument();
     });
 
-    it('orders sessions newest-first within each folder', async () => {
+    it('orders sessions newest-first within each time category', async () => {
       const newerDate = new Date();
       const olderDate = new Date(newerDate.getTime() - 60 * 60 * 1000);
 
@@ -850,6 +849,153 @@ describe('SessionHistory Component', () => {
 
       // Should show count of 2 worktree sessions
       expect(screen.getByText('2')).toBeInTheDocument();
+    });
+  });
+
+  describe('Worktree Session Deduplication', () => {
+    const worktreePath = '/Users/dev/.copilot-sessions/repo--feature-branch';
+    const worktreeListResult = {
+      sessions: [
+        {
+          id: 'repo--feature-branch',
+          repoPath: '/Users/dev/repo',
+          branch: 'feature/branch',
+          worktreePath,
+          status: 'active' as const,
+          lastAccessedAt: new Date().toISOString(),
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    };
+
+    it('enriches previous sessions with worktree data from worktreeMap and prevents standalone duplicate', async () => {
+      // Mock listSessions to return a worktree matching the session's cwd
+      (window.electronAPI.worktree.listSessions as ReturnType<typeof vi.fn>).mockResolvedValue(
+        worktreeListResult
+      );
+
+      // Session has cwd matching worktree but no worktree property
+      const sessions: PreviousSession[] = [
+        createMockSession('session-1', 'Work on feature', 0, worktreePath),
+      ];
+
+      await renderAndSettle(
+        <SessionHistory
+          isOpen={true}
+          onClose={mockOnClose}
+          sessions={sessions}
+          onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
+        />
+      );
+
+      // Wait for worktreeMap to be populated via useEffect
+      await waitFor(() => {
+        // Should show the branch name (enriched from worktreeMap)
+        expect(screen.getByText('feature/branch')).toBeInTheDocument();
+      });
+
+      // Should only appear once — no standalone worktree duplicate
+      const branchElements = screen.getAllByText('feature/branch');
+      expect(branchElements).toHaveLength(1);
+    });
+
+    it('deduplicates previous sessions sharing the same worktree path', async () => {
+      (window.electronAPI.worktree.listSessions as ReturnType<typeof vi.fn>).mockResolvedValue(
+        worktreeListResult
+      );
+
+      const olderDate = new Date();
+      olderDate.setHours(olderDate.getHours() - 2);
+
+      // Two SDK sessions pointing to the same worktree
+      const sessions: PreviousSession[] = [
+        {
+          sessionId: 'session-older',
+          name: 'Older session on branch',
+          modifiedTime: olderDate.toISOString(),
+          cwd: worktreePath,
+        },
+        {
+          sessionId: 'session-newer',
+          name: 'Newer session on branch',
+          modifiedTime: new Date().toISOString(),
+          cwd: worktreePath,
+        },
+      ];
+
+      await renderAndSettle(
+        <SessionHistory
+          isOpen={true}
+          onClose={mockOnClose}
+          sessions={sessions}
+          onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('feature/branch')).toBeInTheDocument();
+      });
+
+      // Only the most recent session should remain
+      expect(screen.getByText('Newer session on branch')).toBeInTheDocument();
+      expect(screen.queryByText('Older session on branch')).not.toBeInTheDocument();
+
+      // Branch should appear exactly once (no standalone duplicate either)
+      expect(screen.getAllByText('feature/branch')).toHaveLength(1);
+    });
+
+    it('does not deduplicate sessions with different worktree paths', async () => {
+      const worktreePath2 = '/Users/dev/.copilot-sessions/repo--other-branch';
+      (window.electronAPI.worktree.listSessions as ReturnType<typeof vi.fn>).mockResolvedValue({
+        sessions: [
+          ...worktreeListResult.sessions,
+          {
+            id: 'repo--other-branch',
+            repoPath: '/Users/dev/repo',
+            branch: 'other/branch',
+            worktreePath: worktreePath2,
+            status: 'active' as const,
+            lastAccessedAt: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      });
+
+      const sessions: PreviousSession[] = [
+        createMockSession('session-1', 'Work on feature', 0, worktreePath),
+        createMockSession('session-2', 'Work on other', 0, worktreePath2),
+      ];
+
+      await renderAndSettle(
+        <SessionHistory
+          isOpen={true}
+          onClose={mockOnClose}
+          sessions={sessions}
+          onResumeSession={mockOnResumeSession}
+          onDeleteSession={mockOnDeleteSession}
+          activeSessions={[]}
+          activeSessionId={null}
+          onSwitchToSession={mockOnSwitchToSession}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('feature/branch')).toBeInTheDocument();
+      });
+
+      // Both sessions should be visible — different worktrees
+      expect(screen.getByText('Work on feature')).toBeInTheDocument();
+      expect(screen.getByText('Work on other')).toBeInTheDocument();
+      expect(screen.getByText('feature/branch')).toBeInTheDocument();
+      expect(screen.getByText('other/branch')).toBeInTheDocument();
     });
   });
 });
