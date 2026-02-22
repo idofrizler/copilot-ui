@@ -2,6 +2,7 @@ import { existsSync, readdirSync } from 'fs';
 import { readFile, stat } from 'fs/promises';
 import { basename, join, normalize } from 'path';
 import { app } from 'electron';
+import { load as parseYaml } from 'js-yaml';
 
 export interface Agent {
   name: string;
@@ -17,10 +18,82 @@ export interface AgentsResult {
   errors: string[];
 }
 
+export interface AgentMcpServer {
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  cwd?: string;
+  url?: string;
+  headers?: Record<string, string>;
+  type?: 'local' | 'stdio' | 'http' | 'sse';
+  tools?: string[];
+  timeout?: number;
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+};
+
+const toStringArray = (value: unknown): string[] | undefined => {
+  if (!Array.isArray(value) || !value.every((entry) => typeof entry === 'string')) {
+    return undefined;
+  }
+  return value;
+};
+
+const toStringMap = (value: unknown): Record<string, string> | undefined => {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const entries = Object.entries(value);
+  if (!entries.every(([, entryValue]) => typeof entryValue === 'string')) {
+    return undefined;
+  }
+  return Object.fromEntries(entries) as Record<string, string>;
+};
+
+const parseMcpServers = (value: unknown): Record<string, AgentMcpServer> | undefined => {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const mcpServers: Record<string, AgentMcpServer> = {};
+  for (const [serverName, serverValue] of Object.entries(value)) {
+    if (!isRecord(serverValue)) {
+      continue;
+    }
+
+    const typeValue = serverValue.type;
+    const type =
+      typeValue === 'local' || typeValue === 'stdio' || typeValue === 'http' || typeValue === 'sse'
+        ? typeValue
+        : undefined;
+
+    const server: AgentMcpServer = {
+      command: typeof serverValue.command === 'string' ? serverValue.command : undefined,
+      args: toStringArray(serverValue.args),
+      env: toStringMap(serverValue.env),
+      cwd: typeof serverValue.cwd === 'string' ? serverValue.cwd : undefined,
+      url: typeof serverValue.url === 'string' ? serverValue.url : undefined,
+      headers: toStringMap(serverValue.headers),
+      type,
+      tools: toStringArray(serverValue.tools),
+      timeout: typeof serverValue.timeout === 'number' ? serverValue.timeout : undefined,
+    };
+
+    if (server.command || server.url) {
+      mcpServers[serverName] = server;
+    }
+  }
+
+  return Object.keys(mcpServers).length > 0 ? mcpServers : undefined;
+};
+
 export function parseAgentFrontmatter(content: string): {
   name?: string;
   description?: string;
   model?: string;
+  mcpServers?: Record<string, AgentMcpServer>;
   hasFrontmatter: boolean;
 } {
   const frontmatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
@@ -28,23 +101,39 @@ export function parseAgentFrontmatter(content: string): {
     return { hasFrontmatter: false };
   }
 
-  const frontmatter = frontmatterMatch[1];
-  const result: { name?: string; description?: string; model?: string; hasFrontmatter: boolean } = {
+  const result: {
+    name?: string;
+    description?: string;
+    model?: string;
+    mcpServers?: Record<string, AgentMcpServer>;
+    hasFrontmatter: boolean;
+  } = {
     hasFrontmatter: true,
   };
 
-  const lines = frontmatter.split('\n');
-  for (const line of lines) {
-    const match = line.match(/^(\w+):\s*(.+)$/);
-    if (match) {
-      const [, key, value] = match;
-      const trimmedValue = value.trim().replace(/^['"](.+)['"]$/, '$1');
-      if (key === 'name') result.name = trimmedValue;
-      if (key === 'description') result.description = trimmedValue;
-      if (key === 'model') result.model = trimmedValue;
-      if (key === 'mode' && !result.model) result.model = trimmedValue;
+  let parsedFrontmatter: Record<string, unknown> = {};
+  try {
+    const parsed = parseYaml(frontmatterMatch[1]);
+    if (isRecord(parsed)) {
+      parsedFrontmatter = parsed;
     }
+  } catch {
+    return result;
   }
+
+  if (typeof parsedFrontmatter.name === 'string') {
+    result.name = parsedFrontmatter.name;
+  }
+  if (typeof parsedFrontmatter.description === 'string') {
+    result.description = parsedFrontmatter.description;
+  }
+  if (typeof parsedFrontmatter.model === 'string') {
+    result.model = parsedFrontmatter.model;
+  } else if (typeof parsedFrontmatter.mode === 'string') {
+    result.model = parsedFrontmatter.mode;
+  }
+
+  result.mcpServers = parseMcpServers(parsedFrontmatter.mcpServers);
 
   return result;
 }
