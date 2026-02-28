@@ -72,6 +72,7 @@ import {
   FileAttachment,
   PendingConfirmation,
   PendingInjection,
+  ScheduledPrompt,
   TabState,
   DraftInput,
   PreviousSession,
@@ -438,6 +439,8 @@ const App: React.FC = () => {
 
   // Track user-attached file paths per session for auto-approval
   const userAttachedPathsRef = useRef<Map<string, Set<string>>>(new Map());
+  const scheduledPromptTimeoutsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
+  const tabsRef = useRef<TabState[]>([]);
 
   // Track last processed idle timestamp per session to prevent duplicate handling
   const lastIdleTimestampRef = useRef<Map<string, number>>(new Map());
@@ -1293,6 +1296,10 @@ const App: React.FC = () => {
   const updateTab = useCallback((tabId: string, updates: Partial<TabState>) => {
     setTabs((prev) => prev.map((tab) => (tab.id === tabId ? { ...tab, ...updates } : tab)));
   }, []);
+
+  useEffect(() => {
+    tabsRef.current = tabs;
+  }, [tabs]);
 
   // Persist lisaConfig to sessionStorage when it changes
   useEffect(() => {
@@ -2515,6 +2522,263 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
     };
   }, []);
 
+  const clearScheduledPromptTimer = useCallback((tabId: string) => {
+    const existingTimer = scheduledPromptTimeoutsRef.current.get(tabId);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+      scheduledPromptTimeoutsRef.current.delete(tabId);
+    }
+  }, []);
+
+  const buildMessageContent = useCallback(
+    (baseText: string, terminal: { output: string; lineCount: number } | null) => {
+      let messageContent = baseText.trim();
+      if (terminal) {
+        const terminalBlock = `\`\`\`bash\n${terminal.output}\n\`\`\``;
+        messageContent = messageContent
+          ? `${messageContent}\n\nTerminal output:\n${terminalBlock}`
+          : `Terminal output:\n${terminalBlock}`;
+      }
+      return messageContent;
+    },
+    []
+  );
+
+  const sendScheduledPromptNow = useCallback(
+    async (tabId: string, scheduledPromptId: string) => {
+      const tab = tabsRef.current.find((t) => t.id === tabId);
+      if (!tab || !tab.scheduledPrompt || tab.scheduledPrompt.id !== scheduledPromptId) return;
+
+      const scheduledPrompt = tab.scheduledPrompt;
+      const sdkAttachments = [
+        ...(scheduledPrompt.imageAttachments || []).map((img) => ({
+          type: 'file' as const,
+          path: img.path,
+          displayName: img.name,
+        })),
+        ...(scheduledPrompt.fileAttachments || []).map((file) => ({
+          type: 'file' as const,
+          path: file.path,
+          displayName: file.name,
+        })),
+      ];
+
+      if (sdkAttachments.length > 0) {
+        const sessionPaths = userAttachedPathsRef.current.get(tabId) || new Set<string>();
+        sdkAttachments.forEach((att) => sessionPaths.add(att.path));
+        userAttachedPathsRef.current.set(tabId, sessionPaths);
+      }
+
+      clearScheduledPromptTimer(tabId);
+
+      if (tab.isProcessing) {
+        setTabs((prev) =>
+          prev.map((currentTab) =>
+            currentTab.id === tabId
+              ? {
+                  ...currentTab,
+                  messages: currentTab.messages.map((msg) =>
+                    msg.id === scheduledPrompt.messageId
+                      ? {
+                          ...msg,
+                          isScheduled: false,
+                          isPendingInjection: true,
+                          scheduledFor: undefined,
+                        }
+                      : msg
+                  ),
+                  scheduledPrompt: undefined,
+                }
+              : currentTab
+          )
+        );
+
+        try {
+          await window.electronAPI.copilot.send(
+            tabId,
+            scheduledPrompt.content,
+            sdkAttachments.length > 0 ? sdkAttachments : undefined,
+            'enqueue'
+          );
+        } catch (error) {
+          console.error('Scheduled enqueue send error:', error);
+        }
+        return;
+      }
+
+      setTabs((prev) =>
+        prev.map((currentTab) =>
+          currentTab.id === tabId
+            ? {
+                ...currentTab,
+                messages: [
+                  ...currentTab.messages.map((msg) =>
+                    msg.id === scheduledPrompt.messageId
+                      ? {
+                          ...msg,
+                          isScheduled: false,
+                          isPendingInjection: false,
+                          scheduledFor: undefined,
+                        }
+                      : msg
+                  ),
+                  {
+                    id: generateId(),
+                    role: 'assistant',
+                    content: '',
+                    isStreaming: true,
+                    timestamp: Date.now(),
+                  },
+                ],
+                isProcessing: true,
+                activeTools: [],
+                detectedChoices: undefined,
+                scheduledPrompt: undefined,
+              }
+            : currentTab
+        )
+      );
+
+      try {
+        await window.electronAPI.copilot.send(
+          tabId,
+          scheduledPrompt.content,
+          sdkAttachments.length > 0 ? sdkAttachments : undefined
+        );
+      } catch (error) {
+        console.error('Scheduled send error:', error);
+        setTabs((prev) =>
+          prev.map((currentTab) =>
+            currentTab.id === tabId ? { ...currentTab, isProcessing: false } : currentTab
+          )
+        );
+      }
+    },
+    [clearScheduledPromptTimer]
+  );
+
+  const handleCancelScheduledPrompt = useCallback(
+    (tabId?: string) => {
+      const targetTabId = tabId || activeTab?.id;
+      if (!targetTabId) return;
+
+      clearScheduledPromptTimer(targetTabId);
+      setTabs((prev) =>
+        prev.map((tab) => {
+          if (tab.id !== targetTabId || !tab.scheduledPrompt) return tab;
+          return {
+            ...tab,
+            scheduledPrompt: undefined,
+            messages: tab.messages.filter((msg) => msg.id !== tab.scheduledPrompt?.messageId),
+          };
+        })
+      );
+    },
+    [activeTab?.id, clearScheduledPromptTimer]
+  );
+
+  const handleScheduleMessage = useCallback(
+    (delayMs: number) => {
+      if (!activeTab) return;
+
+      const inputValue = chatInputRef.current?.getValue() || '';
+      const imageAttachments = chatInputRef.current?.getImageAttachments() || [];
+      const fileAttachments = chatInputRef.current?.getFileAttachments() || [];
+
+      if (
+        !inputValue.trim() &&
+        !terminalAttachment &&
+        imageAttachments.length === 0 &&
+        fileAttachments.length === 0
+      ) {
+        return;
+      }
+
+      const tabId = activeTab.id;
+      const messageId = generateId();
+      const dueAt = Date.now() + delayMs;
+      const content = buildMessageContent(inputValue, terminalAttachment);
+
+      const scheduledPrompt: ScheduledPrompt = {
+        id: generateId(),
+        messageId,
+        content,
+        dueAt,
+        imageAttachments: imageAttachments.length > 0 ? [...imageAttachments] : undefined,
+        fileAttachments: fileAttachments.length > 0 ? [...fileAttachments] : undefined,
+        terminalAttachment: terminalAttachment ? { ...terminalAttachment } : undefined,
+      };
+
+      clearScheduledPromptTimer(tabId);
+
+      setTabs((prev) =>
+        prev.map((tab) => {
+          if (tab.id !== tabId) return tab;
+
+          const messagesWithoutPreviousScheduled =
+            tab.scheduledPrompt?.messageId != null
+              ? tab.messages.filter((msg) => msg.id !== tab.scheduledPrompt?.messageId)
+              : tab.messages;
+
+          const scheduledMessage: Message = {
+            id: messageId,
+            role: 'user',
+            content,
+            imageAttachments: scheduledPrompt.imageAttachments,
+            fileAttachments: scheduledPrompt.fileAttachments,
+            isScheduled: true,
+            isPendingInjection: false,
+            scheduledFor: dueAt,
+          };
+
+          return {
+            ...tab,
+            messages: [...messagesWithoutPreviousScheduled, scheduledMessage],
+            draftInput: undefined,
+            scheduledPrompt,
+          };
+        })
+      );
+
+      chatInputRef.current?.clearAll();
+      setTerminalAttachment(null);
+
+      const timeout = setTimeout(
+        () => {
+          void sendScheduledPromptNow(tabId, scheduledPrompt.id);
+        },
+        Math.max(0, delayMs)
+      );
+      scheduledPromptTimeoutsRef.current.set(tabId, timeout);
+    },
+    [
+      activeTab,
+      buildMessageContent,
+      clearScheduledPromptTimer,
+      sendScheduledPromptNow,
+      terminalAttachment,
+    ]
+  );
+
+  useEffect(() => {
+    const activeIds = new Set(tabs.map((tab) => tab.id));
+    for (const [tabId, timer] of scheduledPromptTimeoutsRef.current.entries()) {
+      if (!activeIds.has(tabId)) {
+        clearTimeout(timer);
+        scheduledPromptTimeoutsRef.current.delete(tabId);
+      }
+    }
+  }, [tabs]);
+
+  useEffect(() => {
+    return () => {
+      for (const timer of scheduledPromptTimeoutsRef.current.values()) {
+        clearTimeout(timer);
+      }
+      scheduledPromptTimeoutsRef.current.clear();
+    };
+  }, []);
+
   const handleSendMessage = useCallback(async () => {
     const inputValue = chatInputRef.current?.getValue() || '';
     const imageAttachments = chatInputRef.current?.getImageAttachments() || [];
@@ -2597,14 +2861,7 @@ Only output ${RALPH_COMPLETION_SIGNAL} when ALL items above are verified complet
       });
     }
 
-    // Build message content with terminal attachment if present
-    let messageContent = inputValue.trim();
-    if (terminalAttachment) {
-      const terminalBlock = `\`\`\`bash\n${terminalAttachment.output}\n\`\`\``;
-      messageContent = messageContent
-        ? `${messageContent}\n\nTerminal output:\n${terminalBlock}`
-        : `Terminal output:\n${terminalBlock}`;
-    }
+    const messageContent = buildMessageContent(inputValue, terminalAttachment);
 
     // 👻 GHOST PROTECTION: Detect if user is starting a new task while Ralph is active
     // If the message doesn't look like a continuation/instruction, cancel the Ralph loop
@@ -2924,6 +3181,7 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
     ralphClearContext,
     lisaEnabled,
     terminalAttachment,
+    buildMessageContent,
   ]);
 
   // Keep ref in sync for voice auto-send
@@ -5975,6 +6233,9 @@ Only when ALL the above are verified complete, output exactly: ${RALPH_COMPLETIO
                 alwaysListening={alwaysListening}
                 voiceAutoSendCountdown={voiceAutoSendCountdown}
                 onSendMessage={handleSendMessage}
+                onScheduleMessage={handleScheduleMessage}
+                scheduledPrompt={activeTab?.scheduledPrompt}
+                onCancelScheduledPrompt={() => handleCancelScheduledPrompt()}
                 onStop={handleStop}
                 onKeyPress={handleKeyPress}
                 onRemoveTerminalAttachment={() => setTerminalAttachment(null)}

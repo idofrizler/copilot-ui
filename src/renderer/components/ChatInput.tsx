@@ -1,4 +1,11 @@
-import React, { useState, useRef, useCallback, forwardRef, useImperativeHandle } from 'react';
+import React, {
+  useState,
+  useRef,
+  useCallback,
+  useEffect,
+  forwardRef,
+  useImperativeHandle,
+} from 'react';
 import {
   FileIcon,
   CloseIcon,
@@ -7,8 +14,9 @@ import {
   StopIcon,
   MicButton,
   TerminalIcon,
+  ClockIcon,
 } from './';
-import { Status, ImageAttachment, FileAttachment } from '../types';
+import { Status, ImageAttachment, FileAttachment, ScheduledPrompt } from '../types';
 
 export interface ChatInputProps {
   status: Status;
@@ -30,6 +38,9 @@ export interface ChatInputProps {
   onAbortDetected: () => void;
   onCancelVoiceAutoSend: () => void;
   onStartVoiceAutoSend: () => void;
+  onScheduleMessage: (delayMs: number) => void;
+  scheduledPrompt: ScheduledPrompt | undefined;
+  onCancelScheduledPrompt: () => void;
   onOpenSettings: () => void;
   children?: React.ReactNode; // For selectors
 }
@@ -70,6 +81,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>((props, ref
     onAbortDetected,
     onCancelVoiceAutoSend,
     onStartVoiceAutoSend,
+    onScheduleMessage,
+    scheduledPrompt,
+    onCancelScheduledPrompt,
     onOpenSettings,
     children,
   } = props;
@@ -80,10 +94,14 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>((props, ref
   const [fileAttachments, setFileAttachments] = useState<FileAttachment[]>([]);
   const [isDraggingImage, setIsDraggingImage] = useState(false);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const [showScheduleMenu, setShowScheduleMenu] = useState(false);
+  const [selectedDelayMs, setSelectedDelayMs] = useState<number | null>(null);
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const scheduleMenuRef = useRef<HTMLDivElement>(null);
 
   // Expose methods to parent via ref
   useImperativeHandle(
@@ -435,6 +453,48 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>((props, ref
     terminalAttachment ||
     imageAttachments.length > 0 ||
     fileAttachments.length > 0;
+  const hasQueuedMessage = !!scheduledPrompt;
+
+  const scheduleOptions = [
+    { label: '5m', delayMs: 5 * 60 * 1000 },
+    { label: '10m', delayMs: 10 * 60 * 1000 },
+    { label: '30m', delayMs: 30 * 60 * 1000 },
+    { label: '1h', delayMs: 60 * 60 * 1000 },
+  ];
+
+  const handleScheduleSelect = useCallback((delayMs: number) => {
+    setSelectedDelayMs(delayMs);
+    setShowScheduleMenu(false);
+  }, []);
+
+  useEffect(() => {
+    if (!showScheduleMenu) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (scheduleMenuRef.current && !scheduleMenuRef.current.contains(event.target as Node)) {
+        setShowScheduleMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showScheduleMenu]);
+
+  useEffect(() => {
+    if (!scheduledPrompt) return;
+    const timer = window.setInterval(() => setCurrentTime(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [scheduledPrompt]);
+
+  const remainingMs = scheduledPrompt ? Math.max(0, scheduledPrompt.dueAt - currentTime) : 0;
+  const remainingMinutes = Math.ceil(remainingMs / 60000);
+  const selectedDelayLabel = selectedDelayMs
+    ? scheduleOptions.find((option) => option.delayMs === selectedDelayMs)?.label
+    : null;
+  const queuedEta = scheduledPrompt
+    ? new Date(scheduledPrompt.dueAt).toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : '';
 
   return (
     <>
@@ -533,7 +593,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>((props, ref
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
-        <div className="flex items-center">
+        <div
+          className={`flex items-center ${hasQueuedMessage ? 'opacity-60 bg-copilot-surface' : ''}`}
+        >
           {/* Hidden file inputs */}
           <input
             ref={imageInputRef}
@@ -551,25 +613,82 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>((props, ref
             className="hidden"
           />
 
-          <textarea
-            ref={inputRef}
-            value={inputValue}
-            onChange={handleInputChange}
-            onKeyDown={onKeyPress}
-            onPaste={handlePaste}
-            placeholder={placeholder}
-            className="flex-1 bg-transparent py-2.5 pl-3 pr-2 text-copilot-text placeholder-copilot-text-muted outline-none text-sm resize-none min-h-[40px] max-h-[200px]"
-            disabled={status !== 'connected'}
-            autoFocus
-            rows={1}
-            style={{ height: 'auto' }}
-            onInput={(e) => {
-              const target = e.target as HTMLTextAreaElement;
-              target.style.height = 'auto';
-              target.style.height = Math.min(target.scrollHeight, 200) + 'px';
-            }}
-          />
+          {hasQueuedMessage ? (
+            <div className="flex-1 px-3 py-2.5 text-sm text-copilot-text-muted flex items-center justify-between gap-2">
+              <span>
+                Queued message ({remainingMinutes}m, ETA {queuedEta})
+              </span>
+              <button
+                onClick={() => {
+                  onCancelScheduledPrompt();
+                  setSelectedDelayMs(null);
+                }}
+                className="text-xs text-copilot-error hover:brightness-110 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <textarea
+              ref={inputRef}
+              value={inputValue}
+              onChange={handleInputChange}
+              onKeyDown={onKeyPress}
+              onPaste={handlePaste}
+              placeholder={placeholder}
+              className="flex-1 bg-transparent py-2.5 pl-3 pr-2 text-copilot-text placeholder-copilot-text-muted outline-none text-sm resize-none min-h-[40px] max-h-[200px]"
+              disabled={status !== 'connected'}
+              autoFocus
+              rows={1}
+              style={{ height: 'auto' }}
+              onInput={(e) => {
+                const target = e.target as HTMLTextAreaElement;
+                target.style.height = 'auto';
+                target.style.height = Math.min(target.scrollHeight, 200) + 'px';
+              }}
+            />
+          )}
           {/* Audio Input (Mic) Button */}
+          {!isProcessing && (
+            <div className="relative shrink-0" ref={scheduleMenuRef}>
+              <button
+                onClick={() => {
+                  if (selectedDelayMs) {
+                    setSelectedDelayMs(null);
+                    setShowScheduleMenu(false);
+                    return;
+                  }
+                  setShowScheduleMenu((prev) => !prev);
+                }}
+                disabled={status !== 'connected' || hasQueuedMessage}
+                className={`shrink-0 p-1.5 transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
+                  scheduledPrompt || selectedDelayMs
+                    ? 'text-copilot-warning'
+                    : 'text-copilot-text-muted hover:text-copilot-text'
+                }`}
+                title={
+                  selectedDelayLabel
+                    ? `Delay: ${selectedDelayLabel} (click to clear)`
+                    : 'Schedule message'
+                }
+              >
+                <ClockIcon size={18} />
+              </button>
+              {showScheduleMenu && (
+                <div className="absolute bottom-full right-0 mb-1 w-36 bg-copilot-surface border border-copilot-border rounded-lg shadow-lg z-50 py-1">
+                  {scheduleOptions.map((option) => (
+                    <button
+                      key={option.label}
+                      onClick={() => handleScheduleSelect(option.delayMs)}
+                      className="w-full text-left px-3 py-1.5 text-xs text-copilot-text hover:bg-copilot-surface-hover transition-colors"
+                    >
+                      Send in {option.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {!isProcessing && (
             <MicButton
               onTranscript={handleTranscript}
@@ -579,17 +698,19 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>((props, ref
               onAlwaysListeningError={onAlwaysListeningError}
               onAbortDetected={onAbortDetected}
               onOpenSettings={onOpenSettings}
+              disabled={hasQueuedMessage}
             />
           )}
           {/* File Attach Button */}
           {!isProcessing && (
             <button
               onClick={() => fileInputRef.current?.click()}
+              disabled={hasQueuedMessage}
               className={`shrink-0 p-1.5 transition-colors ${
                 fileAttachments.length > 0
                   ? 'text-copilot-accent'
                   : 'text-copilot-text-muted hover:text-copilot-text'
-              }`}
+              } disabled:opacity-30 disabled:cursor-not-allowed`}
               title="Attach file (or drag & drop, or paste)"
             >
               <PaperclipIcon size={18} />
@@ -599,11 +720,12 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>((props, ref
           {!isProcessing && (
             <button
               onClick={() => imageInputRef.current?.click()}
+              disabled={hasQueuedMessage}
               className={`shrink-0 p-1.5 transition-colors ${
                 imageAttachments.length > 0
                   ? 'text-copilot-accent'
                   : 'text-copilot-text-muted hover:text-copilot-text'
-              }`}
+              } disabled:opacity-30 disabled:cursor-not-allowed`}
               title="Attach image (or drag & drop, or paste)"
             >
               <ImageIcon size={18} />
@@ -637,14 +759,25 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>((props, ref
               <button
                 onClick={() => {
                   onCancelVoiceAutoSend();
-                  onSendMessage();
+                  if (selectedDelayMs) {
+                    onScheduleMessage(selectedDelayMs);
+                    setSelectedDelayMs(null);
+                  } else {
+                    onSendMessage();
+                  }
                 }}
-                disabled={!hasContent || status !== 'connected'}
+                disabled={!hasContent || status !== 'connected' || hasQueuedMessage}
                 className={`shrink-0 px-4 py-2.5 hover:brightness-110 disabled:opacity-30 disabled:cursor-not-allowed text-xs font-medium transition-colors ${
                   voiceAutoSendCountdown !== null ? 'text-copilot-success' : 'text-copilot-accent'
                 }`}
               >
-                {lisaEnabled ? 'Start Lisa Loop' : ralphEnabled ? 'Start Loop' : 'Send'}
+                {selectedDelayMs
+                  ? `Queue (${selectedDelayLabel})`
+                  : lisaEnabled
+                    ? 'Start Lisa Loop'
+                    : ralphEnabled
+                      ? 'Start Loop'
+                      : 'Send'}
               </button>
               {/* Auto-send countdown tooltip */}
               {voiceAutoSendCountdown !== null && (

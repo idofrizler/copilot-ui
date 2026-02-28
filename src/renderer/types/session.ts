@@ -6,6 +6,8 @@ export interface Message {
   content: string;
   isStreaming?: boolean;
   isPendingInjection?: boolean; // True for injected messages until agent acknowledges them
+  isScheduled?: boolean; // True for delayed/scheduled messages that have not been sent yet
+  scheduledFor?: number; // Unix timestamp in milliseconds when a scheduled message is due
   toolName?: string;
   toolCallId?: string;
   timestamp?: number; // Unix timestamp in milliseconds for when the message was finalized
@@ -192,6 +194,17 @@ export interface DraftInput {
   terminalAttachment: { output: string; lineCount: number } | null;
 }
 
+// Scheduled prompt captured from composer and sent later in the same session
+export interface ScheduledPrompt {
+  id: string;
+  messageId: string; // ID of the queued user message already shown in conversation
+  content: string;
+  dueAt: number; // Unix timestamp in milliseconds
+  imageAttachments?: ImageAttachment[];
+  fileAttachments?: FileAttachment[];
+  terminalAttachment?: { output: string; lineCount: number };
+}
+
 // Source issue information (when session was created from a GitHub issue)
 export interface SourceIssue {
   url: string; // Full GitHub issue URL
@@ -229,6 +242,7 @@ export interface TabState {
   compactionStatus?: CompactionStatus; // Status of context compaction
   detectedChoices?: DetectedChoice[]; // Choices detected in last assistant message
   draftInput?: DraftInput; // Per-session textarea draft state
+  scheduledPrompt?: ScheduledPrompt; // Delayed prompt queued for this session
   markedForReview?: boolean; // Whether session is marked for follow-up review
   reviewNote?: string; // Optional user note displayed at bottom of conversation
   yoloMode?: boolean; // Auto-approve all permission requests without prompting

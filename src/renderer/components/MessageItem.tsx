@@ -33,6 +33,14 @@ export const MessageItem = memo<MessageItemProps>(
     onImageClick,
     isHighlighted = false,
   }) => {
+    const isQueuedMessage = message.isPendingInjection || message.isScheduled;
+    const scheduledAt = message.scheduledFor
+      ? new Date(message.scheduledFor).toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+      : null;
+
     return (
       <div
         id={`message-${message.id}`}
@@ -41,7 +49,7 @@ export const MessageItem = memo<MessageItemProps>(
         <div
           className={`max-w-[85%] rounded-lg px-4 py-2.5 overflow-hidden relative transition-all ${
             message.role === 'user'
-              ? message.isPendingInjection
+              ? isQueuedMessage
                 ? 'bg-copilot-warning text-white border border-dashed border-copilot-warning/50'
                 : 'bg-copilot-success text-copilot-text-inverse'
               : 'bg-copilot-surface text-copilot-text'
@@ -59,10 +67,14 @@ export const MessageItem = memo<MessageItemProps>(
             </button>
           )}
           {/* Pending injection indicator */}
-          {message.isPendingInjection && (
+          {isQueuedMessage && (
             <div className="flex items-center gap-1.5 text-[10px] opacity-80 mb-1.5">
               <ClockIcon size={10} />
-              <span>Pending — will be read by agent</span>
+              <span>
+                {message.isScheduled
+                  ? `Scheduled — sends at ${scheduledAt || 'soon'}`
+                  : 'Pending — will be read by agent'}
+              </span>
             </div>
           )}
           <div className="text-sm break-words overflow-hidden">
@@ -158,6 +170,8 @@ export const MessageItem = memo<MessageItemProps>(
       prevProps.message.content === nextProps.message.content &&
       prevProps.message.isStreaming === nextProps.message.isStreaming &&
       prevProps.message.isPendingInjection === nextProps.message.isPendingInjection &&
+      prevProps.message.isScheduled === nextProps.message.isScheduled &&
+      prevProps.message.scheduledFor === nextProps.message.scheduledFor &&
       prevProps.index === nextProps.index &&
       prevProps.lastAssistantIndex === nextProps.lastAssistantIndex &&
       prevProps.isVoiceSpeaking === nextProps.isVoiceSpeaking &&
