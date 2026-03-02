@@ -3393,7 +3393,9 @@ ipcMain.handle(
 ipcMain.handle('copilot:getSessionAgents', async (_event, sessionId: string) => {
   const sessionState = sessions.get(sessionId);
   if (!sessionState) {
-    throw new Error(`Session not found: ${sessionId}`);
+    // Session still resuming — return empty list; renderer will re-query after sessionResumed
+    log.debug(`[${sessionId}] getSessionAgents called before session resumed, returning []`);
+    return [];
   }
   try {
     const { agents } = await sessionState.session.rpc.agent.list();
@@ -3413,7 +3415,9 @@ ipcMain.handle('copilot:getSessionAgents', async (_event, sessionId: string) => 
 ipcMain.handle('copilot:getActiveAgent', async (_event, sessionId: string) => {
   const sessionState = sessions.get(sessionId);
   if (!sessionState) {
-    throw new Error(`Session not found: ${sessionId}`);
+    // Session still resuming — return null; renderer will re-query after sessionResumed
+    log.debug(`[${sessionId}] getActiveAgent called before session resumed, returning null`);
+    return null;
   }
   try {
     const { agent } = await sessionState.session.rpc.agent.getCurrent();
