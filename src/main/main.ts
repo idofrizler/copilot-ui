@@ -3348,43 +3348,90 @@ ipcMain.handle(
       throw new Error(`Session not found: ${data.sessionId}`);
     }
 
-    const { cwd, model } = sessionState;
-    log.info(
-      `[${data.sessionId}] [AgentSelection] set requested=${data.agentName ?? 'default'} hasMessages=${data.hasMessages}`
-    );
-    if (data.agentName) {
-      await sessionState.session.rpc.agent.select({ name: data.agentName });
-    } else {
-      await sessionState.session.rpc.agent.deselect();
-    }
-    const { agent } = await sessionState.session.rpc.agent.getCurrent();
-    log.info(`[${data.sessionId}] [AgentSelection] set result active=${agent?.name ?? 'default'}`);
-    if (data.agentName && agent?.name !== data.agentName) {
-      throw new Error(
-        `Requested agent '${data.agentName}' was not applied. Current agent is '${agent?.name ?? 'default'}'.`
+    const setAgent = async (): Promise<{
+      sessionId: string;
+      model: string;
+      cwd: string;
+      activeAgent: unknown;
+    }> => {
+      const { cwd, model } = sessionState;
+      log.info(
+        `[${data.sessionId}] [AgentSelection] set requested=${data.agentName ?? 'default'} hasMessages=${data.hasMessages}`
       );
+      if (data.agentName) {
+        await sessionState.session.rpc.agent.select({ name: data.agentName });
+      } else {
+        await sessionState.session.rpc.agent.deselect();
+      }
+      const { agent } = await sessionState.session.rpc.agent.getCurrent();
+      log.info(
+        `[${data.sessionId}] [AgentSelection] set result active=${agent?.name ?? 'default'}`
+      );
+      if (data.agentName && agent?.name !== data.agentName) {
+        throw new Error(
+          `Requested agent '${data.agentName}' was not applied. Current agent is '${agent?.name ?? 'default'}'.`
+        );
+      }
+      sessionState.activeAgentName = agent?.name ?? null;
+      return { sessionId: data.sessionId, model, cwd, activeAgent: agent ?? null };
+    };
+
+    try {
+      return await setAgent();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes('Session not found')) {
+        log.warn(`[${data.sessionId}] Session disconnected during setActiveAgent, resuming...`);
+        await resumeDisconnectedSession(data.sessionId, sessionState);
+        return await setAgent();
+      }
+      throw error;
     }
-    sessionState.activeAgentName = agent?.name ?? null;
-    return { sessionId: data.sessionId, model, cwd, activeAgent: agent ?? null };
   }
 );
 
 ipcMain.handle('copilot:getSessionAgents', async (_event, sessionId: string) => {
   const sessionState = sessions.get(sessionId);
   if (!sessionState) {
-    throw new Error(`Session not found: ${sessionId}`);
+    // Session still resuming — return empty list; renderer will re-query after sessionResumed
+    log.debug(`[${sessionId}] getSessionAgents called before session resumed, returning []`);
+    return [];
   }
-  const { agents } = await sessionState.session.rpc.agent.list();
-  return agents;
+  try {
+    const { agents } = await sessionState.session.rpc.agent.list();
+    return agents;
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (errorMessage.includes('Session not found')) {
+      log.warn(`[${sessionId}] Session disconnected during getSessionAgents, resuming...`);
+      await resumeDisconnectedSession(sessionId, sessionState);
+      const { agents } = await sessionState.session.rpc.agent.list();
+      return agents;
+    }
+    throw error;
+  }
 });
 
 ipcMain.handle('copilot:getActiveAgent', async (_event, sessionId: string) => {
   const sessionState = sessions.get(sessionId);
   if (!sessionState) {
-    throw new Error(`Session not found: ${sessionId}`);
+    // Session still resuming — return null; renderer will re-query after sessionResumed
+    log.debug(`[${sessionId}] getActiveAgent called before session resumed, returning null`);
+    return null;
   }
-  const { agent } = await sessionState.session.rpc.agent.getCurrent();
-  return agent ?? null;
+  try {
+    const { agent } = await sessionState.session.rpc.agent.getCurrent();
+    return agent ?? null;
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (errorMessage.includes('Session not found')) {
+      log.warn(`[${sessionId}] Session disconnected during getActiveAgent, resuming...`);
+      await resumeDisconnectedSession(sessionId, sessionState);
+      const { agent } = await sessionState.session.rpc.agent.getCurrent();
+      return agent ?? null;
+    }
+    throw error;
+  }
 });
 
 ipcMain.handle('copilot:compactSession', async (_event, sessionId: string) => {
@@ -3392,8 +3439,19 @@ ipcMain.handle('copilot:compactSession', async (_event, sessionId: string) => {
   if (!sessionState) {
     throw new Error(`Session not found: ${sessionId}`);
   }
-  await sessionState.session.rpc.compaction.compact();
-  return { success: true };
+  try {
+    await sessionState.session.rpc.compaction.compact();
+    return { success: true };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (errorMessage.includes('Session not found')) {
+      log.warn(`[${sessionId}] Session disconnected during compactSession, resuming...`);
+      await resumeDisconnectedSession(sessionId, sessionState);
+      await sessionState.session.rpc.compaction.compact();
+      return { success: true };
+    }
+    throw error;
+  }
 });
 
 ipcMain.handle('copilot:getModels', async () => {
