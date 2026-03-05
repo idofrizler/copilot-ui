@@ -83,6 +83,25 @@ describe('ChatInput scheduled prompt behavior', () => {
     expect(onScheduleMessage).toHaveBeenCalledWith(600000);
   });
 
+  it('queues selected delay on Enter instead of immediate send', async () => {
+    const user = userEvent.setup();
+    const onScheduleMessage = vi.fn();
+    const onSendMessage = vi.fn();
+    const props = createProps({ onScheduleMessage, onSendMessage });
+    render(<ChatInput {...props} />);
+
+    const textbox = screen.getByRole('textbox');
+    await user.type(textbox, 'Queue this');
+    await user.click(screen.getByTitle('Schedule message'));
+    await user.click(screen.getByRole('button', { name: 'Send in 10m' }));
+    await user.click(textbox);
+    await user.keyboard('{Enter}');
+
+    expect(onScheduleMessage).toHaveBeenCalledTimes(1);
+    expect(onScheduleMessage).toHaveBeenCalledWith(600000);
+    expect(onSendMessage).not.toHaveBeenCalled();
+  });
+
   it('clears selected delay when clicking active clock button', async () => {
     const user = userEvent.setup();
     const props = createProps();

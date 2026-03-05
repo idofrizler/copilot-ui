@@ -467,6 +467,20 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>((props, ref
     setShowScheduleMenu(false);
   }, []);
 
+  const handleTextareaKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter' && !e.shiftKey && selectedDelayMs) {
+        e.preventDefault();
+        onCancelVoiceAutoSend();
+        onScheduleMessage(selectedDelayMs);
+        setSelectedDelayMs(null);
+        return;
+      }
+      onKeyPress(e);
+    },
+    [onCancelVoiceAutoSend, onKeyPress, onScheduleMessage, selectedDelayMs]
+  );
+
   useEffect(() => {
     if (!showScheduleMenu) return;
     const handleClickOutside = (event: MouseEvent) => {
@@ -633,7 +647,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>((props, ref
               ref={inputRef}
               value={inputValue}
               onChange={handleInputChange}
-              onKeyDown={onKeyPress}
+              onKeyDown={handleTextareaKeyDown}
               onPaste={handlePaste}
               placeholder={placeholder}
               className="flex-1 bg-transparent py-2.5 pl-3 pr-2 text-copilot-text placeholder-copilot-text-muted outline-none text-sm resize-none min-h-[40px] max-h-[200px]"

@@ -4699,25 +4699,33 @@ ipcMain.handle(
       // For worktrees, we need to run merge commands from the main repo
       // because main/master is checked out there
       if (isWorktree) {
-        // Check if main repo has uncommitted changes or unresolved conflicts
+        // Check if main repo has tracked uncommitted changes or unresolved conflicts.
+        // Untracked files are allowed so local scratch files don't block merges.
         const { stdout: mainRepoStatus } = await execAsync('git status --porcelain', {
           cwd: mainRepoPath,
         });
         if (mainRepoStatus.trim()) {
-          const hasConflicts =
-            mainRepoStatus.includes('UU') ||
-            mainRepoStatus.includes('AA') ||
-            mainRepoStatus.includes('DD');
+          const statusLines = mainRepoStatus
+            .trim()
+            .split('\n')
+            .map((line) => line.trimStart());
+          const statusCodes = statusLines.map((line) => line.slice(0, 2));
+          const hasConflicts = statusCodes.some((code) =>
+            ['UU', 'AA', 'DD', 'AU', 'UA', 'DU', 'UD'].includes(code)
+          );
+          const hasTrackedChanges = statusCodes.some((code) => code !== '??');
           if (hasConflicts) {
             return {
               success: false,
               error: `Main repository has unresolved merge conflicts. Please resolve conflicts in ${mainRepoPath} first.`,
             };
           }
-          return {
-            success: false,
-            error: `Main repository has uncommitted changes. Please commit or stash changes in ${mainRepoPath} first.`,
-          };
+          if (hasTrackedChanges) {
+            return {
+              success: false,
+              error: `Main repository has uncommitted changes. Please commit or stash changes in ${mainRepoPath} first.`,
+            };
+          }
         }
 
         // Check what branch is currently checked out in main repo
