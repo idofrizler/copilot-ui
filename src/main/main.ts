@@ -29,28 +29,6 @@ import { createServer, Server } from 'http';
 const execAsync = promisify(exec);
 const COOPER_CLIENT_NAME = 'cooper';
 
-// Get augmented PATH that includes common CLI tool locations
-// This is needed because packaged Electron apps don't inherit the user's shell PATH
-const getAugmentedEnv = () => {
-  const env = { ...process.env };
-  if (process.platform === 'win32') {
-    const username = process.env.USERNAME || process.env.USER || '';
-    const additionalPaths = [
-      'C:\\Program Files\\GitHub CLI',
-      'C:\\Program Files (x86)\\GitHub CLI',
-      `C:\\Users\\${username}\\AppData\\Local\\GitHub CLI`,
-      `C:\\Users\\${username}\\scoop\\shims`,
-      'C:\\ProgramData\\chocolatey\\bin',
-    ].filter((p) => username || !p.includes('Users'));
-    const currentPath = env.PATH || env.Path || '';
-    env.PATH = [...additionalPaths, currentPath].filter(Boolean).join(';');
-  } else {
-    const additionalPaths = ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'];
-    env.PATH = [...additionalPaths, env.PATH].filter(Boolean).join(':');
-  }
-  return env;
-};
-
 // Helper for git commands that may trigger hooks - passes full environment including PATH
 // This ensures npm, node, etc. are available to pre-commit hooks like husky
 const execGitWithEnv = (command: string, options: { cwd: string }) => {
@@ -192,13 +170,14 @@ async function writeMcpConfig(config: MCPConfigFile): Promise<void> {
 import { getAllSkills, type SkillsResult } from './skills';
 
 // Agent discovery - imported from agents module
-import { AgentMcpServer, getAllAgents, parseAgentFrontmatter, type AgentsResult } from './agents';
+import { getAllAgents, parseAgentFrontmatter, type AgentsResult } from './agents';
 
 // MCP Discovery - imported from mcpDiscovery module
 import { discoverMcpServers } from './mcpDiscovery';
-import { resolveSessionMcpServers } from './mcpSessionConfig';
+import { normalizeMcpServerConfigForSession, resolveSessionMcpServers } from './mcpSessionConfig';
 import { registerMcpHandlers } from './mcpHandlers';
 import { registerSessionContextHandlers } from './sessionContextHandlers';
+import { getAugmentedEnv } from './utils/augmentedEnv';
 import { expandLocalPathShorthand, normalizeLocalPathPlatform } from '../shared/localPathSupport';
 
 // Copilot Instructions - imported from instructions module
@@ -2102,35 +2081,6 @@ You have access to specialized subagents via the \`task\` tool. **Prefer using s
 * Only do the work yourself if repeated subagent attempts fail.`;
 }
 
-function toMcpServerConfig(serverConfig: AgentMcpServer): MCPServerConfig | null {
-  if (serverConfig.command) {
-    return {
-      command: serverConfig.command,
-      args: serverConfig.args || [],
-      type:
-        serverConfig.type === 'local' || serverConfig.type === 'stdio'
-          ? serverConfig.type
-          : 'stdio',
-      env: serverConfig.env,
-      cwd: serverConfig.cwd,
-      timeout: serverConfig.timeout,
-      tools: serverConfig.tools || ['*'],
-    };
-  }
-
-  if (serverConfig.url) {
-    return {
-      type: serverConfig.type === 'sse' ? 'sse' : 'http',
-      url: serverConfig.url,
-      headers: serverConfig.headers,
-      timeout: serverConfig.timeout,
-      tools: serverConfig.tools || ['*'],
-    };
-  }
-
-  return null;
-}
-
 async function getProjectRootForCwd(cwd: string): Promise<string | undefined> {
   const gitRoot = await getGitRoot(cwd).catch(() => null);
   return gitRoot || undefined;
@@ -2150,7 +2100,7 @@ async function loadCustomAgents(
       const agentMcpServers: Record<string, MCPServerConfig> = {};
       if (metadata.mcpServers) {
         for (const [serverName, serverConfig] of Object.entries(metadata.mcpServers)) {
-          const convertedConfig = toMcpServerConfig(serverConfig);
+          const convertedConfig = normalizeMcpServerConfigForSession(serverConfig);
           if (convertedConfig) {
             agentMcpServers[serverName] = convertedConfig;
           }
@@ -2232,7 +2182,7 @@ async function createNewSession(model?: string, cwd?: string): Promise<string> {
       const agentSpecificMcpServers: Record<string, MCPServerConfig> = {};
       if (metadata.mcpServers) {
         for (const [serverName, serverConfig] of Object.entries(metadata.mcpServers)) {
-          const convertedConfig = toMcpServerConfig(serverConfig);
+          const convertedConfig = normalizeMcpServerConfigForSession(serverConfig);
           if (convertedConfig) {
             agentSpecificMcpServers[serverName] = convertedConfig;
           }
@@ -2253,7 +2203,7 @@ async function createNewSession(model?: string, cwd?: string): Promise<string> {
       if (metadata.mcpServers) {
         for (const [serverName, serverConfig] of Object.entries(metadata.mcpServers)) {
           if (!agentMcpServers[serverName]) {
-            const convertedConfig = toMcpServerConfig(serverConfig);
+            const convertedConfig = normalizeMcpServerConfigForSession(serverConfig);
             if (convertedConfig) {
               agentMcpServers[serverName] = convertedConfig;
             }
