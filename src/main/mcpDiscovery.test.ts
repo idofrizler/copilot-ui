@@ -141,6 +141,9 @@ describe('MCP Discovery System (Issue #456)', () => {
 
       expect(result.effectiveServers['nexus-meridian']).toBeDefined();
       expect(result.effectiveServers['nexus-meridian'].builtIn).toBe(true);
+      expect(result.effectiveServers['nexus-meridian']).toMatchObject({
+        cwd: '/tmp/test-home/.copilot/installed-plugins/nexus-meridian',
+      });
       expect(result.sources.default).toBe('copilot-built-in-plugins');
     });
 

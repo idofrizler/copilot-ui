@@ -163,6 +163,9 @@ async function readBuiltInPluginServers(): Promise<Record<string, MCPServerConfi
       for (const [serverName, serverConfig] of Object.entries(pluginMcpConfig.mcpServers)) {
         builtInServers[serverName] = {
           ...serverConfig,
+          ...('command' in serverConfig && !serverConfig.cwd
+            ? { cwd: pluginRecord.cache_path }
+            : {}),
           builtIn: true,
         };
       }

@@ -1,4 +1,5 @@
 import type { MCPDiscoveryResult, MCPServerConfig } from './mcpDiscovery';
+import { mergeMcpServerEnv } from './utils/augmentedEnv';
 
 function normalizeTools(tools: unknown): string[] {
   if (!Array.isArray(tools)) {
@@ -9,11 +10,25 @@ function normalizeTools(tools: unknown): string[] {
   return normalizedTools.length > 0 ? normalizedTools : ['*'];
 }
 
-function normalizeSessionMcpServerConfig(serverConfig: MCPServerConfig): MCPServerConfig | null {
+type McpServerConfigInput = {
+  tools?: string[];
+  timeout?: number;
+  type?: 'local' | 'stdio' | 'http' | 'sse';
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  cwd?: string;
+  url?: string;
+  headers?: Record<string, string>;
+};
+
+export function normalizeMcpServerConfigForSession(
+  serverConfig: McpServerConfigInput
+): MCPServerConfig | null {
   const tools = normalizeTools((serverConfig as { tools?: unknown }).tools);
   const timeout = typeof serverConfig.timeout === 'number' ? serverConfig.timeout : undefined;
 
-  if ('command' in serverConfig) {
+  if (typeof serverConfig.command === 'string') {
     return {
       command: serverConfig.command,
       args: Array.isArray(serverConfig.args)
@@ -23,14 +38,14 @@ function normalizeSessionMcpServerConfig(serverConfig: MCPServerConfig): MCPServ
         serverConfig.type === 'local' || serverConfig.type === 'stdio'
           ? serverConfig.type
           : 'stdio',
-      ...(serverConfig.env ? { env: serverConfig.env } : {}),
+      ...(serverConfig.env ? { env: mergeMcpServerEnv(serverConfig.env) } : {}),
       ...(serverConfig.cwd ? { cwd: serverConfig.cwd } : {}),
       ...(timeout !== undefined ? { timeout } : {}),
       tools,
     };
   }
 
-  if ('url' in serverConfig) {
+  if (typeof serverConfig.url === 'string') {
     return {
       type: serverConfig.type === 'sse' ? 'sse' : 'http',
       url: serverConfig.url,
@@ -53,7 +68,7 @@ export function resolveSessionMcpServers(
   const normalizedServers: Record<string, MCPServerConfig> = {};
 
   for (const [serverName, serverConfig] of Object.entries(discovery.effectiveServers)) {
-    const normalizedConfig = normalizeSessionMcpServerConfig(serverConfig);
+    const normalizedConfig = normalizeMcpServerConfigForSession(serverConfig);
     if (normalizedConfig) {
       normalizedServers[serverName] = normalizedConfig;
     }
