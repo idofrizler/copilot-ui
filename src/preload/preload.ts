@@ -1319,6 +1319,9 @@ const electronAPI = {
     openFile: (filePath: string): Promise<{ success: boolean; error?: string }> => {
       return ipcRenderer.invoke('file:openFile', filePath);
     },
+    existsPath: (filePath: string): Promise<{ exists: boolean }> => {
+      return ipcRenderer.invoke('file:existsPath', filePath);
+    },
     writeContent: (
       filePath: string,
       content: string

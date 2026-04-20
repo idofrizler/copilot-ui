@@ -29,6 +29,9 @@ if (typeof window !== 'undefined') {
         getTargetBranch: vi.fn().mockResolvedValue({ success: true, targetBranch: 'main' }),
         setTargetBranch: vi.fn().mockResolvedValue({ success: true }),
       },
+      file: {
+        existsPath: vi.fn().mockResolvedValue({ exists: false }),
+      },
     },
   });
 

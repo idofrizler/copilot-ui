@@ -1,4 +1,4 @@
-import React, { memo, useMemo } from 'react';
+import React, { memo, useEffect, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ClockIcon, FileIcon, VolumeMuteIcon, CodeBlockWithCopy } from './';
@@ -420,6 +420,8 @@ interface FilePathLinkProps {
   variant?: 'default' | 'code';
 }
 
+const pathExistenceCache = new Map<string, boolean>();
+
 function FilePathLink({
   path,
   platform,
@@ -428,6 +430,50 @@ function FilePathLink({
   variant = 'default',
 }: FilePathLinkProps): React.ReactElement {
   const className = getLinkClassName(tone, variant);
+  const cacheKey = `${platform}:${homePath ?? ''}:${path}`;
+  const [pathExists, setPathExists] = useState<boolean | null>(
+    pathExistenceCache.has(cacheKey) ? pathExistenceCache.get(cacheKey)! : null
+  );
+
+  useEffect(() => {
+    const cachedValue = pathExistenceCache.get(cacheKey);
+    if (cachedValue !== undefined) {
+      setPathExists(cachedValue);
+      return;
+    }
+
+    let isActive = true;
+
+    window.electronAPI.file
+      .existsPath(path)
+      .then(({ exists }) => {
+        pathExistenceCache.set(cacheKey, exists);
+        if (isActive) {
+          setPathExists(exists);
+        }
+      })
+      .catch((error) => {
+        console.error('Failed to verify file path from message:', error);
+        pathExistenceCache.set(cacheKey, false);
+        if (isActive) {
+          setPathExists(false);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [cacheKey, path]);
+
+  if (pathExists !== true) {
+    return variant === 'code' ? (
+      <code className="bg-copilot-bg px-1 py-0.5 rounded text-copilot-warning text-xs break-all">
+        {path}
+      </code>
+    ) : (
+      <>{path}</>
+    );
+  }
 
   return (
     <a

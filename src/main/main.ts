@@ -5956,6 +5956,20 @@ ipcMain.handle('file:openFile', async (_event, filePath: string) => {
   }
 });
 
+ipcMain.handle('file:existsPath', async (_event, filePath: string) => {
+  try {
+    const resolvedPath = expandLocalPathShorthand(
+      filePath,
+      normalizeLocalPathPlatform(process.platform),
+      app.getPath('home')
+    );
+    return { exists: existsSync(resolvedPath) };
+  } catch (error) {
+    console.error('Failed to check file existence:', error);
+    return { exists: false };
+  }
+});
+
 // File operations - write/save file content
 ipcMain.handle(
   'file:writeContent',
